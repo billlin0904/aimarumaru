@@ -1,2 +1,8 @@
 /vocal
 /__pycache__
+**/__pycache__/
+cookies.txt
+browser.json
+*.log
+test_silence.wav
+uvr5_weights/

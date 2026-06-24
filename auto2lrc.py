@@ -1,23 +1,39 @@
-from separate import AudioSeparate
-from faster_whisper import WhisperModel
 import gc
 import os
 
 class Auto2Lrc:
-    def __init__(self, model_name="large-v2", device="cuda", compute_type="float16"):
+    def __init__(self, model_name="large-v2", device="cuda", compute_type="float16", separator_model_path="uvr5_weights/2_HP-UVR.pth"):
         """
         初始化 faster_whisper 模型
         :param model_name: Whisper 模型名稱 (如 'large-v3')
         :param device: 選擇設備 (如 'cuda' 或 'cpu')
         :param compute_type: 計算類型，'float16' 或 'int8' (低 GPU 記憶體可選擇 int8)
         """
-        self.model = WhisperModel(model_size_or_path = model_name, device = device, compute_type = compute_type)
-        self.separate = AudioSeparate(model_path="uvr5_weights/2_HP-UVR.pth", device=device)
+        self.model_name = model_name
+        self.device = device
+        self.compute_type = compute_type
+        self.model = None
+        self.separator_model_path = separator_model_path
+        self.separate = None
+
+    def get_model(self):
+        if self.model is None:
+            from faster_whisper import WhisperModel
+
+            self.model = WhisperModel(model_size_or_path = self.model_name, device = self.device, compute_type = self.compute_type)
+        return self.model
+
+    def get_separator(self):
+        if self.separate is None:
+            from separate import AudioSeparate
+
+            self.separate = AudioSeparate(model_path=self.separator_model_path, device=self.device)
+        return self.separate
         
     def separate_audio(self, file_path: str):        
         ins_root = "vocal"
         name = os.path.basename(file_path)
-        self.separate.save_audio(file_path, None, vocal_root=ins_root)
+        self.get_separator().save_audio(file_path, None, vocal_root=ins_root)
         save_path = os.path.join(ins_root, f'vocal_{name}.wav')
         return save_path
         
@@ -41,16 +57,66 @@ class Auto2Lrc:
     
         print(f"LRC 文件已保存至: {output_file}")
 
+    def save_as_srt(self, segments, output_file):
+        """
+        將轉錄段落保存為 SRT 字幕格式。
+        """
+        def format_time(seconds):
+            millis = int(round(seconds * 1000))
+            hours, remainder = divmod(millis, 3600000)
+            minutes, remainder = divmod(remainder, 60000)
+            secs, millis = divmod(remainder, 1000)
+            return f"{hours:02}:{minutes:02}:{secs:02},{millis:03}"
+
+        with open(output_file, 'w', encoding='utf-8') as f:
+            for index, segment in enumerate(segments, start=1):
+                start_time = format_time(segment.start)
+                end_time = format_time(segment.end)
+                text = segment.text.strip()
+                f.write(f"{index}\n{start_time} --> {end_time}\n{text}\n\n")
+
+        print(f"SRT 文件已保存至: {output_file}")
+
+    def save_as_text(self, segments, output_file):
+        """
+        將轉錄段落保存為純文字格式。
+        """
+        with open(output_file, 'w', encoding='utf-8') as f:
+            for segment in segments:
+                text = segment.text.strip()
+                if text:
+                    f.write(f"{text}\n")
+
+        print(f"純文字文件已保存至: {output_file}")
+
+    def get_srt(self, audio_file, output_srt_file, language=None, beam_size=5):
+        segments, info = self.get_model().transcribe(audio_file, beam_size=beam_size, language=language)
+        self.save_as_srt(segments, output_srt_file)
+        self.clear_model_cache()
+        return info
+
+    def get_text(self, audio_file, output_text_file, language=None, beam_size=5):
+        segments, info = self.get_model().transcribe(audio_file, beam_size=beam_size, language=language)
+        self.save_as_text(segments, output_text_file)
+        self.clear_model_cache()
+        return info
+
     
     def get_lrc(self, audio_file, output_lrc_file):
-        save_path = self.separate_audio(audio_file)
-         
-        try:       
-           segments, info = self.model.transcribe(save_path, beam_size=5)
+        source_path = audio_file
+        separated_path = None
+
+        if self.separator_model_path and os.path.exists(self.separator_model_path):
+            separated_path = self.separate_audio(audio_file)
+            source_path = separated_path
+
+        try:
+           segments, info = self.get_model().transcribe(source_path, beam_size=5)
            # 保存為 LRC 文件
-           self.save_as_lrc(segments, output_lrc_file)           
+           self.save_as_lrc(segments, output_lrc_file)
         finally:
-            os.remove(save_path)
+            if separated_path and os.path.exists(separated_path):
+                os.remove(separated_path)
             self.clear_model_cache()
 
     def clear_model_cache(self):
@@ -59,6 +125,5 @@ class Auto2Lrc:
         """
         gc.collect()
         import torch
-        torch.cuda.empty_cache()
-
-
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
