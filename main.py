@@ -1,16 +1,23 @@
+import multiprocessing
+
 from fastapi import FastAPI, HTTPException, File, Form, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
+import asyncio
+from datetime import datetime, timezone
 import html
 import json
 import os
 import re
 import shutil
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import parse_qs, urlparse
 
 from pydantic import BaseModel
+from starlette.middleware.gzip import GZipMiddleware
+import uvicorn
 
 from auto2lrc import Auto2Lrc
 
@@ -22,6 +29,7 @@ app = FastAPI(
     redoc_url="/redoc",
     openapi_url="/openapi.json",
 )
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
 
 ffmpeg_dir = r'C:\ProgramData\chocolatey\bin'
 cuda_bin_dirs = [
@@ -36,6 +44,18 @@ for bin_dir in cuda_bin_dirs:
 auto2lrc = Auto2Lrc()
 PROJECT_ROOT = Path(__file__).resolve().parent
 DEFAULT_COOKIES_FILE = PROJECT_ROOT / "cookies.txt"
+TRANSCRIBE_JOB_DIR = PROJECT_ROOT / "transcribe_jobs"
+TRANSCRIBE_QUEUE_MAX_SIZE = 100
+TRANSCRIBE_OUTPUT_FORMATS = {"txt", "srt", "lrc", "json"}
+TRANSCRIBE_MEDIA_TYPES = {
+    "txt": "text/plain; charset=utf-8",
+    "srt": "application/x-subrip; charset=utf-8",
+    "lrc": "text/plain; charset=utf-8",
+    "json": "application/json; charset=utf-8",
+}
+transcribe_queue: Optional[asyncio.Queue[str]] = None
+transcribe_jobs: dict[str, dict[str, Any]] = {}
+transcribe_worker_task: Optional[asyncio.Task[Any]] = None
 YOUTUBE_PLAYER_CLIENT_ATTEMPTS = [
     None,
     ["default", "-tv_simply"],
@@ -61,6 +81,24 @@ YOUTUBE_SUBTITLE_EXT_PRIORITY = ["vtt", "srt", "json3", "srv3", "ttml"]
 class YoutubeSrtRequest(BaseModel):
     url: str
     lrc_format: bool = False
+
+
+@app.on_event("startup")
+async def start_transcribe_queue():
+    global transcribe_queue, transcribe_worker_task
+    TRANSCRIBE_JOB_DIR.mkdir(parents=True, exist_ok=True)
+    transcribe_queue = asyncio.Queue(maxsize=TRANSCRIBE_QUEUE_MAX_SIZE)
+    transcribe_worker_task = asyncio.create_task(transcribe_queue_worker())
+
+
+@app.on_event("shutdown")
+async def stop_transcribe_queue():
+    if transcribe_worker_task:
+        transcribe_worker_task.cancel()
+        try:
+            await transcribe_worker_task
+        except asyncio.CancelledError:
+            pass
 
 
 @app.get("/", include_in_schema=False)
@@ -498,6 +536,114 @@ async def transcribe_uploaded_audio(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=f"處理音頻文件時出錯: {str(e)}")
 
 
+def utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def safe_transcript_stem(filename: Optional[str]) -> str:
+    stem = Path(filename or "transcript").stem or "transcript"
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", stem).strip("._") or "transcript"
+
+
+def write_transcription_output(
+    input_path: Path,
+    output_path: Path,
+    output_format: str,
+    source_filename: Optional[str],
+    language_hint: Optional[str],
+) -> None:
+    if output_format == "lrc":
+        auto2lrc.get_lrc(str(input_path), str(output_path))
+    elif output_format == "srt":
+        auto2lrc.get_srt(str(input_path), str(output_path), language=language_hint, beam_size=5)
+    elif output_format == "txt":
+        auto2lrc.get_text(str(input_path), str(output_path), language=language_hint, beam_size=5)
+    else:
+        segments, info = auto2lrc.get_model().transcribe(
+            str(input_path),
+            beam_size=5,
+            language=language_hint,
+        )
+        payload = {
+            "filename": source_filename,
+            "language": getattr(info, "language", None),
+            "language_probability": getattr(info, "language_probability", None),
+            "segments": [
+                {
+                    "start": segment.start,
+                    "end": segment.end,
+                    "text": segment.text.strip(),
+                }
+                for segment in segments
+            ],
+        }
+        output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        auto2lrc.clear_model_cache()
+
+
+def run_transcribe_request(req_id: str) -> None:
+    job = transcribe_jobs[req_id]
+    write_transcription_output(
+        input_path=job["input_path"],
+        output_path=job["output_path"],
+        output_format=job["output_format"],
+        source_filename=job["filename"],
+        language_hint=job["language_hint"],
+    )
+
+
+async def transcribe_queue_worker():
+    while True:
+        assert transcribe_queue is not None
+        req_id = await transcribe_queue.get()
+        job = transcribe_jobs.get(req_id)
+        if not job:
+            transcribe_queue.task_done()
+            continue
+
+        job["status"] = "running"
+        job["started_at"] = utc_now_iso()
+        job["updated_at"] = job["started_at"]
+        try:
+            await asyncio.to_thread(run_transcribe_request, req_id)
+            job["status"] = "done"
+            job["completed_at"] = utc_now_iso()
+            job["updated_at"] = job["completed_at"]
+        except Exception as exc:
+            job["status"] = "failed"
+            job["error"] = str(exc)
+            job["completed_at"] = utc_now_iso()
+            job["updated_at"] = job["completed_at"]
+        finally:
+            transcribe_queue.task_done()
+
+
+def get_public_transcribe_request(req_id: str) -> dict[str, Any]:
+    job = transcribe_jobs.get(req_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="找不到這個轉譯請求")
+
+    payload = {
+        "req_id": req_id,
+        "status": job["status"],
+        "filename": job["filename"],
+        "output_format": job["output_format"],
+        "created_at": job["created_at"],
+        "updated_at": job["updated_at"],
+        "status_url": f"/api/transcribe-audio/{req_id}",
+        "download_url": f"/api/transcribe-audio/{req_id}/download",
+    }
+    if job.get("started_at"):
+        payload["started_at"] = job["started_at"]
+    if job.get("completed_at"):
+        payload["completed_at"] = job["completed_at"]
+    if job.get("error"):
+        payload["error"] = job["error"]
+    if job["status"] == "queued" and transcribe_queue is not None:
+        payload["queue_size"] = transcribe_queue.qsize()
+    return payload
+
+
 @app.post("/api/transcribe-audio/", tags=["Audio"])
 async def transcribe_audio_download(
     file: UploadFile = File(...),
@@ -505,68 +651,88 @@ async def transcribe_audio_download(
     language: str = Form(""),
 ):
     """
-    接受上傳音訊並依指定格式回傳可下載的轉譯結果。
+    接受上傳音訊，建立轉譯請求並回傳 req_id。
     """
     output_format = output_format.lower().strip()
-    if output_format not in {"txt", "srt", "lrc", "json"}:
+    if output_format not in TRANSCRIBE_OUTPUT_FORMATS:
         raise HTTPException(status_code=400, detail="output_format 只支援 txt、srt、lrc、json")
+    if transcribe_queue is None:
+        raise HTTPException(status_code=503, detail="轉譯佇列尚未啟動，請稍後再試")
 
     suffix = Path(file.filename or "audio").suffix or ".audio"
-    stem = Path(file.filename or "transcript").stem or "transcript"
-    safe_stem = re.sub(r"[^A-Za-z0-9._-]+", "_", stem).strip("._") or "transcript"
+    safe_stem = safe_transcript_stem(file.filename)
     language_hint = language.strip() or None
-
-    with tempfile.TemporaryDirectory(prefix="audio_transcribe_") as temp_dir:
-        temp_path = Path(temp_dir) / f"upload{suffix}"
-        output_path = Path(temp_dir) / f"{safe_stem}.{output_format}"
-
-        try:
-            with open(temp_path, "wb") as buffer:
-                shutil.copyfileobj(file.file, buffer)
-
-            if output_format == "lrc":
-                auto2lrc.get_lrc(str(temp_path), str(output_path))
-            elif output_format == "srt":
-                auto2lrc.get_srt(str(temp_path), str(output_path), language=language_hint, beam_size=5)
-            elif output_format == "txt":
-                auto2lrc.get_text(str(temp_path), str(output_path), language=language_hint, beam_size=5)
-            else:
-                segments, info = auto2lrc.get_model().transcribe(
-                    str(temp_path),
-                    beam_size=5,
-                    language=language_hint,
-                )
-                payload = {
-                    "filename": file.filename,
-                    "language": getattr(info, "language", None),
-                    "language_probability": getattr(info, "language_probability", None),
-                    "segments": [
-                        {
-                            "start": segment.start,
-                            "end": segment.end,
-                            "text": segment.text.strip(),
-                        }
-                        for segment in segments
-                    ],
-                }
-                output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-                auto2lrc.clear_model_cache()
-
-            content = output_path.read_bytes()
-        except HTTPException:
-            raise
-        except Exception as exc:
-            raise HTTPException(status_code=500, detail=f"轉譯音訊失敗: {exc}") from exc
-
-    media_types = {
-        "txt": "text/plain; charset=utf-8",
-        "srt": "application/x-subrip; charset=utf-8",
-        "lrc": "text/plain; charset=utf-8",
-        "json": "application/json; charset=utf-8",
-    }
+    req_id = uuid.uuid4().hex
+    req_dir = TRANSCRIBE_JOB_DIR / req_id
+    req_dir.mkdir(parents=True, exist_ok=True)
+    input_path = req_dir / f"input{suffix}"
+    output_path = req_dir / f"{safe_stem}.{output_format}"
     download_name = f"{safe_stem}.{output_format}"
+
+    try:
+        with open(input_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+    except Exception as exc:
+        shutil.rmtree(req_dir, ignore_errors=True)
+        raise HTTPException(status_code=500, detail=f"儲存上傳檔案失敗: {exc}") from exc
+
+    created_at = utc_now_iso()
+    transcribe_jobs[req_id] = {
+        "status": "queued",
+        "filename": file.filename or "audio",
+        "output_format": output_format,
+        "language_hint": language_hint,
+        "input_path": input_path,
+        "output_path": output_path,
+        "download_name": download_name,
+        "media_type": TRANSCRIBE_MEDIA_TYPES[output_format],
+        "created_at": created_at,
+        "updated_at": created_at,
+        "started_at": None,
+        "completed_at": None,
+        "error": None,
+    }
+
+    try:
+        transcribe_queue.put_nowait(req_id)
+    except asyncio.QueueFull:
+        transcribe_jobs[req_id]["status"] = "failed"
+        transcribe_jobs[req_id]["error"] = "轉譯佇列已滿，請稍後再試"
+        shutil.rmtree(req_dir, ignore_errors=True)
+        raise HTTPException(status_code=503, detail="轉譯佇列已滿，請稍後再試")
+
+    return get_public_transcribe_request(req_id)
+
+
+@app.get("/api/transcribe-audio/{req_id}", tags=["Audio"])
+def get_transcribe_audio_request(req_id: str):
+    """
+    依 req_id 查詢轉譯狀態。
+    """
+    return get_public_transcribe_request(req_id)
+
+
+@app.get("/api/transcribe-audio/{req_id}/download", tags=["Audio"])
+def download_transcribe_audio_request(req_id: str):
+    """
+    下載已完成的轉譯結果。
+    """
+    job = transcribe_jobs.get(req_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="找不到這個轉譯請求")
+    if job["status"] != "done":
+        raise HTTPException(status_code=409, detail="轉譯尚未完成")
+
+    output_path = job["output_path"]
+    if not output_path.exists():
+        raise HTTPException(status_code=404, detail="找不到轉譯結果檔案")
+
     return Response(
-        content=content,
-        media_type=media_types[output_format],
-        headers={"Content-Disposition": f'attachment; filename="{download_name}"'},
+        content=output_path.read_bytes(),
+        media_type=job["media_type"],
+        headers={"Content-Disposition": f'attachment; filename="{job["download_name"]}"'},
     )
+
+# if __name__ == '__main__':
+#     multiprocessing.freeze_support()  # For Windows support
+#     uvicorn.run(app, host="127.0.0.1", port=8090, reload=False, workers=8)

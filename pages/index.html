@@ -83,8 +83,8 @@
               <div class="d-flex align-items-center gap-3">
                 <div class="spinner-border spinner-border-sm" aria-hidden="true"></div>
                 <div>
-                  <strong>轉譯中</strong>
-                  <div class="small">請稍候，完成後會自動下載。</div>
+                  <strong id="statusTitle">準備中</strong>
+                  <div id="statusDetail" class="small">請稍候，完成後會自動下載。</div>
                 </div>
               </div>
             </div>
@@ -114,6 +114,51 @@
     const preview = document.getElementById("preview");
     const downloadLink = document.getElementById("downloadLink");
     const submitBtn = document.getElementById("submitBtn");
+    const statusTitle = document.getElementById("statusTitle");
+    const statusDetail = document.getElementById("statusDetail");
+
+    const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+    function setStatus(title, detail) {
+      statusTitle.textContent = title;
+      statusDetail.textContent = detail;
+    }
+
+    async function readError(response, fallback) {
+      try {
+        const data = await response.json();
+        return data.detail || fallback;
+      } catch (_) {
+        return fallback;
+      }
+    }
+
+    async function waitForResult(requestInfo) {
+      let current = requestInfo;
+
+      while (current.status === "queued" || current.status === "running") {
+        if (current.status === "queued") {
+          setStatus("排程中", "已收到檔案，正在等待處理。");
+        } else {
+          setStatus("轉譯中", "正在處理檔案，請保持此頁開啟。");
+        }
+
+        await wait(1500);
+        const response = await fetch(current.status_url, { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error(await readError(response, "查詢狀態失敗"));
+        }
+        current = await response.json();
+      }
+
+      if (current.status === "failed") {
+        throw new Error(current.error || "轉譯失敗");
+      }
+      if (current.status !== "done") {
+        throw new Error("任務狀態異常");
+      }
+      return current;
+    }
 
     ["dragenter", "dragover"].forEach(eventName => {
       dropZone.addEventListener(eventName, event => {
@@ -146,7 +191,8 @@
       resultBox.classList.add("d-none");
       errorBox.classList.add("d-none");
       submitBtn.disabled = true;
-      submitBtn.textContent = "轉譯中...";
+      submitBtn.textContent = "處理中...";
+      setStatus("上傳中", "正在送出檔案。");
 
       const formData = new FormData(form);
       try {
@@ -156,15 +202,19 @@
         });
 
         if (!response.ok) {
-          let message = "轉譯失敗";
-          try {
-            const data = await response.json();
-            message = data.detail || message;
-          } catch (_) {}
-          throw new Error(message);
+          throw new Error(await readError(response, "建立請求失敗"));
         }
 
-        const blob = await response.blob();
+        const requestInfo = await response.json();
+        const finishedInfo = await waitForResult(requestInfo);
+        setStatus("下載中", "正在準備結果檔。");
+
+        const downloadResponse = await fetch(finishedInfo.download_url, { cache: "no-store" });
+        if (!downloadResponse.ok) {
+          throw new Error(await readError(downloadResponse, "下載結果失敗"));
+        }
+
+        const blob = await downloadResponse.blob();
         const text = await blob.text();
         const ext = document.getElementById("outputFormat").value;
         const baseName = fileInput.files[0].name.replace(/\.[^.]+$/, "") || "transcript";

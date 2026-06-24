@@ -6,3 +6,4 @@ browser.json
 *.log
 test_silence.wav
 uvr5_weights/
+transcribe_jobs/
