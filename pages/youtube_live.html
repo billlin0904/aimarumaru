@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>YouTube Live Transcribe</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;800&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    :root {
+      --ink: #172033;
+      --muted: #667085;
+      --line: #d8dee8;
+      --soft: #f5f7fb;
+      --brand: #1463ff;
+    }
+    body {
+      min-height: 100vh;
+      background: linear-gradient(180deg, #f8faff 0%, #eef2f8 100%);
+      color: var(--ink);
+      font-family: "Noto Sans TC", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+    .shell {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 40px 20px 64px;
+    }
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 26px;
+    }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 800;
+      font-size: 1.05rem;
+    }
+    .brand-mark {
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      background: var(--brand);
+      display: grid;
+      place-items: center;
+      box-shadow: 0 14px 34px rgba(20, 99, 255, .24);
+    }
+    .brand-mark img { width: 22px; height: 22px; }
+    .panel {
+      background: rgba(255, 255, 255, .92);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: 0 22px 60px rgba(32, 42, 68, .08);
+    }
+    .input-panel {
+      padding: 22px;
+    }
+    .form-control,
+    .form-select,
+    .btn {
+      border-radius: 8px;
+    }
+    .btn-primary {
+      background: var(--brand);
+      border-color: var(--brand);
+      font-weight: 700;
+    }
+    .status-strip {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      min-height: 34px;
+    }
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: #9aa4b2;
+    }
+    .status-dot.running {
+      background: #12b76a;
+      box-shadow: 0 0 0 6px rgba(18, 183, 106, .14);
+    }
+    .status-dot.failed { background: #f04438; }
+    .video-meta {
+      border-top: 1px solid var(--line);
+      padding-top: 18px;
+      color: var(--muted);
+    }
+    .segment-list {
+      display: grid;
+      gap: 10px;
+      padding: 16px;
+      max-height: 62vh;
+      overflow: auto;
+    }
+    .transcript-output {
+      min-height: 260px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 18px 20px;
+      white-space: pre-wrap;
+      line-height: 1.8;
+      word-break: break-word;
+    }
+    .empty-state {
+      min-height: 260px;
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      text-align: center;
+      padding: 30px;
+    }
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+    }
+    .counter {
+      font-size: .92rem;
+      color: var(--muted);
+    }
+    @media (max-width: 720px) {
+      .shell { padding: 24px 12px 48px; }
+      .topbar { align-items: flex-start; flex-direction: column; }
+      .input-panel { padding: 16px; }
+      .segment-list { max-height: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="topbar">
+      <div class="brand">
+        <span class="brand-mark"><img src="/favicon.svg" alt=""></span>
+        <span>YouTube Live Transcribe</span>
+      </div>
+      <a class="btn btn-outline-secondary btn-sm" href="/">音訊轉譯</a>
+    </div>
+
+    <section class="panel input-panel mb-4">
+      <form id="youtubeForm" class="row g-3 align-items-end">
+        <div class="col-12 col-lg-8">
+          <label class="form-label fw-semibold" for="youtubeUrl">YouTube 網址</label>
+          <input id="youtubeUrl" class="form-control form-control-lg" type="url" placeholder="https://www.youtube.com/watch?v=..." required>
+        </div>
+        <div class="col-12 col-md-5 col-lg-2">
+          <label class="form-label fw-semibold" for="language">語言</label>
+          <select id="language" class="form-select form-select-lg">
+            <option value="">自動</option>
+            <option value="zh">中文</option>
+            <option value="en">English</option>
+            <option value="ja">日本語</option>
+            <option value="ko">한국어</option>
+          </select>
+        </div>
+        <div class="col-12 col-md-7 col-lg-2 d-grid">
+          <button id="startBtn" class="btn btn-primary btn-lg" type="submit">開始</button>
+        </div>
+      </form>
+
+      <div class="status-strip mt-4">
+        <span id="statusDot" class="status-dot"></span>
+        <span id="statusText">等待輸入網址</span>
+      </div>
+
+      <div id="videoMeta" class="video-meta mt-3 d-none">
+        <div class="fw-bold text-dark" id="videoTitle"></div>
+        <div class="small mt-1" id="videoDetail"></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="toolbar">
+        <div class="fw-bold">轉譯結果</div>
+        <div class="d-flex flex-wrap align-items-center justify-content-end gap-2">
+          <div class="counter"><span id="segmentCount">0</span> 段</div>
+          <button id="downloadAll" class="btn btn-outline-primary btn-sm" type="button" disabled>下載全部</button>
+        </div>
+      </div>
+      <div id="segments" class="segment-list">
+        <div class="empty-state" id="emptyState">結果會一段一段顯示在這裡</div>
+        <div id="liveText" class="transcript-output d-none"></div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const form = document.getElementById("youtubeForm");
+    const youtubeUrl = document.getElementById("youtubeUrl");
+    const language = document.getElementById("language");
+    const startBtn = document.getElementById("startBtn");
+    const statusDot = document.getElementById("statusDot");
+    const statusText = document.getElementById("statusText");
+    const videoMeta = document.getElementById("videoMeta");
+    const videoTitle = document.getElementById("videoTitle");
+    const videoDetail = document.getElementById("videoDetail");
+    const segments = document.getElementById("segments");
+    const emptyState = document.getElementById("emptyState");
+    const liveText = document.getElementById("liveText");
+    const segmentCount = document.getElementById("segmentCount");
+    const downloadAll = document.getElementById("downloadAll");
+    let eventSource = null;
+    let count = 0;
+    let fullText = "";
+    let textQueue = [];
+    let typing = false;
+    let liveTextNode = document.createTextNode("");
+    liveText.appendChild(liveTextNode);
+
+    function setStatus(message, state = "idle") {
+      statusText.textContent = message;
+      statusDot.classList.toggle("running", state === "running");
+      statusDot.classList.toggle("failed", state === "failed");
+    }
+
+    function formatTime(seconds) {
+      if (seconds === null || seconds === undefined) return "";
+      const value = Math.max(0, Number(seconds) || 0);
+      const minutes = Math.floor(value / 60);
+      const secs = Math.floor(value % 60);
+      return `${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+    }
+
+    function resetView() {
+      if (eventSource) {
+        eventSource.close();
+        eventSource = null;
+      }
+      count = 0;
+      fullText = "";
+      textQueue = [];
+      typing = false;
+      segmentCount.textContent = "0";
+      liveText.textContent = "";
+      liveTextNode = document.createTextNode("");
+      liveText.appendChild(liveTextNode);
+      liveText.classList.add("d-none");
+      if (!emptyState.parentElement) segments.prepend(emptyState);
+      emptyState.classList.remove("d-none");
+      downloadAll.disabled = true;
+      videoMeta.classList.add("d-none");
+      videoTitle.textContent = "";
+      videoDetail.textContent = "";
+    }
+
+    function typeNextChunk() {
+      if (!typing) return;
+      if (!textQueue.length) {
+        typing = false;
+        return;
+      }
+
+      const current = textQueue[0];
+      const chunk = current.slice(0, 10);
+      textQueue[0] = current.slice(10);
+      liveTextNode.appendData(chunk);
+      if (!textQueue[0]) textQueue.shift();
+      requestAnimationFrame(typeNextChunk);
+    }
+
+    function queueTyping(text) {
+      textQueue.push(text);
+      if (!typing) {
+        typing = true;
+        requestAnimationFrame(typeNextChunk);
+      }
+    }
+
+    function addSegment(data) {
+      const text = (data.text || "").trim();
+      if (!text) return;
+
+      emptyState.classList.add("d-none");
+      liveText.classList.remove("d-none");
+      count += 1;
+      segmentCount.textContent = String(count);
+
+      const separator = fullText ? "\n\n" : "";
+      fullText += separator + text;
+      queueTyping(separator + text);
+      downloadAll.disabled = false;
+    }
+
+    function transcriptFilename() {
+      const title = videoTitle.textContent || "youtube_transcript";
+      return `${title.replace(/[\\/:*?"<>|]+/g, "_").slice(0, 80) || "youtube_transcript"}.txt`;
+    }
+
+    async function readError(response) {
+      try {
+        const data = await response.json();
+        return data.detail || "請求失敗";
+      } catch (_) {
+        return "請求失敗";
+      }
+    }
+
+    downloadAll.addEventListener("click", () => {
+      if (!fullText) return;
+      const sourceUrl = youtubeUrl.value.trim();
+      const content = sourceUrl ? `原文網址：${sourceUrl}\n\n${fullText}` : fullText;
+      const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = transcriptFilename();
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
+
+    form.addEventListener("submit", async event => {
+      event.preventDefault();
+      resetView();
+      startBtn.disabled = true;
+      setStatus("建立任務中", "running");
+
+      try {
+        const response = await fetch("/api/youtube-live/jobs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            url: youtubeUrl.value.trim(),
+            language: language.value
+          })
+        });
+        if (!response.ok) throw new Error(await readError(response));
+        const job = await response.json();
+
+        eventSource = new EventSource(job.events_url);
+        eventSource.addEventListener("status", event => {
+          const data = JSON.parse(event.data);
+          setStatus(data.message || "處理中", "running");
+        });
+        eventSource.addEventListener("metadata", event => {
+          const data = JSON.parse(event.data);
+          videoTitle.textContent = data.title || "YouTube 影片";
+          videoDetail.textContent = data.duration ? `長度 ${Math.round(data.duration)} 秒` : "";
+          videoMeta.classList.remove("d-none");
+        });
+        eventSource.addEventListener("segment", event => addSegment(JSON.parse(event.data)));
+        eventSource.addEventListener("done", event => {
+          const data = JSON.parse(event.data);
+          setStatus(`完成，來源：${data.source || "transcribe"}`, "idle");
+          eventSource.close();
+          eventSource = null;
+          startBtn.disabled = false;
+        });
+        eventSource.addEventListener("failed", event => {
+          let message = "處理失敗";
+          if (event.data) {
+            try {
+              message = JSON.parse(event.data).message || message;
+            } catch (_) {}
+          }
+          setStatus(message, "failed");
+          if (eventSource) eventSource.close();
+          eventSource = null;
+          startBtn.disabled = false;
+        });
+        eventSource.onerror = () => {
+          if (!eventSource) return;
+          setStatus("連線中斷", "failed");
+          eventSource.close();
+          eventSource = null;
+          startBtn.disabled = false;
+        };
+      } catch (error) {
+        setStatus(error.message, "failed");
+        startBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

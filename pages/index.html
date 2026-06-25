@@ -4,25 +4,61 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>音訊轉譯工具</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-2196547379270084" crossorigin="anonymous"></script>
   <style>
     body {
       min-height: 100vh;
+      font-family: "Noto Sans TC", "Noto Sans JP", "Noto Sans KR", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       background:
-        linear-gradient(135deg, rgba(13,110,253,.12), transparent 38rem),
-        linear-gradient(225deg, rgba(25,135,84,.12), transparent 32rem),
+        linear-gradient(135deg, rgba(13,110,253,.10), transparent 36rem),
+        linear-gradient(225deg, rgba(32,201,151,.10), transparent 32rem),
         #f6f8fb;
     }
-    .app-shell { max-width: 980px; }
-    .hero-card { border: 0; box-shadow: 0 1.5rem 4rem rgba(23, 32, 51, .12); }
+    .app-shell { max-width: 920px; }
+    .hero-card {
+      border: 1px solid rgba(108, 117, 125, .18);
+      box-shadow: 0 1.25rem 3.5rem rgba(23, 32, 51, .12);
+    }
+    .language-switch { min-width: 10rem; }
     .drop-zone {
       border: 2px dashed #b8c4d6;
       background: #f9fbfe;
       transition: .2s ease;
     }
+    .drop-zone:hover {
+      border-color: #86b7fe;
+      background: #f4f8ff;
+    }
     .drop-zone.dragover {
       border-color: #0d6efd;
       background: #eef5ff;
+    }
+    .form-section,
+    .captcha-panel {
+      background: #fff;
+      border: 1px solid rgba(108, 117, 125, .16);
+      border-radius: .75rem;
+      padding: 1.25rem;
+    }
+    .captcha-panel { background: #f8f9fa; }
+    .captcha-img {
+      max-width: 220px;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      object-fit: contain;
+      background: #fff;
+    }
+    .doc-link {
+      position: fixed;
+      right: 1rem;
+      bottom: 1rem;
+      z-index: 10;
+      font-size: .95rem;
     }
     pre {
       max-height: 320px;
@@ -36,92 +72,235 @@
     <div class="row justify-content-center">
       <div class="col-12">
         <div class="mb-4">
-          <span class="badge text-bg-primary mb-3">Audio Tool</span>
-          <h1 class="display-5 fw-bold text-dark mb-3">音訊轉文字</h1>
-          <p class="lead text-secondary mb-0">上傳音訊，選擇格式，完成後下載結果。</p>
+          <div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-3">
+            <span class="badge text-bg-primary" data-i18n="badge">Transcribe Tool</span>
+            <div class="d-flex flex-wrap align-items-end justify-content-end gap-2">
+              <a class="btn btn-outline-primary btn-sm" href="/youtube-live" data-i18n="youtubeLiveLink">YouTube 逐段轉譯</a>
+              <div class="language-switch">
+                <label class="form-label small text-secondary mb-1" for="languageSelect" data-i18n="languageSwitch">語系</label>
+                <select id="languageSelect" class="form-select form-select-sm">
+                  <option value="zh-Hant">繁體中文</option>
+                  <option value="en">English</option>
+                  <option value="ja">日本語</option>
+                  <option value="ko">한국어</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          <h1 class="display-5 fw-bold text-dark mb-3" data-i18n="headline">音訊轉文字</h1>
+          <p class="lead text-secondary mb-0" data-i18n="subtitle">上傳音訊，選擇格式，完成後下載結果。</p>
         </div>
 
         <div class="card hero-card rounded-3">
           <div class="card-body p-4 p-lg-5">
             <form id="transcribeForm" class="needs-validation" novalidate>
-              <div id="dropZone" class="drop-zone rounded-3 p-4 p-lg-5 text-center mb-4">
+              <div id="dropZone" class="drop-zone rounded-3 p-4 p-lg-5 text-center mb-4 shadow-sm">
                 <input class="form-control form-control-lg" id="audioFile" name="file" type="file" accept="audio/*,video/mp4,video/webm" required>
-                <div class="form-text mt-3">支援常見音訊檔案。</div>
+                <div class="form-text mt-3" data-i18n="fileHelp">支援常見音訊檔案。</div>
               </div>
 
-              <div class="row g-3 align-items-end">
-                <div class="col-md-6">
-                  <label for="outputFormat" class="form-label fw-semibold">輸出格式</label>
-                  <select id="outputFormat" name="output_format" class="form-select form-select-lg">
-                    <option value="txt" selected>TXT 純文字</option>
-                    <option value="srt">SRT 字幕</option>
-                    <option value="lrc">LRC 歌詞時間軸</option>
-                    <option value="json">JSON 分段資料</option>
-                  </select>
-                </div>
-                <div class="col-md-6">
-                  <label for="language" class="form-label fw-semibold">語言提示</label>
-                  <select id="language" name="language" class="form-select form-select-lg">
-                    <option value="" selected>自動偵測</option>
-                    <option value="zh">中文</option>
-                    <option value="en">英文</option>
-                    <option value="ja">日文</option>
-                    <option value="ko">韓文</option>
-                  </select>
+              <div class="form-section">
+                <div class="row g-3 align-items-end">
+                  <div class="col-md-6">
+                    <label for="outputFormat" class="form-label fw-semibold" data-i18n="outputFormat">輸出格式</label>
+                    <select id="outputFormat" name="output_format" class="form-select form-select-lg">
+                      <option value="txt" selected data-i18n="formatTxt">TXT 純文字</option>
+                      <option value="srt" data-i18n="formatSrt">SRT 字幕</option>
+                      <option value="lrc" data-i18n="formatLrc">LRC 歌詞時間軸</option>
+                      <option value="json" data-i18n="formatJson">JSON 分段資料</option>
+                    </select>
+                  </div>
+                  <div class="col-md-6">
+                    <label for="language" class="form-label fw-semibold" data-i18n="languageHint">語言提示</label>
+                    <select id="language" name="language" class="form-select form-select-lg">
+                      <option value="" selected data-i18n="langAuto">自動偵測</option>
+                      <option value="zh" data-i18n="langZh">中文</option>
+                      <option value="en" data-i18n="langEn">英文</option>
+                      <option value="ja" data-i18n="langJa">日文</option>
+                      <option value="ko" data-i18n="langKo">韓文</option>
+                    </select>
+                  </div>
                 </div>
               </div>
 
-              <div class="d-grid d-sm-flex gap-3 mt-4">
-                <button id="submitBtn" class="btn btn-primary btn-lg px-4" type="submit">
-                  開始轉譯
-                </button>
-                <a class="btn btn-outline-secondary btn-lg px-4" href="/docs">API 文件</a>
+              <div id="captchaBlock" class="captcha-panel mt-4">
+                <label class="form-label fw-semibold" for="captchaAnswer" data-i18n="captchaLabel">驗證碼</label>
+                <div class="border rounded-3 p-3 bg-white text-center shadow-sm">
+                  <img id="captchaImage" class="captcha-img rounded border" alt="驗證碼" data-i18n-alt="captchaLabel">
+                </div>
+                <div class="mt-3">
+                  <input id="captchaId" name="captcha_id" type="hidden">
+                  <input id="captchaToken" name="captcha_token" type="hidden">
+                  <input id="captchaAnswer" class="form-control form-control-lg" autocomplete="off" required data-i18n-placeholder="captchaPlaceholder">
+                </div>
+                <div class="d-grid d-sm-flex justify-content-center gap-3 mt-3">
+                  <button id="refreshCaptcha" class="btn btn-outline-secondary btn-lg px-4" type="button" data-i18n="refreshCaptcha">重新選擇</button>
+                  <button id="verifyCaptcha" class="btn btn-dark btn-lg px-4" type="button" data-i18n="verifyCaptcha">驗證</button>
+                </div>
+                <div id="captchaStatus" class="small text-success mt-2 d-none" data-i18n="captchaVerified">驗證完成</div>
+              </div>
+
+              <div class="d-grid d-sm-flex justify-content-center gap-3 mt-4">
+                <button id="submitBtn" class="btn btn-primary btn-lg px-5 d-none shadow-sm" type="submit" data-i18n="submit">開始轉譯</button>
               </div>
             </form>
 
-            <div id="statusBox" class="alert alert-info d-none mt-4 mb-0" role="status">
+            <div id="statusBox" class="alert alert-primary d-none mt-4 mb-0 shadow-sm" role="status">
               <div class="d-flex align-items-center gap-3">
                 <div class="spinner-border spinner-border-sm" aria-hidden="true"></div>
                 <div>
-                  <strong id="statusTitle">準備中</strong>
-                  <div id="statusDetail" class="small">請稍候，完成後會自動下載。</div>
+                  <strong id="statusTitle" data-i18n="statusReady">準備中</strong>
+                  <div id="statusDetail" class="small" data-i18n="statusReadyDetail">請稍候，完成後會自動下載。</div>
                 </div>
               </div>
             </div>
 
             <div id="resultBox" class="d-none mt-4">
               <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
-                <h2 class="h5 mb-0">轉譯完成</h2>
-                <a id="downloadLink" class="btn btn-success" download>下載結果</a>
+                <h2 class="h5 mb-0" data-i18n="resultTitle">轉譯完成</h2>
+                <div class="d-flex flex-wrap gap-2">
+                  <button id="copyResult" class="btn btn-outline-secondary shadow-sm" type="button" data-i18n="copyResult">拷貝</button>
+                  <a id="downloadLink" class="btn btn-success shadow-sm" download data-i18n="downloadResult">下載結果</a>
+                </div>
               </div>
-              <pre id="preview" class="bg-dark text-light rounded-3 p-3 mb-0"></pre>
+              <pre id="preview" class="bg-dark text-light rounded-3 p-3 mb-0 shadow-sm"></pre>
             </div>
 
             <div id="errorBox" class="alert alert-danger d-none mt-4 mb-0"></div>
+          </div>
+          <div class="card-footer bg-white border-top px-4 px-lg-5 py-3">
+            <p class="small text-secondary mb-0" data-i18n="accuracyNotice">轉譯結果可能包含辨識誤差，請在使用前檢查文字是否正確。</p>
           </div>
         </div>
       </div>
     </div>
   </main>
+  <a class="doc-link btn btn-light border shadow-sm" href="/docs" data-i18n="apiDocs">API 文件</a>
 
   <script>
     const form = document.getElementById("transcribeForm");
     const fileInput = document.getElementById("audioFile");
+    const languageSelect = document.getElementById("languageSelect");
     const dropZone = document.getElementById("dropZone");
     const statusBox = document.getElementById("statusBox");
     const resultBox = document.getElementById("resultBox");
     const errorBox = document.getElementById("errorBox");
     const preview = document.getElementById("preview");
     const downloadLink = document.getElementById("downloadLink");
+    const copyResult = document.getElementById("copyResult");
     const submitBtn = document.getElementById("submitBtn");
     const statusTitle = document.getElementById("statusTitle");
     const statusDetail = document.getElementById("statusDetail");
+    const captchaBlock = document.getElementById("captchaBlock");
+    const captchaImage = document.getElementById("captchaImage");
+    const captchaId = document.getElementById("captchaId");
+    const captchaToken = document.getElementById("captchaToken");
+    const captchaAnswer = document.getElementById("captchaAnswer");
+    const refreshCaptcha = document.getElementById("refreshCaptcha");
+    const verifyCaptcha = document.getElementById("verifyCaptcha");
+    const captchaStatus = document.getElementById("captchaStatus");
 
     const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+    const languageStorageKey = "audioTranscribeLanguage";
+    let latestResultText = "";
+    const translations = {
+      "zh-Hant": {
+        pageTitle: "音訊轉譯工具", badge: "Transcribe Tool", languageSwitch: "語系", youtubeLiveLink: "YouTube 逐段轉譯", headline: "音訊轉文字",
+        subtitle: "上傳音訊，選擇格式，完成後下載結果。", fileHelp: "支援常見音訊檔案。", outputFormat: "輸出格式",
+        formatTxt: "TXT 純文字", formatSrt: "SRT 字幕", formatLrc: "LRC 歌詞時間軸", formatJson: "JSON 分段資料",
+        languageHint: "語言提示", langAuto: "自動偵測", langZh: "中文", langEn: "英文", langJa: "日文", langKo: "韓文",
+        captchaLabel: "驗證碼", captchaPlaceholder: "輸入圖片中的文字", refreshCaptcha: "重新選擇", verifyCaptcha: "驗證",
+        captchaVerified: "驗證完成", submit: "開始轉譯", processing: "處理中...", statusReady: "準備中",
+        statusReadyDetail: "請稍候，完成後會自動下載。", statusQueued: "排程中", statusQueuedDetail: "已收到檔案，正在等待處理。",
+        statusRunning: "轉譯中", statusRunningDetail: "正在處理檔案，請保持此頁開啟。", statusUploading: "上傳中",
+        statusUploadingDetail: "正在送出檔案。", statusDownloading: "下載中", statusDownloadingDetail: "正在準備結果檔。",
+        resultTitle: "轉譯完成", copyResult: "拷貝", copyDone: "已拷貝", copyFailed: "拷貝失敗",
+        downloadResult: "下載結果", previewTruncated: "預覽只顯示前 6000 字", apiDocs: "API 文件",
+        accuracyNotice: "轉譯結果可能包含辨識誤差，請在使用前檢查文字是否正確。",
+        captchaLoadFailed: "取得驗證碼失敗", captchaVerifyFailed: "驗證失敗", statusFailed: "查詢狀態失敗",
+        createRequestFailed: "建立請求失敗", downloadFailed: "下載結果失敗", transcribeFailed: "轉譯失敗", invalidState: "任務狀態異常"
+      },
+      en: {
+        pageTitle: "Audio Transcription Tool", badge: "Transcribe Tool", languageSwitch: "Language", youtubeLiveLink: "YouTube Live", headline: "Audio to Text",
+        subtitle: "Upload audio, choose an output format, and download the result.", fileHelp: "Common audio files are supported.",
+        outputFormat: "Output Format", formatTxt: "TXT Plain Text", formatSrt: "SRT Subtitles", formatLrc: "LRC Timed Lyrics",
+        formatJson: "JSON Segments", languageHint: "Language Hint", langAuto: "Auto Detect", langZh: "Chinese", langEn: "English",
+        langJa: "Japanese", langKo: "Korean", captchaLabel: "Verification", captchaPlaceholder: "Enter the text in the image",
+        refreshCaptcha: "Choose Again", verifyCaptcha: "Verify", captchaVerified: "Verified", submit: "Start Transcription",
+        processing: "Processing...", statusReady: "Ready", statusReadyDetail: "Please wait. The result will download automatically.",
+        statusQueued: "Queued", statusQueuedDetail: "File received. Waiting to process.", statusRunning: "Transcribing",
+        statusRunningDetail: "Processing your file. Please keep this page open.", statusUploading: "Uploading",
+        statusUploadingDetail: "Sending your file.", statusDownloading: "Downloading", statusDownloadingDetail: "Preparing your result file.",
+        resultTitle: "Transcription Complete", copyResult: "Copy", copyDone: "Copied", copyFailed: "Copy failed",
+        downloadResult: "Download Result", previewTruncated: "Preview shows the first 6000 characters only",
+        apiDocs: "API Docs", accuracyNotice: "Transcriptions may contain recognition errors. Please review the text before using it.",
+        captchaLoadFailed: "Could not load verification image", captchaVerifyFailed: "Verification failed",
+        statusFailed: "Could not check request status", createRequestFailed: "Could not create request", downloadFailed: "Could not download result",
+        transcribeFailed: "Transcription failed", invalidState: "Unexpected request status"
+      },
+      ja: {
+        pageTitle: "音声文字起こしツール", badge: "Transcribe Tool", languageSwitch: "言語", youtubeLiveLink: "YouTube 逐次文字起こし", headline: "音声をテキストへ",
+        subtitle: "音声をアップロードし、形式を選んで、完了後に結果をダウンロードできます。", fileHelp: "一般的な音声ファイルに対応しています。",
+        outputFormat: "出力形式", formatTxt: "TXT プレーンテキスト", formatSrt: "SRT 字幕", formatLrc: "LRC タイムライン歌詞",
+        formatJson: "JSON セグメント", languageHint: "言語ヒント", langAuto: "自動検出", langZh: "中国語", langEn: "英語",
+        langJa: "日本語", langKo: "韓国語", captchaLabel: "認証コード", captchaPlaceholder: "画像内の文字を入力",
+        refreshCaptcha: "選び直す", verifyCaptcha: "認証", captchaVerified: "認証完了", submit: "文字起こしを開始",
+        processing: "処理中...", statusReady: "準備中", statusReadyDetail: "しばらくお待ちください。完了後、自動でダウンロードされます。",
+        statusQueued: "待機中", statusQueuedDetail: "ファイルを受け取りました。処理待ちです。", statusRunning: "文字起こし中",
+        statusRunningDetail: "ファイルを処理しています。このページを開いたままお待ちください。", statusUploading: "アップロード中",
+        statusUploadingDetail: "ファイルを送信しています。", statusDownloading: "ダウンロード中", statusDownloadingDetail: "結果ファイルを準備しています。",
+        resultTitle: "文字起こし完了", copyResult: "コピー", copyDone: "コピー済み", copyFailed: "コピー失敗",
+        downloadResult: "結果をダウンロード", previewTruncated: "プレビューは先頭 6000 文字のみ表示しています",
+        apiDocs: "API ドキュメント", accuracyNotice: "文字起こし結果には認識誤りが含まれる場合があります。使用前に内容をご確認ください。",
+        captchaLoadFailed: "認証画像を取得できませんでした", captchaVerifyFailed: "認証に失敗しました",
+        statusFailed: "状態を確認できませんでした", createRequestFailed: "リクエストを作成できませんでした",
+        downloadFailed: "結果をダウンロードできませんでした", transcribeFailed: "文字起こしに失敗しました", invalidState: "予期しないリクエスト状態です"
+      },
+      ko: {
+        pageTitle: "오디오 전사 도구", badge: "Transcribe Tool", languageSwitch: "언어", youtubeLiveLink: "YouTube 실시간 전사", headline: "오디오를 텍스트로",
+        subtitle: "오디오를 업로드하고 형식을 선택하면 완료 후 결과를 다운로드할 수 있습니다.", fileHelp: "일반적인 오디오 파일을 지원합니다.",
+        outputFormat: "출력 형식", formatTxt: "TXT 일반 텍스트", formatSrt: "SRT 자막", formatLrc: "LRC 타임라인 가사",
+        formatJson: "JSON 세그먼트", languageHint: "언어 힌트", langAuto: "자동 감지", langZh: "중국어", langEn: "영어",
+        langJa: "일본어", langKo: "한국어", captchaLabel: "인증 코드", captchaPlaceholder: "이미지의 문자를 입력하세요",
+        refreshCaptcha: "다시 선택", verifyCaptcha: "인증", captchaVerified: "인증 완료", submit: "전사 시작",
+        processing: "처리 중...", statusReady: "준비 중", statusReadyDetail: "잠시만 기다려 주세요. 완료 후 결과가 자동으로 다운로드됩니다.",
+        statusQueued: "대기 중", statusQueuedDetail: "파일을 받았습니다. 처리 대기 중입니다.", statusRunning: "전사 중",
+        statusRunningDetail: "파일을 처리하고 있습니다. 이 페이지를 열어 두세요.", statusUploading: "업로드 중",
+        statusUploadingDetail: "파일을 전송하고 있습니다.", statusDownloading: "다운로드 중", statusDownloadingDetail: "결과 파일을 준비하고 있습니다.",
+        resultTitle: "전사 완료", copyResult: "복사", copyDone: "복사됨", copyFailed: "복사 실패",
+        downloadResult: "결과 다운로드", previewTruncated: "미리보기는 처음 6000자만 표시합니다",
+        apiDocs: "API 문서", accuracyNotice: "전사 결과에는 인식 오류가 포함될 수 있습니다. 사용하기 전에 내용을 확인해 주세요.",
+        captchaLoadFailed: "인증 이미지를 불러오지 못했습니다", captchaVerifyFailed: "인증에 실패했습니다",
+        statusFailed: "상태를 확인하지 못했습니다", createRequestFailed: "요청을 만들지 못했습니다",
+        downloadFailed: "결과를 다운로드하지 못했습니다", transcribeFailed: "전사에 실패했습니다", invalidState: "예상하지 못한 요청 상태입니다"
+      }
+    };
+    let currentLanguage = localStorage.getItem(languageStorageKey) || "zh-Hant";
 
-    function setStatus(title, detail) {
-      statusTitle.textContent = title;
-      statusDetail.textContent = detail;
+    function t(key) {
+      return translations[currentLanguage]?.[key] || translations["zh-Hant"][key] || key;
+    }
+
+    function applyLanguage(language) {
+      currentLanguage = translations[language] ? language : "zh-Hant";
+      localStorage.setItem(languageStorageKey, currentLanguage);
+      document.documentElement.lang = currentLanguage;
+      document.title = t("pageTitle");
+      languageSelect.value = currentLanguage;
+      document.querySelectorAll("[data-i18n]").forEach(element => {
+        element.textContent = t(element.dataset.i18n);
+      });
+      document.querySelectorAll("[data-i18n-placeholder]").forEach(element => {
+        element.setAttribute("placeholder", t(element.dataset.i18nPlaceholder));
+      });
+      document.querySelectorAll("[data-i18n-alt]").forEach(element => {
+        element.setAttribute("alt", t(element.dataset.i18nAlt));
+      });
+    }
+
+    function setStatusText(titleKey, detailKey) {
+      statusTitle.textContent = t(titleKey);
+      statusDetail.textContent = t(detailKey);
     }
 
     async function readError(response, fallback) {
@@ -133,30 +312,81 @@
       }
     }
 
+    function resetCaptchaState() {
+      captchaId.value = "";
+      captchaToken.value = "";
+      captchaAnswer.value = "";
+      captchaAnswer.disabled = false;
+      captchaBlock.classList.remove("d-none");
+      captchaStatus.classList.add("d-none");
+      submitBtn.classList.add("d-none");
+      verifyCaptcha.disabled = false;
+      refreshCaptcha.disabled = false;
+      form.classList.remove("was-validated");
+    }
+
+    async function loadCaptcha() {
+      resetCaptchaState();
+      captchaImage.removeAttribute("src");
+      const response = await fetch("/api/captcha", { cache: "no-store" });
+      if (!response.ok) {
+        throw new Error(await readError(response, t("captchaLoadFailed")));
+      }
+      const data = await response.json();
+      captchaImage.src = data.image;
+      captchaId.value = data.captcha_id;
+    }
+
+    async function verifyCaptchaAnswer() {
+      if (!captchaId.value || !captchaAnswer.value.trim()) {
+        form.classList.add("was-validated");
+        return;
+      }
+      verifyCaptcha.disabled = true;
+      errorBox.classList.add("d-none");
+      try {
+        const response = await fetch("/api/captcha/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            captcha_id: captchaId.value,
+            captcha_answer: captchaAnswer.value.trim()
+          })
+        });
+        if (!response.ok) {
+          throw new Error(await readError(response, t("captchaVerifyFailed")));
+        }
+        const data = await response.json();
+        captchaToken.value = data.captcha_token;
+        captchaBlock.classList.add("d-none");
+        submitBtn.classList.remove("d-none");
+        captchaAnswer.disabled = true;
+      } catch (error) {
+        errorBox.textContent = error.message;
+        errorBox.classList.remove("d-none");
+        await loadCaptcha();
+      } finally {
+        verifyCaptcha.disabled = Boolean(captchaToken.value);
+      }
+    }
+
     async function waitForResult(requestInfo) {
       let current = requestInfo;
-
       while (current.status === "queued" || current.status === "running") {
         if (current.status === "queued") {
-          setStatus("排程中", "已收到檔案，正在等待處理。");
+          setStatusText("statusQueued", "statusQueuedDetail");
         } else {
-          setStatus("轉譯中", "正在處理檔案，請保持此頁開啟。");
+          setStatusText("statusRunning", "statusRunningDetail");
         }
-
         await wait(1500);
         const response = await fetch(current.status_url, { cache: "no-store" });
         if (!response.ok) {
-          throw new Error(await readError(response, "查詢狀態失敗"));
+          throw new Error(await readError(response, t("statusFailed")));
         }
         current = await response.json();
       }
-
-      if (current.status === "failed") {
-        throw new Error(current.error || "轉譯失敗");
-      }
-      if (current.status !== "done") {
-        throw new Error("任務狀態異常");
-      }
+      if (current.status === "failed") throw new Error(current.error || t("transcribeFailed"));
+      if (current.status !== "done") throw new Error(t("invalidState"));
       return current;
     }
 
@@ -166,74 +396,90 @@
         dropZone.classList.add("dragover");
       });
     });
-
     ["dragleave", "drop"].forEach(eventName => {
       dropZone.addEventListener(eventName, event => {
         event.preventDefault();
         dropZone.classList.remove("dragover");
       });
     });
-
     dropZone.addEventListener("drop", event => {
-      if (event.dataTransfer.files.length) {
-        fileInput.files = event.dataTransfer.files;
+      if (event.dataTransfer.files.length) fileInput.files = event.dataTransfer.files;
+    });
+    refreshCaptcha.addEventListener("click", async () => {
+      try {
+        await loadCaptcha();
+      } catch (error) {
+        errorBox.textContent = error.message;
+        errorBox.classList.remove("d-none");
+      }
+    });
+    verifyCaptcha.addEventListener("click", verifyCaptchaAnswer);
+    languageSelect.addEventListener("change", () => applyLanguage(languageSelect.value));
+    copyResult.addEventListener("click", async () => {
+      if (!latestResultText) return;
+      const originalText = copyResult.textContent;
+      try {
+        await navigator.clipboard.writeText(latestResultText);
+        copyResult.textContent = t("copyDone");
+        setTimeout(() => {
+          copyResult.textContent = t("copyResult");
+        }, 1600);
+      } catch (_) {
+        copyResult.textContent = t("copyFailed");
+        setTimeout(() => {
+          copyResult.textContent = originalText || t("copyResult");
+        }, 1600);
       }
     });
 
     form.addEventListener("submit", async event => {
       event.preventDefault();
-      if (!fileInput.files.length) {
+      if (!fileInput.files.length || !captchaToken.value) {
         form.classList.add("was-validated");
         return;
       }
-
       statusBox.classList.remove("d-none");
       resultBox.classList.add("d-none");
       errorBox.classList.add("d-none");
       submitBtn.disabled = true;
-      submitBtn.textContent = "處理中...";
-      setStatus("上傳中", "正在送出檔案。");
-
+      submitBtn.textContent = t("processing");
+      setStatusText("statusUploading", "statusUploadingDetail");
       const formData = new FormData(form);
       try {
-        const response = await fetch("/api/transcribe-audio/", {
-          method: "POST",
-          body: formData
-        });
-
-        if (!response.ok) {
-          throw new Error(await readError(response, "建立請求失敗"));
-        }
-
+        const response = await fetch("/api/transcribe-audio/", { method: "POST", body: formData });
+        if (!response.ok) throw new Error(await readError(response, t("createRequestFailed")));
         const requestInfo = await response.json();
         const finishedInfo = await waitForResult(requestInfo);
-        setStatus("下載中", "正在準備結果檔。");
-
+        setStatusText("statusDownloading", "statusDownloadingDetail");
         const downloadResponse = await fetch(finishedInfo.download_url, { cache: "no-store" });
-        if (!downloadResponse.ok) {
-          throw new Error(await readError(downloadResponse, "下載結果失敗"));
-        }
-
+        if (!downloadResponse.ok) throw new Error(await readError(downloadResponse, t("downloadFailed")));
         const blob = await downloadResponse.blob();
         const text = await blob.text();
+        latestResultText = text;
         const ext = document.getElementById("outputFormat").value;
         const baseName = fileInput.files[0].name.replace(/\.[^.]+$/, "") || "transcript";
         const filename = `${baseName}.${ext}`;
         const url = URL.createObjectURL(new Blob([text], { type: blob.type || "text/plain;charset=utf-8" }));
-
         downloadLink.href = url;
         downloadLink.download = filename;
-        preview.textContent = text.slice(0, 6000) + (text.length > 6000 ? "\n\n...預覽只顯示前 6000 字..." : "");
+        preview.textContent = text.slice(0, 6000) + (text.length > 6000 ? `\n\n...${t("previewTruncated")}...` : "");
         resultBox.classList.remove("d-none");
-        downloadLink.click();
+        loadCaptcha().catch(() => {});
       } catch (error) {
         errorBox.textContent = error.message;
         errorBox.classList.remove("d-none");
+        loadCaptcha().catch(() => {});
       } finally {
         statusBox.classList.add("d-none");
         submitBtn.disabled = false;
-        submitBtn.textContent = "開始轉譯";
+        submitBtn.textContent = t("submit");
       }
+    });
+
+    applyLanguage(currentLanguage);
+    loadCaptcha().catch(error => {
+      errorBox.textContent = error.message;
+      errorBox.classList.remove("d-none");
     });
   </script>
 </body>
