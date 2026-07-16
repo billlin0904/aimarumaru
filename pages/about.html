@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>關於我們 - Audio IO</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body {
+      min-height: 100vh;
+      font-family: "Noto Sans TC", "Noto Sans JP", "Noto Sans KR", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f6f8fb;
+      color: #172033;
+    }
+    .page-shell { max-width: 900px; }
+    .language-switch {
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+    }
+    .language-switch .form-label { white-space: nowrap; }
+    .language-switch .form-select { min-width: 9rem; }
+    .site-navbar {
+      background: rgba(255, 255, 255, .94);
+      border-bottom: 1px solid rgba(108, 117, 125, .18);
+      backdrop-filter: blur(14px);
+    }
+    .content-card {
+      border: 1px solid rgba(108, 117, 125, .18);
+      border-radius: .75rem;
+      box-shadow: 0 1.25rem 3.5rem rgba(23, 32, 51, .10);
+    }
+    .manifesto {
+      border-left: 4px solid #263244;
+      font-size: 1.06rem;
+      line-height: 1.9;
+      padding-left: 1.25rem;
+    }
+    .manifesto p:last-child { margin-bottom: 0; }
+    .principle-note {
+      border: 1px solid rgba(13, 110, 253, .16);
+      border-radius: .75rem;
+      background: #f7fbff;
+    }
+    .site-footer a { color: #5f6b7a; text-decoration: none; }
+    .site-footer a:hover { color: #0d6efd; text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <nav class="navbar site-navbar">
+    <div class="container page-shell">
+      <a class="navbar-brand d-flex align-items-center gap-2 fw-bold" href="/">
+        <img src="/favicon.svg" alt="" width="28" height="28">
+        <span>Audio IO</span>
+      </a>
+      <div class="d-flex flex-wrap align-items-center justify-content-end gap-3">
+        <div class="language-switch">
+          <label class="form-label small text-secondary mb-0" for="languageSelect" data-i18n="languageSwitch">語系</label>
+          <select id="languageSelect" class="form-select form-select-sm">
+            <option value="zh-Hant">繁體中文</option>
+            <option value="en">English</option>
+            <option value="ja">日本語</option>
+            <option value="ko">한국어</option>
+          </select>
+        </div>
+        <a class="btn btn-outline-primary btn-sm" href="/" data-i18n="homeLink">回到首頁</a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="container page-shell py-4 py-lg-5">
+    <article class="content-card bg-white p-4 p-lg-5">
+      <p class="text-secondary fw-semibold mb-2" data-i18n="eyebrow">About</p>
+      <h1 class="h2 fw-bold mb-4" data-i18n="heading">關於我們</h1>
+      <div class="manifesto">
+        <p data-i18n="manifesto1">我知道目前網站的功能並不是最完美的模型。</p>
+        <p data-i18n="manifesto2">但它已經足夠讓大部分人，把錄音、上課內容、YouTube 或會議快速轉成文字。</p>
+        <p data-i18n="manifesto3">我希望把這個功能做成免費，因為我相信，在 AI 時代，知識的入口不應該有太高的門檻。</p>
+        <p data-i18n="manifesto4">如果有一天這個網站真的能賺錢、能做大，我希望它不是因為把功能鎖起來，而是因為有更多人願意使用它、支持它。</p>
+        <p data-i18n="manifesto5">如果它能幫助學生整理課程、幫助上班族記錄會議、幫助更多人更有效率地學習，那我覺得這件事就很有意義。</p>
+      </div>
+
+      <div class="principle-note p-3 p-lg-4 mt-4">
+        <p class="mb-0" data-i18n="principle">我們重視清楚、可理解的使用流程。使用者上傳檔案前，應能知道檔案如何被處理、保存多久，以及資料是否會提供給第三方。</p>
+      </div>
+    </article>
+  </main>
+
+  <footer class="site-footer container page-shell pb-5">
+    <div class="d-flex flex-wrap align-items-center justify-content-center gap-3 small">
+      <a href="/about" data-i18n="aboutLink">關於我們</a>
+      <a href="/privacy" data-i18n="privacyLink">隱私權政策</a>
+      <a href="/terms" data-i18n="termsLink">使用條款</a>
+      <a href="/contact" data-i18n="contactLink">聯絡我們</a>
+    </div>
+  </footer>
+  <script src="/legal_i18n.js" data-page="about"></script>
+</body>
+</html>

@@ -10,11 +10,15 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 
+from transcribe_queue import enqueue_transcribe_task, register_transcribe_cleanup, register_transcribe_handler
 from youtube_srt import (
     choose_subtitle_track,
+    download_subtitle_content,
     download_youtube_audio,
     get_youtube_video_info,
+    is_youtube_rate_limit_error,
     parse_subtitle_content,
+    YOUTUBE_RATE_LIMIT_MESSAGE,
 )
 
 
@@ -25,6 +29,8 @@ YOUTUBE_LIVE_EVENT_TIMEOUT_SECONDS = 30
 class YoutubeLiveRequest(BaseModel):
     url: str
     language: str = ""
+    captcha_token: str = ""
+    ignore_subtitles: bool = False
 
 
 def sse_message(event: str, data: dict[str, Any]) -> str:
@@ -40,6 +46,24 @@ def segment_payload(index: int, start: Optional[float], end: Optional[float], te
     }
 
 
+def chapter_payloads(video_info: dict[str, Any]) -> list[dict[str, Any]]:
+    chapters = video_info.get("chapters") or []
+    payloads: list[dict[str, Any]] = []
+    for index, chapter in enumerate(chapters, start=1):
+        title = str(chapter.get("title") or f"Chapter {index}").strip()
+        start = chapter.get("start_time")
+        end = chapter.get("end_time")
+        payloads.append(
+            {
+                "index": index,
+                "title": title,
+                "start": float(start) if start is not None else None,
+                "end": float(end) if end is not None else None,
+            }
+        )
+    return payloads
+
+
 def cleanup_youtube_live_jobs(jobs: dict[str, dict[str, Any]]) -> None:
     now = time.time()
     expired_ids = [
@@ -49,6 +73,14 @@ def cleanup_youtube_live_jobs(jobs: dict[str, dict[str, Any]]) -> None:
     ]
     for job_id in expired_ids:
         jobs.pop(job_id, None)
+
+
+def readable_exception_message(exc: Exception) -> str:
+    if isinstance(exc, HTTPException):
+        return str(exc.detail)
+    if is_youtube_rate_limit_error(exc):
+        return YOUTUBE_RATE_LIMIT_MESSAGE
+    return str(exc)
 
 
 def put_thread_event(loop: asyncio.AbstractEventLoop, queue: asyncio.Queue[dict[str, Any]], event: dict[str, Any]) -> None:
@@ -90,12 +122,11 @@ def transcribe_audio_stream(
         auto2lrc.clear_model_cache()
 
 
-def create_youtube_live_router(auto2lrc, project_root: Path) -> APIRouter:
+def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_token=None) -> APIRouter:
     router = APIRouter()
     page_path = project_root / "pages" / "youtube_live.html"
     cookies_file = project_root / "cookies.txt"
     jobs: dict[str, dict[str, Any]] = {}
-    transcribe_lock = asyncio.Lock()
 
     async def push_event(job: dict[str, Any], event: str, data: dict[str, Any]) -> None:
         await job["queue"].put({"event": event, "data": data})
@@ -108,9 +139,13 @@ def create_youtube_live_router(auto2lrc, project_root: Path) -> APIRouter:
         queue: asyncio.Queue[dict[str, Any]] = job["queue"]
         try:
             job["status"] = "running"
-            await push_event(job, "status", {"message": "檢查 YouTube 字幕中"})
+            if job["ignore_subtitles"]:
+                await push_event(job, "status", {"message": "已略過內建字幕，準備下載音訊"})
+            else:
+                await push_event(job, "status", {"message": "檢查 YouTube 字幕中"})
 
             video_info = await asyncio.to_thread(get_youtube_video_info, job["url"], cookies_file)
+            chapters = chapter_payloads(video_info)
             await push_event(
                 job,
                 "metadata",
@@ -118,13 +153,12 @@ def create_youtube_live_router(auto2lrc, project_root: Path) -> APIRouter:
                     "title": video_info.get("title"),
                     "duration": video_info.get("duration"),
                     "webpage_url": video_info.get("webpage_url"),
+                    "chapters": chapters,
                 },
             )
 
-            subtitle_track = choose_subtitle_track(video_info)
+            subtitle_track = None if job["ignore_subtitles"] else choose_subtitle_track(video_info)
             if subtitle_track is not None:
-                import requests
-
                 await push_event(
                     job,
                     "status",
@@ -134,10 +168,8 @@ def create_youtube_live_router(auto2lrc, project_root: Path) -> APIRouter:
                         "language": subtitle_track["language"],
                     },
                 )
-                response = await asyncio.to_thread(requests.get, subtitle_track["url"], timeout=30)
-                response.raise_for_status()
-                response.encoding = response.encoding or "utf-8"
-                segments = parse_subtitle_content(response.text, subtitle_track["extension"])
+                subtitle_content = await asyncio.to_thread(download_subtitle_content, subtitle_track["url"])
+                segments = parse_subtitle_content(subtitle_content, subtitle_track["extension"])
                 for index, segment in enumerate(segments, start=1):
                     text = segment["text"].strip()
                     if not text:
@@ -161,28 +193,34 @@ def create_youtube_live_router(auto2lrc, project_root: Path) -> APIRouter:
                 )
                 return
 
-            await push_event(job, "status", {"message": "沒有可用字幕，正在下載音訊"})
+            status_message = "正在下載音訊" if job["ignore_subtitles"] else "沒有可用字幕，正在下載音訊"
+            await push_event(job, "status", {"message": status_message})
             with tempfile.TemporaryDirectory(prefix="yt_live_") as temp_dir:
                 audio_path, video_info = await asyncio.to_thread(download_youtube_audio, job["url"], temp_dir, cookies_file)
                 await push_event(job, "status", {"message": "音訊下載完成，開始逐段轉譯"})
-                async with transcribe_lock:
-                    info = await asyncio.to_thread(
-                        transcribe_audio_stream,
-                        auto2lrc,
-                        audio_path,
-                        job["language_hint"],
-                        asyncio.get_running_loop(),
-                        queue,
-                    )
+                info = await asyncio.to_thread(
+                    transcribe_audio_stream,
+                    auto2lrc,
+                    audio_path,
+                    job["language_hint"],
+                    asyncio.get_running_loop(),
+                    queue,
+                )
 
             job["status"] = "done"
             await push_event(job, "done", {"source": "whisper", **info})
         except Exception as exc:
             job["status"] = "failed"
-            await push_event(job, "failed", {"message": str(exc)})
+            await push_event(job, "failed", {"message": readable_exception_message(exc)})
         finally:
             job["expires_at"] = time.time() + YOUTUBE_LIVE_JOB_TTL_SECONDS
             await queue.put({"event": "close", "data": {}})
+
+    async def handle_youtube_live_task(task: dict[str, Any]) -> None:
+        await run_job(str(task.get("id", "")))
+
+    register_transcribe_handler("youtube_live", handle_youtube_live_task)
+    register_transcribe_cleanup(lambda: cleanup_youtube_live_jobs(jobs))
 
     @router.get("/youtube-live", include_in_schema=False)
     def youtube_live_page():
@@ -194,17 +232,30 @@ def create_youtube_live_router(auto2lrc, project_root: Path) -> APIRouter:
         url = request.url.strip()
         if not url:
             raise HTTPException(status_code=400, detail="請輸入 YouTube 網址")
+        if verify_captcha_token is not None:
+            verify_captcha_token(request.captcha_token)
 
         job_id = secrets.token_urlsafe(18)
         jobs[job_id] = {
             "url": url,
             "language_hint": request.language.strip() or None,
+            "ignore_subtitles": request.ignore_subtitles,
             "status": "queued",
             "queue": asyncio.Queue(),
             "created_at": time.time(),
             "expires_at": time.time() + YOUTUBE_LIVE_JOB_TTL_SECONDS,
         }
-        asyncio.create_task(run_job(job_id))
+        try:
+            enqueue_transcribe_task({"kind": "youtube_live", "id": job_id})
+        except asyncio.QueueFull:
+            jobs[job_id]["status"] = "failed"
+            jobs[job_id]["expires_at"] = time.time() + YOUTUBE_LIVE_JOB_TTL_SECONDS
+            raise HTTPException(status_code=503, detail="轉譯佇列已滿，請稍後再試")
+        except RuntimeError as exc:
+            jobs[job_id]["status"] = "failed"
+            jobs[job_id]["expires_at"] = time.time() + YOUTUBE_LIVE_JOB_TTL_SECONDS
+            raise HTTPException(status_code=503, detail="轉譯佇列尚未啟動，請稍後再試") from exc
+
         return {
             "job_id": job_id,
             "events_url": f"/api/youtube-live/jobs/{job_id}/events",

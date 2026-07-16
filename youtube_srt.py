@@ -2,6 +2,7 @@ import html
 import json
 import re
 import tempfile
+import time
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import parse_qs, urlparse
@@ -30,11 +31,50 @@ YOUTUBE_SUBTITLE_LANGUAGE_PRIORITY = [
     "ko",
 ]
 YOUTUBE_SUBTITLE_EXT_PRIORITY = ["vtt", "srt", "json3", "srv3", "ttml"]
+YOUTUBE_RATE_LIMIT_MESSAGE = "429 Client Error: Too Many Requests"
 
 
 class YoutubeSrtRequest(BaseModel):
     url: str
     lrc_format: bool = False
+
+
+def is_youtube_rate_limit_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return "429" in text or "too many requests" in text
+
+
+def raise_youtube_rate_limit_error(exc: Exception) -> None:
+    raise HTTPException(status_code=429, detail=f"{YOUTUBE_RATE_LIMIT_MESSAGE} 原始錯誤: {exc}") from exc
+
+
+def download_subtitle_content(url: str, retries: int = 2, timeout: int = 30) -> str:
+    import requests
+
+    last_error: Optional[Exception] = None
+    for attempt in range(retries + 1):
+        try:
+            response = requests.get(url, timeout=timeout)
+            response.raise_for_status()
+            response.encoding = response.encoding or "utf-8"
+            return response.text
+        except requests.HTTPError as exc:
+            last_error = exc
+            status_code = exc.response.status_code if exc.response is not None else None
+            if status_code == 429 and attempt < retries:
+                time.sleep(2 * (attempt + 1))
+                continue
+            if status_code == 429:
+                raise_youtube_rate_limit_error(exc)
+            raise
+        except Exception as exc:
+            last_error = exc
+            if attempt < retries:
+                time.sleep(1 * (attempt + 1))
+                continue
+            raise
+    assert last_error is not None
+    raise last_error
 
 
 def extract_youtube_video_id(url: str) -> Optional[str]:
@@ -251,18 +291,14 @@ def try_get_youtube_subtitle_content(
     lrc_format: bool,
     cookies_file: Path,
 ) -> Optional[dict[str, Any]]:
-    import requests
-
     try:
         video_info = get_youtube_video_info(url, cookies_file)
         subtitle_track = choose_subtitle_track(video_info)
         if subtitle_track is None:
             return None
 
-        response = requests.get(subtitle_track["url"], timeout=30)
-        response.raise_for_status()
-        response.encoding = response.encoding or "utf-8"
-        segments = parse_subtitle_content(response.text, subtitle_track["extension"])
+        subtitle_content = download_subtitle_content(subtitle_track["url"])
+        segments = parse_subtitle_content(subtitle_content, subtitle_track["extension"])
         if not segments:
             return None
 
@@ -274,7 +310,14 @@ def try_get_youtube_subtitle_content(
             "source": subtitle_track["source"],
             "segments_count": len(segments),
         }
+    except HTTPException as exc:
+        if exc.status_code == 429:
+            raise
+        print(f"YouTube subtitle fast path failed, falling back to Whisper: {exc}")
+        return None
     except Exception as exc:
+        if is_youtube_rate_limit_error(exc):
+            raise_youtube_rate_limit_error(exc)
         print(f"YouTube subtitle fast path failed, falling back to Whisper: {exc}")
         return None
 
@@ -333,6 +376,8 @@ def download_youtube_audio(url: str, output_dir: str, cookies_file: Path):
     last_error = errors[-1] if errors else "未知錯誤"
     if errors:
         print("yt-dlp download attempts failed:\n" + "\n".join(errors))
+    if any("429" in error or "Too Many Requests" in error for error in errors):
+        raise HTTPException(status_code=429, detail=f"{YOUTUBE_RATE_LIMIT_MESSAGE} 最後錯誤: {last_error}")
 
     raise HTTPException(
         status_code=400,

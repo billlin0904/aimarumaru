@@ -2,7 +2,7 @@ import gc
 import os
 
 class Auto2Lrc:
-    def __init__(self, model_name="large-v2", device="cuda", compute_type="float16", separator_model_path="uvr5_weights/2_HP-UVR.pth"):
+    def __init__(self, model_name="large-v3", device="cuda", compute_type="float16", separator_model_path="uvr5_weights/2_HP-UVR.pth"):
         """
         初始化 faster_whisper 模型
         :param model_name: Whisper 模型名稱 (如 'large-v3')
@@ -102,11 +102,11 @@ class Auto2Lrc:
         return info
 
     
-    def get_lrc(self, audio_file, output_lrc_file):
+    def get_lrc(self, audio_file, output_lrc_file, use_vocal_separation=False):
         source_path = audio_file
         separated_path = None
 
-        if self.separator_model_path and os.path.exists(self.separator_model_path):
+        if use_vocal_separation and self.separator_model_path and os.path.exists(self.separator_model_path):
             separated_path = self.separate_audio(audio_file)
             source_path = separated_path
 

@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>使用條款 - Audio IO</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body {
+      min-height: 100vh;
+      font-family: "Noto Sans TC", "Noto Sans JP", "Noto Sans KR", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f6f8fb;
+      color: #172033;
+    }
+    .page-shell { max-width: 900px; }
+    .language-switch {
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+    }
+    .language-switch .form-label { white-space: nowrap; }
+    .language-switch .form-select { min-width: 9rem; }
+    .site-navbar {
+      background: rgba(255, 255, 255, .94);
+      border-bottom: 1px solid rgba(108, 117, 125, .18);
+      backdrop-filter: blur(14px);
+    }
+    .content-card {
+      border: 1px solid rgba(108, 117, 125, .18);
+      border-radius: .75rem;
+      box-shadow: 0 1.25rem 3.5rem rgba(23, 32, 51, .10);
+    }
+    .site-footer a { color: #5f6b7a; text-decoration: none; }
+    .site-footer a:hover { color: #0d6efd; text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <nav class="navbar site-navbar">
+    <div class="container page-shell">
+      <a class="navbar-brand d-flex align-items-center gap-2 fw-bold" href="/">
+        <img src="/favicon.svg" alt="" width="28" height="28">
+        <span>Audio IO</span>
+      </a>
+      <div class="d-flex flex-wrap align-items-center justify-content-end gap-3">
+        <div class="language-switch">
+          <label class="form-label small text-secondary mb-0" for="languageSelect" data-i18n="languageSwitch">語系</label>
+          <select id="languageSelect" class="form-select form-select-sm">
+            <option value="zh-Hant">繁體中文</option>
+            <option value="en">English</option>
+            <option value="ja">日本語</option>
+            <option value="ko">한국어</option>
+          </select>
+        </div>
+        <a class="btn btn-outline-primary btn-sm" href="/" data-i18n="homeLink">回到首頁</a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="container page-shell py-4 py-lg-5">
+    <article class="content-card bg-white p-4 p-lg-5">
+      <p class="text-secondary fw-semibold mb-2" data-i18n="eyebrow">Terms of Service</p>
+      <h1 class="h2 fw-bold mb-3" data-i18n="heading">使用條款</h1>
+      <p class="text-secondary" data-i18n="updated">最後更新：2026 年 6 月 25 日</p>
+
+      <h2 class="h5 fw-bold mt-4" data-i18n="serviceHeading">服務內容</h2>
+      <p data-i18n="serviceText">Audio IO 提供音訊轉文字與相關下載功能。轉譯結果可能包含辨識錯誤、斷句錯誤或語言判斷錯誤，請在使用前自行檢查與校對。</p>
+
+      <h2 class="h5 fw-bold mt-4" data-i18n="responsibilityHeading">使用者責任</h2>
+      <ul>
+        <li data-i18n="responsibility1">請只上傳你有權處理的音訊、影片或內容。</li>
+        <li data-i18n="responsibility2">不得使用本服務處理違法、侵權、惡意、騷擾或危害他人權益的內容。</li>
+        <li data-i18n="responsibility3">不得以自動化方式大量請求、干擾服務或繞過驗證與限制。</li>
+        <li data-i18n="responsibility4">請自行確認轉譯文字是否正確，不應把未校對內容直接用於高風險決策。</li>
+      </ul>
+
+      <h2 class="h5 fw-bold mt-4" data-i18n="dataHeading">資料與下載</h2>
+      <p data-i18n="dataText">上傳檔案與轉譯結果會暫存在伺服器，預設約 1 小時內自動清除。下載連結含有 token，取得連結的人可能能下載結果，請妥善保管。</p>
+
+      <h2 class="h5 fw-bold mt-4" data-i18n="availabilityHeading">服務可用性</h2>
+      <p data-i18n="availabilityText">本服務可能因維護、系統負載、模型處理限制、網路或第三方資源問題而中斷、延遲或失敗。我們會盡力維持服務穩定，但不保證任何時間都能使用。</p>
+
+      <h2 class="h5 fw-bold mt-4" data-i18n="updateHeading">條款更新</h2>
+      <p data-i18n="updateText">我們可能依服務調整更新本條款。更新後的條款會公布在此頁面。</p>
+    </article>
+  </main>
+
+  <footer class="site-footer container page-shell pb-5">
+    <div class="d-flex flex-wrap align-items-center justify-content-center gap-3 small">
+      <a href="/about" data-i18n="aboutLink">關於我們</a>
+      <a href="/privacy" data-i18n="privacyLink">隱私權政策</a>
+      <a href="/terms" data-i18n="termsLink">使用條款</a>
+      <a href="/contact" data-i18n="contactLink">聯絡我們</a>
+    </div>
+  </footer>
+  <script src="/legal_i18n.js" data-page="terms"></script>
+</body>
+</html>

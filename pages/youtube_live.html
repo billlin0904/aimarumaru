@@ -3,11 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>YouTube Live Transcribe</title>
+  <title>Video Transcribe</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;800&family=Noto+Sans+JP:wght@400;500;700;800&family=Noto+Sans+KR:wght@400;500;700;800&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <style>
     :root {
@@ -21,7 +21,7 @@
       min-height: 100vh;
       background: linear-gradient(180deg, #f8faff 0%, #eef2f8 100%);
       color: var(--ink);
-      font-family: "Noto Sans TC", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-family: "Noto Sans TC", "Noto Sans JP", "Noto Sans KR", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       letter-spacing: 0;
     }
     .shell {
@@ -95,48 +95,78 @@
       padding-top: 18px;
       color: var(--muted);
     }
+    .captcha-panel {
+      margin-top: 18px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f8fafc;
+    }
+    .captcha-img {
+      max-width: 220px;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      object-fit: contain;
+      background: #fff;
+    }
     .segment-list {
       display: grid;
       gap: 10px;
       padding: 16px;
-      max-height: 62vh;
-      overflow: auto;
     }
-    .transcript-output {
-      min-height: 260px;
+    .progress-panel {
+      min-height: 180px;
       border: 1px solid var(--line);
       border-radius: 8px;
       background: #fff;
       padding: 18px 20px;
-      white-space: pre-wrap;
-      line-height: 1.8;
-      word-break: break-word;
+      display: grid;
+      align-content: center;
+      gap: 14px;
     }
     .empty-state {
-      min-height: 260px;
+      min-height: 180px;
       display: grid;
       place-items: center;
       color: var(--muted);
       text-align: center;
       padding: 30px;
     }
-    .toolbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 14px 16px;
-      border-bottom: 1px solid var(--line);
-    }
-    .counter {
-      font-size: .92rem;
-      color: var(--muted);
-    }
     @media (max-width: 720px) {
       .shell { padding: 24px 12px 48px; }
       .topbar { align-items: flex-start; flex-direction: column; }
       .input-panel { padding: 16px; }
-      .segment-list { max-height: none; }
+    }
+    body.embedded {
+      background: transparent;
+    }
+    body.embedded .shell {
+      max-width: none;
+      padding: 0;
+    }
+    body.embedded .panel {
+      box-shadow: none;
+    }
+    body.embedded .segment-list {
+      padding-bottom: 16px;
+    }
+    body.embedded .progress-panel,
+    body.embedded .empty-state {
+      min-height: 170px;
+    }
+    body.embedded .topbar {
+      display: none;
+    }
+    .site-footer a {
+      color: #5f6b7a;
+      text-decoration: none;
+    }
+    .site-footer a:hover {
+      color: #1463ff;
+      text-decoration: underline;
+    }
+    body.embedded .site-footer {
+      display: none;
     }
   </style>
 </head>
@@ -145,35 +175,46 @@
     <div class="topbar">
       <div class="brand">
         <span class="brand-mark"><img src="/favicon.svg" alt=""></span>
-        <span>YouTube Live Transcribe</span>
+        <span data-i18n="pageTitle">Video Transcribe</span>
       </div>
-      <a class="btn btn-outline-secondary btn-sm" href="/">音訊轉譯</a>
+      <a class="btn btn-outline-secondary btn-sm" href="/" data-i18n="audioTool">音訊轉譯</a>
     </div>
 
     <section class="panel input-panel mb-4">
       <form id="youtubeForm" class="row g-3 align-items-end">
-        <div class="col-12 col-lg-8">
-          <label class="form-label fw-semibold" for="youtubeUrl">YouTube 網址</label>
+        <div class="col-12 col-lg-10">
+          <label class="form-label fw-semibold" for="youtubeUrl" data-i18n="urlLabel">YouTube/小紅書/抖音網址</label>
           <input id="youtubeUrl" class="form-control form-control-lg" type="url" placeholder="https://www.youtube.com/watch?v=..." required>
+          <div class="form-check mt-3">
+            <input id="ignoreSubtitles" class="form-check-input" type="checkbox">
+            <label class="form-check-label" for="ignoreSubtitles" data-i18n="ignoreSubtitles">忽略內建字幕</label>
+          </div>
         </div>
-        <div class="col-12 col-md-5 col-lg-2">
-          <label class="form-label fw-semibold" for="language">語言</label>
-          <select id="language" class="form-select form-select-lg">
-            <option value="">自動</option>
-            <option value="zh">中文</option>
-            <option value="en">English</option>
-            <option value="ja">日本語</option>
-            <option value="ko">한국어</option>
-          </select>
-        </div>
-        <div class="col-12 col-md-7 col-lg-2 d-grid">
-          <button id="startBtn" class="btn btn-primary btn-lg" type="submit">開始</button>
+        <div class="col-12 col-lg-2 d-grid">
+          <button id="startBtn" class="btn btn-primary btn-lg" type="submit" data-i18n="start">開始</button>
         </div>
       </form>
 
+      <div id="captchaBlock" class="captcha-panel d-none">
+        <label class="form-label fw-semibold" for="captchaAnswer" data-i18n="captchaLabel">驗證碼</label>
+        <div class="border rounded-3 p-3 bg-white text-center shadow-sm">
+          <img id="captchaImage" class="captcha-img rounded border" alt="驗證碼" data-i18n-alt="captchaLabel">
+        </div>
+        <input id="captchaId" type="hidden">
+        <input id="captchaToken" type="hidden">
+        <div class="mt-3">
+          <input id="captchaAnswer" class="form-control form-control-lg" autocomplete="off" data-i18n-placeholder="captchaPlaceholder">
+        </div>
+        <div class="d-grid d-sm-flex justify-content-center gap-3 mt-3">
+          <button id="refreshCaptcha" class="btn btn-outline-secondary btn-lg px-4" type="button" data-i18n="refreshCaptcha">重新選擇</button>
+          <button id="verifyCaptcha" class="btn btn-dark btn-lg px-4" type="button" data-i18n="verifyCaptcha">驗證</button>
+        </div>
+        <div id="captchaStatus" class="small text-success mt-2 d-none" data-i18n="captchaVerified">驗證完成</div>
+      </div>
+
       <div class="status-strip mt-4">
         <span id="statusDot" class="status-dot"></span>
-        <span id="statusText">等待輸入網址</span>
+        <span id="statusText" data-i18n="waiting">等待輸入網址</span>
       </div>
 
       <div id="videoMeta" class="video-meta mt-3 d-none">
@@ -183,24 +224,40 @@
     </section>
 
     <section class="panel">
-      <div class="toolbar">
-        <div class="fw-bold">轉譯結果</div>
-        <div class="d-flex flex-wrap align-items-center justify-content-end gap-2">
-          <div class="counter"><span id="segmentCount">0</span> 段</div>
-          <button id="downloadAll" class="btn btn-outline-primary btn-sm" type="button" disabled>下載全部</button>
-        </div>
-      </div>
       <div id="segments" class="segment-list">
-        <div class="empty-state" id="emptyState">結果會一段一段顯示在這裡</div>
-        <div id="liveText" class="transcript-output d-none"></div>
+        <div class="empty-state" id="emptyState" data-i18n="emptyState">結果會一段一段顯示在這裡</div>
+        <div id="progressPanel" class="progress-panel d-none">
+          <div class="d-flex align-items-center justify-content-between gap-3">
+            <div class="fw-bold" id="progressLabel" data-i18n="progressWaiting">等待開始</div>
+            <div class="text-secondary fw-semibold" id="progressPercent">0%</div>
+          </div>
+          <div class="progress" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+            <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated" style="width: 0%"></div>
+          </div>
+          <div class="small text-secondary" id="progressDetail" data-i18n="progressDetail">取得影片長度後會顯示轉譯進度。</div>
+          <div class="d-grid d-sm-flex justify-content-center gap-2 mt-2">
+            <button id="downloadAll" class="btn btn-primary d-none" type="button" disabled data-i18n="downloadAll">下載轉譯文字</button>
+            <button id="downloadSrt" class="btn btn-outline-primary d-none" type="button" disabled data-i18n="downloadSrt">下載SRT字幕</button>
+            <button id="downloadChapters" class="btn btn-outline-primary d-none" type="button" disabled data-i18n="downloadChapters">下載章節</button>
+            <button id="nextTranscription" class="btn btn-outline-secondary d-none" type="button" data-i18n="nextTranscription">下一個轉譯內容</button>
+          </div>
+        </div>
       </div>
     </section>
   </main>
+  <footer class="site-footer container pb-5">
+    <div class="d-flex flex-wrap align-items-center justify-content-center gap-3 small">
+      <a href="/about">關於我們</a>
+      <a href="/privacy">隱私權政策</a>
+      <a href="/terms">使用條款</a>
+      <a href="/contact">聯絡我們</a>
+    </div>
+  </footer>
 
   <script>
     const form = document.getElementById("youtubeForm");
     const youtubeUrl = document.getElementById("youtubeUrl");
-    const language = document.getElementById("language");
+    const ignoreSubtitles = document.getElementById("ignoreSubtitles");
     const startBtn = document.getElementById("startBtn");
     const statusDot = document.getElementById("statusDot");
     const statusText = document.getElementById("statusText");
@@ -209,22 +266,137 @@
     const videoDetail = document.getElementById("videoDetail");
     const segments = document.getElementById("segments");
     const emptyState = document.getElementById("emptyState");
-    const liveText = document.getElementById("liveText");
-    const segmentCount = document.getElementById("segmentCount");
+    const progressPanel = document.getElementById("progressPanel");
+    const progressLabel = document.getElementById("progressLabel");
+    const progressPercent = document.getElementById("progressPercent");
+    const progressBar = document.getElementById("progressBar");
+    const progressDetail = document.getElementById("progressDetail");
     const downloadAll = document.getElementById("downloadAll");
+    const downloadSrt = document.getElementById("downloadSrt");
+    const downloadChapters = document.getElementById("downloadChapters");
+    const nextTranscription = document.getElementById("nextTranscription");
+    const captchaBlock = document.getElementById("captchaBlock");
+    const captchaImage = document.getElementById("captchaImage");
+    const captchaId = document.getElementById("captchaId");
+    const captchaToken = document.getElementById("captchaToken");
+    const captchaAnswer = document.getElementById("captchaAnswer");
+    const refreshCaptcha = document.getElementById("refreshCaptcha");
+    const verifyCaptcha = document.getElementById("verifyCaptcha");
+    const captchaStatus = document.getElementById("captchaStatus");
     let eventSource = null;
     let count = 0;
     let fullText = "";
-    let textQueue = [];
-    let typing = false;
-    let liveTextNode = document.createTextNode("");
-    liveText.appendChild(liveTextNode);
+    let srtSegments = [];
+    let videoChapters = [];
+    let totalDuration = 0;
+    let transcriptionActive = false;
+    let captchaEnabled = true;
+    const params = new URLSearchParams(window.location.search);
+    const languageStorageKey = "audioTranscribeLanguage";
+    const translations = {
+      "zh-Hant": {
+        pageTitle: "Video Transcribe", audioTool: "音訊轉譯", urlLabel: "YouTube/小紅書/抖音網址", ignoreSubtitles: "忽略內建字幕", start: "開始",
+        waiting: "等待輸入網址", resultTitle: "轉譯結果", segmentUnit: "段", downloadAll: "下載轉譯文字", downloadSrt: "下載SRT字幕", downloadChapters: "下載章節", nextTranscription: "下一個轉譯內容",
+        emptyState: "進度會顯示在這裡", progressWaiting: "等待開始", progressDetail: "取得影片長度後會顯示轉譯進度。",
+        captchaLabel: "驗證碼", captchaPlaceholder: "輸入圖片中的文字", refreshCaptcha: "重新選擇", verifyCaptcha: "驗證", captchaVerified: "驗證完成",
+        captchaLoadFailed: "取得驗證碼失敗", captchaVerifyFailed: "驗證失敗", captchaRequired: "請先完成驗證碼",
+        creating: "建立任務中", processing: "處理中",
+        done: "完成", failed: "處理失敗", disconnected: "連線中斷", requestFailed: "請求失敗",
+        videoTitle: "YouTube 影片", durationPrefix: "長度", seconds: "秒", sourceUrl: "原文網址",
+        leaveWarning: "轉譯仍在進行中，離開頁面可能會中斷等待結果。"
+      },
+      en: {
+        pageTitle: "Video Transcribe", audioTool: "Audio Tool", urlLabel: "YouTube/Xiaohongshu/Douyin URL", ignoreSubtitles: "Ignore built-in subtitles", start: "Start",
+        waiting: "Waiting for a URL", resultTitle: "Transcription", segmentUnit: "segments", downloadAll: "Download Transcript", downloadSrt: "Download SRT", downloadChapters: "Download Chapters", nextTranscription: "Next Transcription",
+        emptyState: "Progress will appear here", progressWaiting: "Waiting to start", progressDetail: "Progress appears after the video duration is available.",
+        captchaLabel: "Verification", captchaPlaceholder: "Enter the text in the image", refreshCaptcha: "Choose Again", verifyCaptcha: "Verify", captchaVerified: "Verified",
+        captchaLoadFailed: "Could not load verification image", captchaVerifyFailed: "Verification failed", captchaRequired: "Please complete verification first",
+        creating: "Creating job", processing: "Processing",
+        done: "Complete", failed: "Processing failed", disconnected: "Connection interrupted", requestFailed: "Request failed",
+        videoTitle: "YouTube video", durationPrefix: "Duration", seconds: "sec", sourceUrl: "Source URL",
+        leaveWarning: "Transcription is still running. Leaving this page may interrupt waiting for the result."
+      },
+      ja: {
+        pageTitle: "Video Transcribe", audioTool: "音声文字起こし", urlLabel: "YouTube/小紅書/抖音 URL", ignoreSubtitles: "内蔵字幕を無視", start: "開始",
+        waiting: "URL を入力してください", resultTitle: "文字起こし結果", segmentUnit: "件", downloadAll: "文字起こしをダウンロード", downloadSrt: "SRT 字幕をダウンロード", downloadChapters: "チャプターをダウンロード", nextTranscription: "次の文字起こし",
+        emptyState: "進捗がここに表示されます", progressWaiting: "開始待ち", progressDetail: "動画の長さを取得後、進捗が表示されます。",
+        captchaLabel: "認証コード", captchaPlaceholder: "画像内の文字を入力", refreshCaptcha: "選び直す", verifyCaptcha: "認証", captchaVerified: "認証完了",
+        captchaLoadFailed: "認証画像を取得できませんでした", captchaVerifyFailed: "認証に失敗しました", captchaRequired: "先に認証を完了してください",
+        creating: "ジョブを作成中", processing: "処理中",
+        done: "完了", failed: "処理に失敗しました", disconnected: "接続が中断されました", requestFailed: "リクエストに失敗しました",
+        videoTitle: "YouTube 動画", durationPrefix: "長さ", seconds: "秒", sourceUrl: "元 URL",
+        leaveWarning: "文字起こしがまだ進行中です。ページを離れると結果待ちが中断される可能性があります。"
+      },
+      ko: {
+        pageTitle: "Video Transcribe", audioTool: "오디오 전사", urlLabel: "YouTube/小紅書/抖音 URL", ignoreSubtitles: "내장 자막 무시", start: "시작",
+        waiting: "URL 입력 대기 중", resultTitle: "전사 결과", segmentUnit: "개", downloadAll: "전사 텍스트 다운로드", downloadSrt: "SRT 자막 다운로드", downloadChapters: "챕터 다운로드", nextTranscription: "다음 전사",
+        emptyState: "진행률이 여기에 표시됩니다", progressWaiting: "시작 대기 중", progressDetail: "영상 길이를 가져오면 진행률이 표시됩니다.",
+        captchaLabel: "인증 코드", captchaPlaceholder: "이미지의 문자를 입력하세요", refreshCaptcha: "다시 선택", verifyCaptcha: "인증", captchaVerified: "인증 완료",
+        captchaLoadFailed: "인증 이미지를 불러오지 못했습니다", captchaVerifyFailed: "인증에 실패했습니다", captchaRequired: "먼저 인증을 완료해 주세요",
+        creating: "작업 생성 중", processing: "처리 중",
+        done: "완료", failed: "처리 실패", disconnected: "연결이 끊겼습니다", requestFailed: "요청 실패",
+        videoTitle: "YouTube 영상", durationPrefix: "길이", seconds: "초", sourceUrl: "원문 URL",
+        leaveWarning: "전사가 아직 진행 중입니다. 페이지를 떠나면 결과 대기가 중단될 수 있습니다."
+      }
+    };
+    let currentLanguage = translations[params.get("lang")] ? params.get("lang") : localStorage.getItem(languageStorageKey) || "zh-Hant";
+    if (!translations[currentLanguage]) currentLanguage = "zh-Hant";
+
+    if (params.get("embedded") === "1") {
+      document.body.classList.add("embedded");
+    }
+
+    function t(key) {
+      return translations[currentLanguage]?.[key] || translations["zh-Hant"][key] || key;
+    }
+
+    function applyLanguage(languageKey) {
+      currentLanguage = translations[languageKey] ? languageKey : "zh-Hant";
+      localStorage.setItem(languageStorageKey, currentLanguage);
+      document.documentElement.lang = currentLanguage;
+      document.title = t("pageTitle");
+      document.querySelectorAll("[data-i18n]").forEach(element => {
+        element.textContent = t(element.dataset.i18n);
+      });
+      document.querySelectorAll("[data-i18n-placeholder]").forEach(element => {
+        element.setAttribute("placeholder", t(element.dataset.i18nPlaceholder));
+      });
+      document.querySelectorAll("[data-i18n-alt]").forEach(element => {
+        element.setAttribute("alt", t(element.dataset.i18nAlt));
+      });
+    }
 
     function setStatus(message, state = "idle") {
       statusText.textContent = message;
       statusDot.classList.toggle("running", state === "running");
       statusDot.classList.toggle("failed", state === "failed");
+      notifyParentHeight();
     }
+
+    function notifyParentHeight() {
+      if (params.get("embedded") !== "1" || !window.parent) return;
+      requestAnimationFrame(() => {
+        const height = Math.ceil(document.documentElement.scrollHeight);
+        window.parent.postMessage({ type: "youtube-live-height", height }, window.location.origin);
+      });
+    }
+
+    function notifyParentBusy(active) {
+      if (params.get("embedded") !== "1" || !window.parent) return;
+      window.parent.postMessage({ type: "youtube-live-busy", active }, window.location.origin);
+    }
+
+    function setTranscriptionActive(active) {
+      transcriptionActive = active;
+      notifyParentBusy(active);
+    }
+
+    window.addEventListener("beforeunload", event => {
+      if (!transcriptionActive) return;
+      event.preventDefault();
+      event.returnValue = t("leaveWarning");
+      return event.returnValue;
+    });
 
     function formatTime(seconds) {
       if (seconds === null || seconds === undefined) return "";
@@ -241,42 +413,38 @@
       }
       count = 0;
       fullText = "";
-      textQueue = [];
-      typing = false;
-      segmentCount.textContent = "0";
-      liveText.textContent = "";
-      liveTextNode = document.createTextNode("");
-      liveText.appendChild(liveTextNode);
-      liveText.classList.add("d-none");
+      srtSegments = [];
+      videoChapters = [];
+      totalDuration = 0;
+      setProgress(0, t("progressWaiting"));
+      progressPanel.classList.add("d-none");
       if (!emptyState.parentElement) segments.prepend(emptyState);
       emptyState.classList.remove("d-none");
       downloadAll.disabled = true;
+      downloadAll.classList.add("d-none");
+      downloadSrt.disabled = true;
+      downloadSrt.classList.add("d-none");
+      downloadChapters.disabled = true;
+      downloadChapters.classList.add("d-none");
+      nextTranscription.classList.add("d-none");
       videoMeta.classList.add("d-none");
       videoTitle.textContent = "";
       videoDetail.textContent = "";
+      notifyParentHeight();
     }
 
-    function typeNextChunk() {
-      if (!typing) return;
-      if (!textQueue.length) {
-        typing = false;
-        return;
-      }
-
-      const current = textQueue[0];
-      const chunk = current.slice(0, 10);
-      textQueue[0] = current.slice(10);
-      liveTextNode.appendData(chunk);
-      if (!textQueue[0]) textQueue.shift();
-      requestAnimationFrame(typeNextChunk);
+    function setProgress(percent, label) {
+      const value = Math.max(0, Math.min(100, Math.round(percent || 0)));
+      progressPercent.textContent = `${value}%`;
+      progressBar.style.width = `${value}%`;
+      progressBar.parentElement.setAttribute("aria-valuenow", String(value));
+      if (label) progressLabel.textContent = label;
     }
 
-    function queueTyping(text) {
-      textQueue.push(text);
-      if (!typing) {
-        typing = true;
-        requestAnimationFrame(typeNextChunk);
-      }
+    function updateProgressFromSegment(data) {
+      if (!totalDuration || !data.end) return;
+      const percent = (Number(data.end) / totalDuration) * 100;
+      setProgress(percent, t("processing"));
     }
 
     function addSegment(data) {
@@ -284,50 +452,202 @@
       if (!text) return;
 
       emptyState.classList.add("d-none");
-      liveText.classList.remove("d-none");
+      progressPanel.classList.remove("d-none");
       count += 1;
-      segmentCount.textContent = String(count);
 
       const separator = fullText ? "\n\n" : "";
       fullText += separator + text;
-      queueTyping(separator + text);
-      downloadAll.disabled = false;
+      srtSegments.push({
+        start: Number(data.start) || 0,
+        end: Number(data.end) || Number(data.start) + 3 || 3,
+        text,
+      });
+      updateProgressFromSegment(data);
+      notifyParentHeight();
     }
 
-    function transcriptFilename() {
+    function transcriptFilename(extension = "txt") {
       const title = videoTitle.textContent || "youtube_transcript";
-      return `${title.replace(/[\\/:*?"<>|]+/g, "_").slice(0, 80) || "youtube_transcript"}.txt`;
+      return `${title.replace(/[\\/:*?"<>|]+/g, "_").slice(0, 80) || "youtube_transcript"}.${extension}`;
+    }
+
+    function formatSrtTimestamp(seconds) {
+      const value = Math.max(0, Number(seconds) || 0);
+      const millisTotal = Math.round(value * 1000);
+      const hours = Math.floor(millisTotal / 3600000);
+      const minutes = Math.floor((millisTotal % 3600000) / 60000);
+      const secs = Math.floor((millisTotal % 60000) / 1000);
+      const millis = millisTotal % 1000;
+      return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")},${String(millis).padStart(3, "0")}`;
+    }
+
+    function formatChapterTimestamp(seconds) {
+      if (seconds === null || seconds === undefined) return "";
+      const value = Math.max(0, Math.floor(Number(seconds) || 0));
+      const hours = Math.floor(value / 3600);
+      const minutes = Math.floor((value % 3600) / 60);
+      const secs = value % 60;
+      if (hours > 0) {
+        return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+      }
+      return `${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+    }
+
+    function buildSrtContent() {
+      return srtSegments
+        .map((segment, index) => {
+          const end = segment.end > segment.start ? segment.end : segment.start + 3;
+          return `${index + 1}\n${formatSrtTimestamp(segment.start)} --> ${formatSrtTimestamp(end)}\n${segment.text}`;
+        })
+        .join("\n\n") + (srtSegments.length ? "\n" : "");
+    }
+
+    function buildChaptersContent() {
+      const sourceUrl = youtubeUrl.value.trim();
+      const header = [
+        videoTitle.textContent || t("videoTitle"),
+        sourceUrl ? `${t("sourceUrl")}：${sourceUrl}` : "",
+        "",
+      ].filter((line, index) => line || index === 2);
+      const rows = videoChapters.map((chapter, index) => {
+        const start = formatChapterTimestamp(chapter.start);
+        const end = formatChapterTimestamp(chapter.end);
+        const range = end ? `${start} - ${end}` : start;
+        return `${index + 1}. ${range}  ${chapter.title || `Chapter ${index + 1}`}`;
+      });
+      return [...header, ...rows].join("\n") + "\n";
+    }
+
+    function downloadTextFile(content, filename, type = "text/plain;charset=utf-8") {
+      const blob = new Blob([content], { type });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
 
     async function readError(response) {
       try {
         const data = await response.json();
-        return data.detail || "請求失敗";
+        return data.detail || t("requestFailed");
       } catch (_) {
-        return "請求失敗";
+        return t("requestFailed");
+      }
+    }
+
+    async function loadPublicConfig() {
+      try {
+        const response = await fetch("/api/public-config", { cache: "no-store" });
+        if (!response.ok) return;
+        const config = await response.json();
+        captchaEnabled = config.captcha_enabled !== false;
+        if (!captchaEnabled) resetCaptchaState(false);
+      } catch (_) {}
+    }
+
+    function resetCaptchaState(showCaptcha = true) {
+      if (!captchaEnabled) showCaptcha = false;
+      captchaId.value = "";
+      captchaToken.value = "";
+      captchaAnswer.value = "";
+      captchaAnswer.disabled = false;
+      captchaBlock.classList.toggle("d-none", !showCaptcha);
+      captchaStatus.classList.add("d-none");
+      startBtn.classList.toggle("d-none", showCaptcha);
+      startBtn.disabled = false;
+      verifyCaptcha.disabled = false;
+      refreshCaptcha.disabled = false;
+    }
+
+    async function loadCaptcha() {
+      if (!captchaEnabled) {
+        resetCaptchaState(false);
+        notifyParentHeight();
+        return;
+      }
+      resetCaptchaState(true);
+      captchaImage.removeAttribute("src");
+      const response = await fetch("/api/captcha", { cache: "no-store" });
+      if (!response.ok) throw new Error(await readError(response));
+      const data = await response.json();
+      captchaImage.src = data.image;
+      captchaId.value = data.captcha_id;
+      notifyParentHeight();
+    }
+
+    async function verifyCaptchaAnswer() {
+      if (!captchaEnabled) {
+        await beginTranscription();
+        return;
+      }
+      if (!captchaId.value || !captchaAnswer.value.trim()) {
+        setStatus(t("captchaRequired"), "failed");
+        return;
+      }
+      verifyCaptcha.disabled = true;
+      try {
+        const response = await fetch("/api/captcha/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            captcha_id: captchaId.value,
+            captcha_answer: captchaAnswer.value.trim()
+          })
+        });
+        if (!response.ok) throw new Error(await readError(response));
+        const data = await response.json();
+        captchaToken.value = data.captcha_token;
+        captchaBlock.classList.add("d-none");
+        captchaStatus.classList.remove("d-none");
+        captchaAnswer.disabled = true;
+        await beginTranscription();
+        notifyParentHeight();
+      } catch (error) {
+        setStatus(error.message || t("captchaVerifyFailed"), "failed");
+        await loadCaptcha();
+      } finally {
+        verifyCaptcha.disabled = Boolean(captchaToken.value);
       }
     }
 
     downloadAll.addEventListener("click", () => {
       if (!fullText) return;
       const sourceUrl = youtubeUrl.value.trim();
-      const content = sourceUrl ? `原文網址：${sourceUrl}\n\n${fullText}` : fullText;
-      const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = transcriptFilename();
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      const content = sourceUrl ? `${t("sourceUrl")}：${sourceUrl}\n\n${fullText}` : fullText;
+      downloadTextFile(content, transcriptFilename("txt"));
     });
+    downloadSrt.addEventListener("click", () => {
+      if (!srtSegments.length) return;
+      downloadTextFile(buildSrtContent(), transcriptFilename("srt"), "application/x-subrip;charset=utf-8");
+    });
+    downloadChapters.addEventListener("click", () => {
+      if (!videoChapters.length) return;
+      downloadTextFile(buildChaptersContent(), transcriptFilename("chapters.txt"));
+    });
+    nextTranscription.addEventListener("click", () => {
+      window.location.reload();
+    });
+    refreshCaptcha.addEventListener("click", async () => {
+      try {
+        await loadCaptcha();
+        setStatus(t("waiting"), "idle");
+      } catch (error) {
+        setStatus(error.message || t("captchaLoadFailed"), "failed");
+      }
+    });
+    verifyCaptcha.addEventListener("click", verifyCaptchaAnswer);
 
-    form.addEventListener("submit", async event => {
-      event.preventDefault();
+    async function beginTranscription() {
       resetView();
+      setTranscriptionActive(true);
       startBtn.disabled = true;
-      setStatus("建立任務中", "running");
+      startBtn.classList.add("d-none");
+      captchaBlock.classList.add("d-none");
+      setStatus(t("creating"), "running");
 
       try {
         const response = await fetch("/api/youtube-live/jobs", {
@@ -335,7 +655,9 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             url: youtubeUrl.value.trim(),
-            language: language.value
+            language: "",
+            ignore_subtitles: ignoreSubtitles.checked,
+            captcha_token: captchaToken.value
           })
         });
         if (!response.ok) throw new Error(await readError(response));
@@ -344,24 +666,40 @@
         eventSource = new EventSource(job.events_url);
         eventSource.addEventListener("status", event => {
           const data = JSON.parse(event.data);
-          setStatus(data.message || "處理中", "running");
+          setStatus(data.message || t("processing"), "running");
         });
         eventSource.addEventListener("metadata", event => {
           const data = JSON.parse(event.data);
-          videoTitle.textContent = data.title || "YouTube 影片";
-          videoDetail.textContent = data.duration ? `長度 ${Math.round(data.duration)} 秒` : "";
+          totalDuration = Number(data.duration) || 0;
+          videoChapters = Array.isArray(data.chapters) ? data.chapters : [];
+          videoTitle.textContent = data.title || t("videoTitle");
+          videoDetail.textContent = data.duration ? `${t("durationPrefix")} ${Math.round(data.duration)} ${t("seconds")}` : "";
+          progressDetail.textContent = data.duration ? `${t("durationPrefix")} ${Math.round(data.duration)} ${t("seconds")}` : t("progressDetail");
+          progressPanel.classList.remove("d-none");
+          emptyState.classList.add("d-none");
           videoMeta.classList.remove("d-none");
+          notifyParentHeight();
         });
         eventSource.addEventListener("segment", event => addSegment(JSON.parse(event.data)));
-        eventSource.addEventListener("done", event => {
-          const data = JSON.parse(event.data);
-          setStatus(`完成，來源：${data.source || "transcribe"}`, "idle");
+        eventSource.addEventListener("done", () => {
+          setTranscriptionActive(false);
+          setProgress(100, t("done"));
+          downloadAll.disabled = !fullText;
+          downloadAll.classList.toggle("d-none", !fullText);
+          downloadSrt.disabled = !srtSegments.length;
+          downloadSrt.classList.toggle("d-none", !srtSegments.length);
+          downloadChapters.disabled = !videoChapters.length;
+          downloadChapters.classList.toggle("d-none", !videoChapters.length);
+          nextTranscription.classList.remove("d-none");
+          setStatus(t("done"), "idle");
+          notifyParentHeight();
           eventSource.close();
           eventSource = null;
-          startBtn.disabled = false;
+          resetCaptchaState(false);
         });
         eventSource.addEventListener("failed", event => {
-          let message = "處理失敗";
+          setTranscriptionActive(false);
+          let message = t("failed");
           if (event.data) {
             try {
               message = JSON.parse(event.data).message || message;
@@ -370,20 +708,54 @@
           setStatus(message, "failed");
           if (eventSource) eventSource.close();
           eventSource = null;
-          startBtn.disabled = false;
+          resetCaptchaState(false);
         });
         eventSource.onerror = () => {
           if (!eventSource) return;
-          setStatus("連線中斷", "failed");
+          setTranscriptionActive(false);
+          setStatus(t("disconnected"), "failed");
           eventSource.close();
           eventSource = null;
-          startBtn.disabled = false;
+          resetCaptchaState(false);
         };
       } catch (error) {
+        setTranscriptionActive(false);
         setStatus(error.message, "failed");
-        startBtn.disabled = false;
+        resetCaptchaState(false);
       }
+    }
+
+    form.addEventListener("submit", async event => {
+      event.preventDefault();
+      if (!form.checkValidity()) {
+        form.reportValidity();
+        return;
+      }
+      if (!captchaToken.value) {
+        if (!captchaEnabled) {
+          await beginTranscription();
+          return;
+        }
+        startBtn.disabled = true;
+        try {
+          await loadCaptcha();
+          setStatus(t("captchaRequired"), "idle");
+        } catch (error) {
+          setStatus(error.message || t("captchaLoadFailed"), "failed");
+          resetCaptchaState(false);
+        }
+        return;
+      }
+      await beginTranscription();
     });
+    applyLanguage(currentLanguage);
+    resetCaptchaState(false);
+    setStatus(t("waiting"), "idle");
+    notifyParentBusy(false);
+    notifyParentHeight();
+    loadPublicConfig();
+    window.addEventListener("load", notifyParentHeight);
+    window.addEventListener("resize", notifyParentHeight);
   </script>
 </body>
 </html>

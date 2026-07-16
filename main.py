@@ -11,6 +11,7 @@ import os
 import re
 import secrets
 import shutil
+import subprocess
 import time
 import uuid
 from pathlib import Path
@@ -21,13 +22,22 @@ from starlette.middleware.gzip import GZipMiddleware
 import uvicorn
 
 from auto2lrc import Auto2Lrc
+from transcribe_queue import (
+    enqueue_transcribe_task,
+    get_transcribe_queue_size,
+    is_transcribe_queue_started,
+    register_transcribe_cleanup,
+    register_transcribe_handler,
+    start_transcribe_queue,
+    stop_transcribe_queue,
+)
 from youtube_live import create_youtube_live_router
 from youtube_srt import create_youtube_router
 
 app = FastAPI(
     title="Transcribe API",
-    description="Upload audio, transcribe audio, and generate TXT, SRT, LRC, or JSON output.",
-    version="0.2.0",
+    description="Upload audio or video and generate TXT, SRT, LRC, or JSON transcription output.",
+    version="0.4.0",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",
@@ -47,25 +57,34 @@ for bin_dir in cuda_bin_dirs:
 auto2lrc = Auto2Lrc()
 PROJECT_ROOT = Path(__file__).resolve().parent
 TRANSCRIBE_JOB_DIR = PROJECT_ROOT / "transcribe_jobs"
-TRANSCRIBE_QUEUE_MAX_SIZE = 100
 TRANSCRIBE_JOB_TTL_SECONDS = 3600
-TRANSCRIBE_CLEANUP_INTERVAL_SECONDS = 300
 CAPTCHA_TTL_SECONDS = 300
+CAPTCHA_ENABLED = False # os.getenv("AUDIOIO_CAPTCHA_ENABLED", "true").strip().lower() not in {"0", "false", "no", "off"}
 TRANSCRIBE_OUTPUT_FORMATS = {"txt", "srt", "lrc", "json"}
+TRANSCRIBE_VIDEO_EXTENSIONS = {
+    ".avi",
+    ".flv",
+    ".m4v",
+    ".mkv",
+    ".mov",
+    ".mp4",
+    ".mpeg",
+    ".mpg",
+    ".ts",
+    ".webm",
+    ".wmv",
+}
 TRANSCRIBE_MEDIA_TYPES = {
     "txt": "text/plain; charset=utf-8",
     "srt": "application/x-subrip; charset=utf-8",
     "lrc": "text/plain; charset=utf-8",
     "json": "application/json; charset=utf-8",
 }
-transcribe_queue: Optional[asyncio.Queue[str]] = None
 transcribe_jobs: dict[str, dict[str, Any]] = {}
-transcribe_worker_task: Optional[asyncio.Task[Any]] = None
-transcribe_cleanup_task: Optional[asyncio.Task[Any]] = None
 captcha_challenges: dict[str, dict[str, Any]] = {}
 captcha_verifications: dict[str, dict[str, Any]] = {}
 app.include_router(create_youtube_router(auto2lrc, PROJECT_ROOT))
-app.include_router(create_youtube_live_router(auto2lrc, PROJECT_ROOT))
+app.include_router(create_youtube_live_router(auto2lrc, PROJECT_ROOT, lambda token: verify_captcha_token_or_raise(token)))
 
 
 class CaptchaVerifyRequest(BaseModel):
@@ -74,29 +93,15 @@ class CaptchaVerifyRequest(BaseModel):
 
 
 @app.on_event("startup")
-async def start_transcribe_queue():
-    global transcribe_queue, transcribe_worker_task, transcribe_cleanup_task
+async def start_background_transcribe_queue():
     TRANSCRIBE_JOB_DIR.mkdir(parents=True, exist_ok=True)
     cleanup_stale_transcribe_job_dirs()
-    transcribe_queue = asyncio.Queue(maxsize=TRANSCRIBE_QUEUE_MAX_SIZE)
-    transcribe_worker_task = asyncio.create_task(transcribe_queue_worker())
-    transcribe_cleanup_task = asyncio.create_task(transcribe_job_cleanup_worker())
+    await start_transcribe_queue()
 
 
 @app.on_event("shutdown")
-async def stop_transcribe_queue():
-    if transcribe_worker_task:
-        transcribe_worker_task.cancel()
-        try:
-            await transcribe_worker_task
-        except asyncio.CancelledError:
-            pass
-    if transcribe_cleanup_task:
-        transcribe_cleanup_task.cancel()
-        try:
-            await transcribe_cleanup_task
-        except asyncio.CancelledError:
-            pass
+async def stop_background_transcribe_queue():
+    await stop_transcribe_queue()
 
 
 @app.get("/", include_in_schema=False)
@@ -105,15 +110,55 @@ def home_page():
     return HTMLResponse(index_path.read_text(encoding="utf-8"))
 
 
+def serve_page(filename: str) -> HTMLResponse:
+    page_path = PROJECT_ROOT / "pages" / filename
+    if not page_path.exists():
+        raise HTTPException(status_code=404, detail="找不到頁面")
+    return HTMLResponse(page_path.read_text(encoding="utf-8"))
+
+
+@app.get("/about", include_in_schema=False)
+def about_page():
+    return serve_page("about.html")
+
+
+@app.get("/privacy", include_in_schema=False)
+def privacy_page():
+    return serve_page("privacy.html")
+
+
+@app.get("/terms", include_in_schema=False)
+def terms_page():
+    return serve_page("terms.html")
+
+
+@app.get("/contact", include_in_schema=False)
+def contact_page():
+    return serve_page("contact.html")
+
+
 @app.get("/favicon.svg", include_in_schema=False)
 def favicon():
     icon_path = PROJECT_ROOT / "pages" / "favicon.svg"
     return Response(content=icon_path.read_text(encoding="utf-8"), media_type="image/svg+xml")
 
 
+@app.get("/legal_i18n.js", include_in_schema=False)
+def legal_i18n_script():
+    script_path = PROJECT_ROOT / "pages" / "legal_i18n.js"
+    return Response(content=script_path.read_text(encoding="utf-8"), media_type="application/javascript")
+
+
 @app.get("/swagger", include_in_schema=False)
 def swagger_ui():
     return RedirectResponse(url="/docs")
+
+
+@app.get("/api/public-config", tags=["Config"])
+def get_public_config():
+    return {
+        "captcha_enabled": CAPTCHA_ENABLED,
+    }
 
 
 def cleanup_expired_captchas() -> None:
@@ -135,6 +180,8 @@ def cleanup_expired_captchas() -> None:
 
 
 def issue_captcha_token(captcha_id: str, captcha_answer: str) -> str:
+    if not CAPTCHA_ENABLED:
+        return "captcha-disabled"
     cleanup_expired_captchas()
     captcha_id = captcha_id.strip()
     captcha_answer = captcha_answer.strip().lower()
@@ -155,6 +202,8 @@ def issue_captcha_token(captcha_id: str, captcha_answer: str) -> str:
 
 
 def verify_captcha_token_or_raise(captcha_token: str) -> None:
+    if not CAPTCHA_ENABLED:
+        return
     cleanup_expired_captchas()
     captcha_token = captcha_token.strip()
     if not captcha_token:
@@ -332,21 +381,16 @@ def transcribe_job_is_expired(req_id: str, job: dict[str, Any]) -> bool:
     return True
 
 
-async def transcribe_job_cleanup_worker() -> None:
-    while True:
-        cleanup_expired_transcribe_jobs()
-        await asyncio.sleep(TRANSCRIBE_CLEANUP_INTERVAL_SECONDS)
-
-
 def write_transcription_output(
     input_path: Path,
     output_path: Path,
     output_format: str,
     source_filename: Optional[str],
     language_hint: Optional[str],
+    use_vocal_separation: bool,
 ) -> None:
     if output_format == "lrc":
-        auto2lrc.get_lrc(str(input_path), str(output_path))
+        auto2lrc.get_lrc(str(input_path), str(output_path), use_vocal_separation=use_vocal_separation)
     elif output_format == "srt":
         auto2lrc.get_srt(str(input_path), str(output_path), language=language_hint, beam_size=5)
     elif output_format == "txt":
@@ -374,43 +418,95 @@ def write_transcription_output(
         auto2lrc.clear_model_cache()
 
 
+def is_video_upload(filename: Optional[str], content_type: Optional[str]) -> bool:
+    normalized_content_type = (content_type or "").lower().strip()
+    suffix = Path(filename or "").suffix.lower()
+    return normalized_content_type.startswith("video/") or suffix in TRANSCRIBE_VIDEO_EXTENSIONS
+
+
+def extract_video_audio(video_path: Path, audio_path: Path) -> Path:
+    ffmpeg_path = shutil.which("ffmpeg")
+    if not ffmpeg_path:
+        raise RuntimeError("伺服器未安裝 ffmpeg，無法從影片抽取音軌")
+
+    process = subprocess.run(
+        [
+            ffmpeg_path,
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-i",
+            str(video_path),
+            "-vn",
+            "-ac",
+            "1",
+            "-ar",
+            "16000",
+            "-c:a",
+            "pcm_s16le",
+            str(audio_path),
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    if process.returncode != 0 or not audio_path.exists() or audio_path.stat().st_size == 0:
+        detail = process.stderr.strip() or "影片沒有可用的音軌"
+        raise RuntimeError(f"影片音軌抽取失敗: {detail}")
+    return audio_path
+
+
+def prepare_transcription_input(job: dict[str, Any]) -> Path:
+    input_path = job["input_path"]
+    if job.get("media_kind") != "video":
+        return input_path
+
+    extracted_audio_path = job["req_dir"] / "extracted_audio.wav"
+    job["prepared_input_path"] = extract_video_audio(input_path, extracted_audio_path)
+    return job["prepared_input_path"]
+
+
 def run_transcribe_request(req_id: str) -> None:
     job = transcribe_jobs[req_id]
+    transcription_input = prepare_transcription_input(job)
     write_transcription_output(
-        input_path=job["input_path"],
+        input_path=transcription_input,
         output_path=job["output_path"],
         output_format=job["output_format"],
         source_filename=job["filename"],
         language_hint=job["language_hint"],
+        use_vocal_separation=job.get("use_vocal_separation", False),
     )
 
 
-async def transcribe_queue_worker():
-    while True:
-        assert transcribe_queue is not None
-        req_id = await transcribe_queue.get()
-        job = transcribe_jobs.get(req_id)
-        if not job:
-            transcribe_queue.task_done()
-            continue
+async def handle_audio_transcribe_task(task: dict[str, Any]) -> None:
+    req_id = str(task.get("id", ""))
+    job = transcribe_jobs.get(req_id)
+    if not job:
+        return
 
-        job["status"] = "running"
-        job["started_at"] = utc_now_iso()
-        job["updated_at"] = job["started_at"]
-        try:
-            await asyncio.to_thread(run_transcribe_request, req_id)
-            job["status"] = "done"
-            job["completed_at"] = utc_now_iso()
-            job["updated_at"] = job["completed_at"]
-            job["expires_at"] = time.time() + TRANSCRIBE_JOB_TTL_SECONDS
-        except Exception as exc:
-            job["status"] = "failed"
-            job["error"] = str(exc)
-            job["completed_at"] = utc_now_iso()
-            job["updated_at"] = job["completed_at"]
-            job["expires_at"] = time.time() + TRANSCRIBE_JOB_TTL_SECONDS
-        finally:
-            transcribe_queue.task_done()
+    job["status"] = "running"
+    job["started_at"] = utc_now_iso()
+    job["updated_at"] = job["started_at"]
+    try:
+        await asyncio.to_thread(run_transcribe_request, req_id)
+        job["status"] = "done"
+        job["completed_at"] = utc_now_iso()
+        job["updated_at"] = job["completed_at"]
+        job["expires_at"] = time.time() + TRANSCRIBE_JOB_TTL_SECONDS
+    except Exception as exc:
+        job["status"] = "failed"
+        job["error"] = str(exc)
+        job["completed_at"] = utc_now_iso()
+        job["updated_at"] = job["completed_at"]
+        job["expires_at"] = time.time() + TRANSCRIBE_JOB_TTL_SECONDS
+
+
+register_transcribe_handler("audio", handle_audio_transcribe_task)
+register_transcribe_cleanup(cleanup_expired_transcribe_jobs)
 
 
 def get_public_transcribe_request(req_id: str) -> dict[str, Any]:
@@ -423,6 +519,7 @@ def get_public_transcribe_request(req_id: str) -> dict[str, Any]:
         "status": job["status"],
         "filename": job["filename"],
         "output_format": job["output_format"],
+        "media_kind": job.get("media_kind", "audio"),
         "created_at": job["created_at"],
         "updated_at": job["updated_at"],
         "expires_at": datetime.fromtimestamp(job["expires_at"], timezone.utc).isoformat(),
@@ -436,8 +533,8 @@ def get_public_transcribe_request(req_id: str) -> dict[str, Any]:
         payload["completed_at"] = job["completed_at"]
     if job.get("error"):
         payload["error"] = job["error"]
-    if job["status"] == "queued" and transcribe_queue is not None:
-        payload["queue_size"] = transcribe_queue.qsize()
+    if job["status"] == "queued" and is_transcribe_queue_started():
+        payload["queue_size"] = get_transcribe_queue_size()
     return payload
 
 
@@ -446,19 +543,23 @@ async def transcribe_audio_download(
     file: UploadFile = File(...),
     output_format: str = Form("txt"),
     language: str = Form(""),
+    vocal_separation: bool = Form(False),
     captcha_token: str = Form(""),
 ):
     """
-    接受上傳音訊，建立轉譯請求並回傳 req_id。
+    接受上傳音訊或影片，建立轉譯請求並回傳 req_id。
+
+    影片會先在背景佇列中抽取音軌，再使用與音訊相同的轉譯流程。
     """
     output_format = output_format.lower().strip()
     if output_format not in TRANSCRIBE_OUTPUT_FORMATS:
         raise HTTPException(status_code=400, detail="output_format 只支援 txt、srt、lrc、json")
-    if transcribe_queue is None:
+    if not is_transcribe_queue_started():
         raise HTTPException(status_code=503, detail="轉譯佇列尚未啟動，請稍後再試")
     verify_captcha_token_or_raise(captcha_token)
 
     suffix = Path(file.filename or "audio").suffix or ".audio"
+    media_kind = "video" if is_video_upload(file.filename, file.content_type) else "audio"
     safe_stem = safe_transcript_stem(file.filename)
     language_hint = language.strip() or None
     req_id = uuid.uuid4().hex
@@ -480,8 +581,11 @@ async def transcribe_audio_download(
     transcribe_jobs[req_id] = {
         "status": "queued",
         "filename": file.filename or "audio",
+        "content_type": file.content_type,
+        "media_kind": media_kind,
         "output_format": output_format,
         "language_hint": language_hint,
+        "use_vocal_separation": vocal_separation,
         "req_dir": req_dir,
         "input_path": input_path,
         "output_path": output_path,
@@ -497,12 +601,17 @@ async def transcribe_audio_download(
     }
 
     try:
-        transcribe_queue.put_nowait(req_id)
+        enqueue_transcribe_task({"kind": "audio", "id": req_id})
     except asyncio.QueueFull:
         transcribe_jobs[req_id]["status"] = "failed"
         transcribe_jobs[req_id]["error"] = "轉譯佇列已滿，請稍後再試"
         remove_transcribe_job(req_id)
         raise HTTPException(status_code=503, detail="轉譯佇列已滿，請稍後再試")
+    except RuntimeError as exc:
+        transcribe_jobs[req_id]["status"] = "failed"
+        transcribe_jobs[req_id]["error"] = "轉譯佇列尚未啟動，請稍後再試"
+        remove_transcribe_job(req_id)
+        raise HTTPException(status_code=503, detail="轉譯佇列尚未啟動，請稍後再試") from exc
 
     return get_public_transcribe_request(req_id)
 
