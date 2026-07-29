@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from pydantic import BaseModel
+from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 import uvicorn
 
@@ -36,13 +37,35 @@ from transcribe_queue import (
 from youtube_live import create_youtube_live_router
 from youtube_srt import create_youtube_router
 
+CORS_ORIGINS = [
+    origin.strip().rstrip("/")
+    for origin in os.getenv(
+        "AUDIOIO_CORS_ORIGINS",
+        "https://transcribe.audio-io.com",
+    ).split(",")
+    if origin.strip()
+]
+CORS_ORIGIN_REGEX = (
+    r"^(chrome-extension://[a-z]{32}|"
+    r"https?://(localhost|127\.0\.0\.1)(:\d+)?)$"
+)
+
 app = FastAPI(
     title="Transcribe API",
     description="Upload audio or video and generate TXT, SRT, LRC, or JSON transcription output.",
-    version="0.4.0",
+    version="1.0.3",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ORIGINS,
+    allow_origin_regex=CORS_ORIGIN_REGEX,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Accept", "Content-Type", "Last-Event-ID"],
+    expose_headers=["Content-Disposition"],
 )
 app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
 
