@@ -1,7 +1,11 @@
 import gc
+import logging
 import os
 
 from text_converter import to_traditional_chinese
+
+
+logger = logging.getLogger(__name__)
 
 
 class Auto2Lrc:
@@ -58,7 +62,7 @@ class Auto2Lrc:
                 text = to_traditional_chinese(segment.text.strip(), language)
                 f.write(f"{start_time} {text}\n")  # 按 LRC 格式寫入時間和文本
     
-        print(f"LRC 文件已保存至: {output_file}")
+        logger.info("LRC 文件已保存至: %s", output_file)
 
     def save_as_srt(self, segments, output_file, language=None):
         """
@@ -78,7 +82,7 @@ class Auto2Lrc:
                 text = to_traditional_chinese(segment.text.strip(), language)
                 f.write(f"{index}\n{start_time} --> {end_time}\n{text}\n\n")
 
-        print(f"SRT 文件已保存至: {output_file}")
+        logger.info("SRT 文件已保存至: %s", output_file)
 
     def save_as_text(self, segments, output_file, language=None):
         """
@@ -90,7 +94,7 @@ class Auto2Lrc:
                 if text:
                     f.write(f"{text}\n")
 
-        print(f"純文字文件已保存至: {output_file}")
+        logger.info("純文字文件已保存至: %s", output_file)
 
     def get_srt(self, audio_file, output_srt_file, language=None, beam_size=5):
         segments, info = self.get_model().transcribe(audio_file, beam_size=beam_size, language=language)

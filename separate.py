@@ -1,3 +1,4 @@
+import logging
 import os, torch, warnings
 warnings.filterwarnings("ignore")
 
@@ -11,6 +12,9 @@ from uvr5_pack.utils import _get_name_params,inference
 from uvr5_pack.lib_v5.model_param_init import ModelParameters
 
 from scipy.io import wavfile
+
+logger = logging.getLogger(__name__)
+
 
 class AudioSeparate:
     def __init__(self, model_path: str, device: str = "cuda", is_half: bool = True):
@@ -167,7 +171,7 @@ class AudioSeparate:
                 wav_instrument = spec_utils.cmb_spectrogram_to_wave(y_spec_m, self.mp, input_high_end_h, input_high_end_)
             else:
                 wav_instrument = spec_utils.cmb_spectrogram_to_wave(y_spec_m, self.mp)
-            print('%s instruments done' % name)
+            logger.info("%s instruments done", name)
             wavfile.write(os.path.join(ins_root, 'instrument_{}.wav'.format(name)), 
                           self.mp.param['sr'], (np.array(wav_instrument) * 32768).astype("int16"))
     
@@ -178,6 +182,6 @@ class AudioSeparate:
                 wav_vocals = spec_utils.cmb_spectrogram_to_wave(v_spec_m, self.mp, input_high_end_h, input_high_end_)
             else:
                 wav_vocals = spec_utils.cmb_spectrogram_to_wave(v_spec_m, self.mp)
-            print('%s vocals done' % name)
+            logger.info("%s vocals done", name)
             wavfile.write(os.path.join(vocal_root, 'vocal_{}.wav'.format(name)), 
                           self.mp.param['sr'], (np.array(wav_vocals) * 32768).astype("int16"))

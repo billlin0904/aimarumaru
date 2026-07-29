@@ -1,5 +1,6 @@
 import html
 import json
+import logging
 import re
 import tempfile
 import time
@@ -11,6 +12,29 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from text_converter import to_traditional_chinese
+
+
+logger = logging.getLogger(__name__)
+
+
+class YtDlpLogger:
+    def debug(self, message: str) -> None:
+        if message.startswith("[debug] "):
+            logger.debug(message)
+        else:
+            logger.info(message)
+
+    def info(self, message: str) -> None:
+        logger.info(message)
+
+    def warning(self, message: str) -> None:
+        logger.warning(message)
+
+    def error(self, message: str) -> None:
+        logger.error(message)
+
+
+yt_dlp_logger = YtDlpLogger()
 
 
 YOUTUBE_PLAYER_CLIENT_ATTEMPTS = [
@@ -469,12 +493,18 @@ def try_get_youtube_subtitle_content(
     except HTTPException as exc:
         if exc.status_code == 429:
             raise
-        print(f"YouTube subtitle fast path failed, falling back to Whisper: {exc}")
+        logger.warning(
+            "YouTube subtitle fast path failed, falling back to Whisper: %s",
+            exc,
+        )
         return None
     except Exception as exc:
         if is_youtube_rate_limit_error(exc):
             raise_youtube_rate_limit_error(exc)
-        print(f"YouTube subtitle fast path failed, falling back to Whisper: {exc}")
+        logger.warning(
+            "YouTube subtitle fast path failed, falling back to Whisper: %s",
+            exc,
+        )
         return None
 
 
@@ -496,6 +526,7 @@ def download_youtube_audio(url: str, output_dir: str, cookies_file: Path):
             "fragment_retries": 3,
             "concurrent_fragment_downloads": 5,
             "js_runtimes": {"node": {}},
+            "logger": yt_dlp_logger,
             "postprocessors": [
                 {
                     "key": "FFmpegExtractAudio",
@@ -531,7 +562,9 @@ def download_youtube_audio(url: str, output_dir: str, cookies_file: Path):
 
     last_error = errors[-1] if errors else "未知錯誤"
     if errors:
-        print("yt-dlp download attempts failed:\n" + "\n".join(errors))
+        logger.error("yt-dlp download attempts failed")
+        for error in errors:
+            logger.error("yt-dlp attempt failed: %s", error)
     if any("429" in error or "Too Many Requests" in error for error in errors):
         raise HTTPException(status_code=429, detail=f"{YOUTUBE_RATE_LIMIT_MESSAGE} 最後錯誤: {last_error}")
 

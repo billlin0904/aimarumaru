@@ -22,6 +22,10 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 import uvicorn
 
+from app_logging import configure_logging
+
+configure_logging()
+
 from auto2lrc import Auto2Lrc
 from gpu_info import get_pynvml_gpu_info
 from text_converter import to_traditional_chinese
@@ -54,7 +58,7 @@ CORS_ORIGIN_REGEX = (
 app = FastAPI(
     title="Transcribe API",
     description="Upload audio or video and generate TXT, SRT, LRC, or JSON transcription output.",
-    version="1.0.4",
+    version="1.0.5",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",

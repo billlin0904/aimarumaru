@@ -1,7 +1,11 @@
 import asyncio
 import inspect
+import logging
 from collections.abc import Awaitable, Callable
 from typing import Any, Optional
+
+
+logger = logging.getLogger(__name__)
 
 
 TRANSCRIBE_QUEUE_MAX_SIZE = 100
@@ -98,7 +102,10 @@ async def transcribe_queue_worker() -> None:
             kind = str(task.get("kind", ""))
             handler = task_handlers.get(kind)
             if handler is None:
-                print(f"No transcribe task handler registered for kind: {kind}")
+                logger.warning(
+                    "No transcribe task handler registered for kind: %s",
+                    kind,
+                )
                 continue
             await maybe_await(handler(task))
         finally:
@@ -112,5 +119,5 @@ async def transcribe_cleanup_worker() -> None:
             try:
                 await maybe_await(handler())
             except Exception as exc:
-                print(f"Transcribe cleanup handler failed: {exc}")
+                logger.exception("Transcribe cleanup handler failed: %s", exc)
         await asyncio.sleep(TRANSCRIBE_CLEANUP_INTERVAL_SECONDS)
