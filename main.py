@@ -1,6 +1,6 @@
 import multiprocessing
 
-from fastapi import FastAPI, HTTPException, File, Form, UploadFile
+from fastapi import Depends, FastAPI, HTTPException, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 import asyncio
 import base64
@@ -22,6 +22,8 @@ from starlette.middleware.gzip import GZipMiddleware
 import uvicorn
 
 from auto2lrc import Auto2Lrc
+from gpu_info import get_pynvml_gpu_info
+from text_converter import to_traditional_chinese
 from transcribe_queue import (
     enqueue_transcribe_task,
     get_transcribe_queue_size,
@@ -61,6 +63,7 @@ TRANSCRIBE_JOB_TTL_SECONDS = 3600
 CAPTCHA_TTL_SECONDS = 300
 CAPTCHA_ENABLED = False # os.getenv("AUDIOIO_CAPTCHA_ENABLED", "true").strip().lower() not in {"0", "false", "no", "off"}
 TRANSCRIBE_OUTPUT_FORMATS = {"txt", "srt", "lrc", "json"}
+LOCAL_ONLY_CLIENT_HOSTS = {"127.0.0.1", "::1"}
 TRANSCRIBE_VIDEO_EXTENSIONS = {
     ".avi",
     ".flv",
@@ -90,6 +93,24 @@ app.include_router(create_youtube_live_router(auto2lrc, PROJECT_ROOT, lambda tok
 class CaptchaVerifyRequest(BaseModel):
     captcha_id: str
     captcha_answer: str
+
+
+class GpuStatusItem(BaseModel):
+    utilization_gpu: Optional[float]
+    temperature_gpu: Optional[int]
+    name: Optional[str]
+    memory_free: Optional[int]
+    memory_used: Optional[int]
+    memory_total: Optional[int]
+    memory_reserved: Optional[int]
+
+
+class GpuStatusResponse(BaseModel):
+    gpus: list[GpuStatusItem]
+
+
+class TranscribeQueueStatusResponse(BaseModel):
+    queue_size: int
 
 
 @app.on_event("startup")
@@ -158,6 +179,49 @@ def swagger_ui():
 def get_public_config():
     return {
         "captcha_enabled": CAPTCHA_ENABLED,
+    }
+
+
+@app.get(
+    "/api/transcribe-queue/status",
+    tags=["Queue"],
+    summary="取得轉譯佇列等待數量",
+    response_model=TranscribeQueueStatusResponse,
+)
+def get_transcribe_queue_status():
+    return {
+        "queue_size": get_transcribe_queue_size(),
+    }
+
+
+@app.get(
+    "/api/nvidia-smi",
+    tags=["System"],
+    summary="取得 NVIDIA GPU 即時資訊",
+    response_model=GpuStatusResponse,
+)
+@app.get("/api/gpu-info", include_in_schema=False)
+def get_gpu_status():
+    """
+    透過 pynvml/NVML 與 Windows WDDM 取得 GPU 即時資訊。
+    """
+    gpu_info = get_pynvml_gpu_info()
+    return {
+        "gpus": [
+            {
+                "utilization_gpu": gpu.get(
+                    "scheduling_utilization",
+                    gpu.get("utilization_gpu"),
+                ),
+                "temperature_gpu": gpu.get("temperature_gpu"),
+                "name": gpu.get("name"),
+                "memory_free": gpu.get("memory_free"),
+                "memory_used": gpu.get("memory_used"),
+                "memory_total": gpu.get("memory_total"),
+                "memory_reserved": gpu.get("memory_reserved"),
+            }
+            for gpu in gpu_info["gpus"]
+        ]
     }
 
 
@@ -254,10 +318,27 @@ def verify_captcha(request: CaptchaVerifyRequest):
     }
 
 
-@app.get("/transcribe/", tags=["Audio"])
+def require_local_client(request: Request) -> None:
+    """
+    只允許 loopback 來源存取，非本機一律回 404 而不是 403，避免洩漏端點存在。
+
+    注意：若服務放在反向代理後方，request.client.host 會是代理的位址，
+    這個檢查會失效，屆時要改用 ProxyHeadersMiddleware 搭配 --forwarded-allow-ips，
+    或直接把內部端點掛在另一個只綁 127.0.0.1 的 uvicorn 實例。
+    """
+    client_host = request.client.host if request.client else ""
+    if client_host not in LOCAL_ONLY_CLIENT_HOSTS:
+        raise HTTPException(status_code=404, detail="Not Found")
+
+
+@app.get(
+    "/transcribe/",
+    include_in_schema=False,
+    dependencies=[Depends(require_local_client)],
+)
 def transcribe_audio_to_lrc(file_path: str):
     """
-    接受音頻文件的路徑並返回轉錄的 LRC 文件內容字串
+    接受音頻文件的路徑並返回轉錄的 LRC 文件內容字串（僅限本機呼叫）
     """
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="音頻文件不存在")
@@ -283,10 +364,14 @@ def transcribe_audio_to_lrc(file_path: str):
         raise HTTPException(status_code=500, detail=f"處理音頻文件時出錯: {str(e)}")
 
 
-@app.post("/transcribe_file/", tags=["Audio"])
+@app.post(
+    "/transcribe_file/",
+    include_in_schema=False,
+    dependencies=[Depends(require_local_client)],
+)
 async def transcribe_uploaded_audio(file: UploadFile = File(...)):
     """
-    接受上傳的音頻文件，進行轉錄並返回 LRC 文件內容字串
+    接受上傳的音頻文件，進行轉錄並返回 LRC 文件內容字串（僅限本機呼叫）
     """
     try:
         # 保存上傳的文件到本地
@@ -401,15 +486,19 @@ def write_transcription_output(
             beam_size=5,
             language=language_hint,
         )
+        detected_language = getattr(info, "language", language_hint)
         payload = {
             "filename": source_filename,
-            "language": getattr(info, "language", None),
+            "language": detected_language,
             "language_probability": getattr(info, "language_probability", None),
             "segments": [
                 {
                     "start": segment.start,
                     "end": segment.end,
-                    "text": segment.text.strip(),
+                    "text": to_traditional_chinese(
+                        segment.text.strip(),
+                        detected_language,
+                    ),
                 }
                 for segment in segments
             ],

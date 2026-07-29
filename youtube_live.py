@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 
+from text_converter import to_traditional_chinese
 from transcribe_queue import enqueue_transcribe_task, register_transcribe_cleanup, register_transcribe_handler
 from youtube_srt import (
     choose_subtitle_track,
@@ -37,7 +38,12 @@ def sse_message(event: str, data: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
-def segment_payload(index: int, start: Optional[float], end: Optional[float], text: str) -> dict[str, Any]:
+def segment_payload(
+    index: int,
+    start: Optional[float],
+    end: Optional[float],
+    text: str,
+) -> dict[str, Any]:
     return {
         "index": index,
         "start": start,
@@ -99,24 +105,36 @@ def transcribe_audio_stream(
         beam_size=5,
         language=language_hint,
     )
+    detected_language = getattr(info, "language", language_hint)
     segment_count = 0
+    content_parts: list[str] = []
     try:
         for segment_count, segment in enumerate(segments, start=1):
-            text = segment.text.strip()
+            text = to_traditional_chinese(
+                segment.text.strip(),
+                detected_language,
+            )
             if not text:
                 continue
+            content_parts.append(text)
             put_thread_event(
                 loop,
                 queue,
                 {
                     "event": "segment",
-                    "data": segment_payload(segment_count, segment.start, segment.end, text),
+                    "data": segment_payload(
+                        segment_count,
+                        segment.start,
+                        segment.end,
+                        text,
+                    ),
                 },
             )
         return {
-            "language": getattr(info, "language", None),
+            "language": detected_language,
             "language_probability": getattr(info, "language_probability", None),
             "segments_count": segment_count,
+            "content": "\n".join(content_parts),
         }
     finally:
         auto2lrc.clear_model_cache()
@@ -170,14 +188,24 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                 )
                 subtitle_content = await asyncio.to_thread(download_subtitle_content, subtitle_track["url"])
                 segments = parse_subtitle_content(subtitle_content, subtitle_track["extension"])
+                content_parts: list[str] = []
                 for index, segment in enumerate(segments, start=1):
-                    text = segment["text"].strip()
+                    text = to_traditional_chinese(
+                        segment["text"].strip(),
+                        subtitle_track["language"],
+                    )
                     if not text:
                         continue
+                    content_parts.append(text)
                     await push_event(
                         job,
                         "segment",
-                        segment_payload(index, segment["start"], segment["end"], text),
+                        segment_payload(
+                            index,
+                            segment["start"],
+                            segment["end"],
+                            text,
+                        ),
                     )
                     await asyncio.sleep(0)
 
@@ -189,6 +217,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                         "source": subtitle_track["source"],
                         "language": subtitle_track["language"],
                         "segments_count": len(segments),
+                        "content": "\n".join(content_parts),
                     },
                 )
                 return

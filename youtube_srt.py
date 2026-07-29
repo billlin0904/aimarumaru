@@ -10,6 +10,8 @@ from urllib.parse import parse_qs, urlparse
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from text_converter import to_traditional_chinese
+
 
 YOUTUBE_PLAYER_CLIENT_ATTEMPTS = [
     None,
@@ -29,6 +31,14 @@ YOUTUBE_SUBTITLE_LANGUAGE_PRIORITY = [
     "en",
     "ja",
     "ko",
+]
+YOUTUBE_TRADITIONAL_SUBTITLE_LANGUAGE_PRIORITY = [
+    "zh-TW",
+    "zh-Hant",
+    "zh-HK",
+    "zh-CN",
+    "zh-Hans",
+    "zh",
 ]
 YOUTUBE_SUBTITLE_EXT_PRIORITY = ["vtt", "srt", "json3", "srv3", "ttml"]
 YOUTUBE_RATE_LIMIT_MESSAGE = "429 Client Error: Too Many Requests"
@@ -242,28 +252,153 @@ def parse_subtitle_content(content: str, extension: str) -> list[dict[str, Any]]
     return parse_vtt_subtitles(content)
 
 
+def normalize_language_code(language: Any) -> str:
+    return str(language or "").strip().lower().replace("_", "-")
+
+
+def matching_video_languages(
+    video_info: dict[str, Any],
+    tracks: dict[str, Any],
+) -> list[str]:
+    available = [language for language in tracks if language != "live_chat"]
+    matches: list[str] = []
+    preferred = [
+        video_info.get("original_language"),
+        video_info.get("language"),
+    ]
+    for preferred_language in preferred:
+        normalized_preferred = normalize_language_code(preferred_language)
+        if not normalized_preferred:
+            continue
+        preferred_base = normalized_preferred.split("-", 1)[0]
+        for language in available:
+            normalized_language = normalize_language_code(language)
+            if (
+                normalized_language == normalized_preferred
+                or normalized_language.split("-", 1)[0] == preferred_base
+            ) and language not in matches:
+                matches.append(language)
+    return matches
+
+
+def ordered_subtitle_languages(
+    video_info: dict[str, Any],
+    tracks: dict[str, Any],
+) -> list[str]:
+    available = [language for language in tracks if language != "live_chat"]
+    ordered = matching_video_languages(video_info, tracks)
+
+    for language in YOUTUBE_SUBTITLE_LANGUAGE_PRIORITY:
+        if language in tracks and language not in ordered:
+            ordered.append(language)
+    ordered.extend(language for language in available if language not in ordered)
+    return ordered
+
+
+def subtitle_candidate_is_translated(candidate: dict[str, Any]) -> bool:
+    url = str(candidate.get("url") or "")
+    return bool(parse_qs(urlparse(url).query).get("tlang"))
+
+
+def select_subtitle_candidate(
+    source: str,
+    tracks: dict[str, Any],
+    languages: list[str],
+    untranslated_only: bool = False,
+) -> Optional[dict[str, Any]]:
+    for language in languages:
+        candidates = tracks.get(language) or []
+        for extension in YOUTUBE_SUBTITLE_EXT_PRIORITY:
+            for candidate in candidates:
+                if candidate.get("ext") != extension or not candidate.get("url"):
+                    continue
+                if untranslated_only and subtitle_candidate_is_translated(candidate):
+                    continue
+                return {
+                    "source": source,
+                    "language": language,
+                    "extension": extension,
+                    "url": candidate["url"],
+                }
+    return None
+
+
 def choose_subtitle_track(video_info: dict[str, Any]) -> Optional[dict[str, Any]]:
-    track_groups = [
+    subtitles = video_info.get("subtitles") or {}
+    preferred_subtitle_languages = matching_video_languages(video_info, subtitles)
+    if preferred_subtitle_languages:
+        preferred_subtitle = select_subtitle_candidate(
+            "youtube subtitles",
+            subtitles,
+            preferred_subtitle_languages,
+        )
+        if preferred_subtitle is not None:
+            return preferred_subtitle
+
+    automatic_captions = video_info.get("automatic_captions") or {}
+    automatic_languages = ordered_subtitle_languages(video_info, automatic_captions)
+    original_automatic_caption = select_subtitle_candidate(
+        "youtube automatic captions",
+        automatic_captions,
+        automatic_languages,
+        untranslated_only=True,
+    )
+    if original_automatic_caption is not None:
+        return original_automatic_caption
+
+    subtitle = select_subtitle_candidate(
+        "youtube subtitles",
+        subtitles,
+        ordered_subtitle_languages(video_info, subtitles),
+    )
+    if subtitle is not None:
+        return subtitle
+
+    translated_automatic_caption = select_subtitle_candidate(
+        "youtube automatic captions",
+        automatic_captions,
+        automatic_languages,
+    )
+    if translated_automatic_caption is not None:
+        return translated_automatic_caption
+    return None
+
+
+def choose_traditional_subtitle_track(
+    video_info: dict[str, Any],
+) -> Optional[dict[str, Any]]:
+    for source, tracks in [
         ("youtube subtitles", video_info.get("subtitles") or {}),
         ("youtube automatic captions", video_info.get("automatic_captions") or {}),
-    ]
-
-    for source, tracks in track_groups:
-        languages = [lang for lang in YOUTUBE_SUBTITLE_LANGUAGE_PRIORITY if lang in tracks]
-        languages.extend(lang for lang in tracks if lang not in languages and lang != "live_chat")
-
-        for language in languages:
-            candidates = tracks.get(language) or []
-            for extension in YOUTUBE_SUBTITLE_EXT_PRIORITY:
-                for candidate in candidates:
-                    if candidate.get("ext") == extension and candidate.get("url"):
-                        return {
-                            "source": source,
-                            "language": language,
-                            "extension": extension,
-                            "url": candidate["url"],
-                        }
+    ]:
+        languages = [
+            language
+            for language in YOUTUBE_TRADITIONAL_SUBTITLE_LANGUAGE_PRIORITY
+            if language in tracks
+        ]
+        subtitle = select_subtitle_candidate(source, tracks, languages)
+        if subtitle is not None:
+            return subtitle
     return None
+
+
+def subtitle_track_to_content(
+    subtitle_track: dict[str, Any],
+    lrc_format: bool,
+) -> tuple[str, int]:
+    subtitle_content = download_subtitle_content(subtitle_track["url"])
+    segments = parse_subtitle_content(
+        subtitle_content,
+        subtitle_track["extension"],
+    )
+    if not segments:
+        return "", 0
+    content = (
+        subtitle_segments_to_srt(segments)
+        if lrc_format
+        else subtitle_segments_to_text(segments)
+    )
+    return content, len(segments)
 
 
 def get_youtube_video_info(url: str, cookies_file: Path) -> dict[str, Any]:
@@ -297,18 +432,39 @@ def try_get_youtube_subtitle_content(
         if subtitle_track is None:
             return None
 
-        subtitle_content = download_subtitle_content(subtitle_track["url"])
-        segments = parse_subtitle_content(subtitle_content, subtitle_track["extension"])
-        if not segments:
+        source_content, segments_count = subtitle_track_to_content(
+            subtitle_track,
+            lrc_format,
+        )
+        if not source_content:
             return None
 
-        content = subtitle_segments_to_srt(segments) if lrc_format else subtitle_segments_to_text(segments)
+        content = ""
+        if normalize_language_code(subtitle_track["language"]).startswith("zh"):
+            content = to_traditional_chinese(
+                source_content,
+                subtitle_track["language"],
+            )
+        else:
+            traditional_track = choose_traditional_subtitle_track(video_info)
+            if traditional_track is not None:
+                translated_content, _ = subtitle_track_to_content(
+                    traditional_track,
+                    lrc_format,
+                )
+                content = to_traditional_chinese(
+                    translated_content,
+                    traditional_track["language"],
+                )
+
+        if not content:
+            content = source_content
         return {
             "content": content,
             "video_info": video_info,
             "language": subtitle_track["language"],
             "source": subtitle_track["source"],
-            "segments_count": len(segments),
+            "segments_count": segments_count,
         }
     except HTTPException as exc:
         if exc.status_code == 429:

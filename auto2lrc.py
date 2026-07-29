@@ -1,6 +1,9 @@
 import gc
 import os
 
+from text_converter import to_traditional_chinese
+
+
 class Auto2Lrc:
     def __init__(self, model_name="large-v3", device="cuda", compute_type="float16", separator_model_path="uvr5_weights/2_HP-UVR.pth"):
         """
@@ -37,7 +40,7 @@ class Auto2Lrc:
         save_path = os.path.join(ins_root, f'vocal_{name}.wav')
         return save_path
         
-    def save_as_lrc(self, segments, output_file):
+    def save_as_lrc(self, segments, output_file, language=None):
         """
         將轉錄段落保存為 LRC 格式文件，適配 faster_whisper 的輸出格式
         :param segments: faster_whisper 模型轉錄後的段落結果 (列表，包含 'start', 'end', 'text' 字段)
@@ -52,12 +55,12 @@ class Auto2Lrc:
             for segment in segments:
                 # 獲取開始時間和文本
                 start_time = format_time(segment.start)  # faster_whisper 返回的是對象字段
-                text = segment.text.strip()  # 提取轉錄後的文本，並去除前後空格
+                text = to_traditional_chinese(segment.text.strip(), language)
                 f.write(f"{start_time} {text}\n")  # 按 LRC 格式寫入時間和文本
     
         print(f"LRC 文件已保存至: {output_file}")
 
-    def save_as_srt(self, segments, output_file):
+    def save_as_srt(self, segments, output_file, language=None):
         """
         將轉錄段落保存為 SRT 字幕格式。
         """
@@ -72,18 +75,18 @@ class Auto2Lrc:
             for index, segment in enumerate(segments, start=1):
                 start_time = format_time(segment.start)
                 end_time = format_time(segment.end)
-                text = segment.text.strip()
+                text = to_traditional_chinese(segment.text.strip(), language)
                 f.write(f"{index}\n{start_time} --> {end_time}\n{text}\n\n")
 
         print(f"SRT 文件已保存至: {output_file}")
 
-    def save_as_text(self, segments, output_file):
+    def save_as_text(self, segments, output_file, language=None):
         """
         將轉錄段落保存為純文字格式。
         """
         with open(output_file, 'w', encoding='utf-8') as f:
             for segment in segments:
-                text = segment.text.strip()
+                text = to_traditional_chinese(segment.text.strip(), language)
                 if text:
                     f.write(f"{text}\n")
 
@@ -91,13 +94,13 @@ class Auto2Lrc:
 
     def get_srt(self, audio_file, output_srt_file, language=None, beam_size=5):
         segments, info = self.get_model().transcribe(audio_file, beam_size=beam_size, language=language)
-        self.save_as_srt(segments, output_srt_file)
+        self.save_as_srt(segments, output_srt_file, getattr(info, "language", language))
         self.clear_model_cache()
         return info
 
     def get_text(self, audio_file, output_text_file, language=None, beam_size=5):
         segments, info = self.get_model().transcribe(audio_file, beam_size=beam_size, language=language)
-        self.save_as_text(segments, output_text_file)
+        self.save_as_text(segments, output_text_file, getattr(info, "language", language))
         self.clear_model_cache()
         return info
 
@@ -113,7 +116,7 @@ class Auto2Lrc:
         try:
            segments, info = self.get_model().transcribe(source_path, beam_size=5)
            # 保存為 LRC 文件
-           self.save_as_lrc(segments, output_lrc_file)
+           self.save_as_lrc(segments, output_lrc_file, getattr(info, "language", None))
         finally:
             if separated_path and os.path.exists(separated_path):
                 os.remove(separated_path)
