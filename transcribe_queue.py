@@ -14,6 +14,7 @@ TranscribeCleanupHandler = Callable[[], Awaitable[None] | None]
 transcribe_queue: Optional[asyncio.Queue[TranscribeTask]] = None
 transcribe_worker_task: Optional[asyncio.Task[Any]] = None
 transcribe_cleanup_task: Optional[asyncio.Task[Any]] = None
+transcribe_active_count = 0
 task_handlers: dict[str, TranscribeTaskHandler] = {}
 cleanup_handlers: list[TranscribeCleanupHandler] = []
 
@@ -43,6 +44,15 @@ def get_transcribe_queue_size() -> int:
     return transcribe_queue.qsize()
 
 
+def get_transcribe_queue_counts() -> dict[str, int]:
+    waiting_count = get_transcribe_queue_size()
+    return {
+        "queue_size": waiting_count,
+        "waiting_count": waiting_count,
+        "transcribing_count": transcribe_active_count,
+    }
+
+
 def enqueue_transcribe_task(task: TranscribeTask) -> None:
     if transcribe_queue is None:
         raise RuntimeError("Transcribe queue is not started")
@@ -50,17 +60,18 @@ def enqueue_transcribe_task(task: TranscribeTask) -> None:
 
 
 async def start_transcribe_queue(max_size: int = TRANSCRIBE_QUEUE_MAX_SIZE) -> None:
-    global transcribe_queue, transcribe_worker_task, transcribe_cleanup_task
+    global transcribe_queue, transcribe_worker_task, transcribe_cleanup_task, transcribe_active_count
     if transcribe_queue is not None:
         return
 
+    transcribe_active_count = 0
     transcribe_queue = asyncio.Queue(maxsize=max_size)
     transcribe_worker_task = asyncio.create_task(transcribe_queue_worker())
     transcribe_cleanup_task = asyncio.create_task(transcribe_cleanup_worker())
 
 
 async def stop_transcribe_queue() -> None:
-    global transcribe_queue, transcribe_worker_task, transcribe_cleanup_task
+    global transcribe_queue, transcribe_worker_task, transcribe_cleanup_task, transcribe_active_count
 
     tasks = [transcribe_worker_task, transcribe_cleanup_task]
     for task in tasks:
@@ -74,12 +85,15 @@ async def stop_transcribe_queue() -> None:
     transcribe_queue = None
     transcribe_worker_task = None
     transcribe_cleanup_task = None
+    transcribe_active_count = 0
 
 
 async def transcribe_queue_worker() -> None:
+    global transcribe_active_count
     while True:
         assert transcribe_queue is not None
         task = await transcribe_queue.get()
+        transcribe_active_count += 1
         try:
             kind = str(task.get("kind", ""))
             handler = task_handlers.get(kind)
@@ -88,6 +102,7 @@ async def transcribe_queue_worker() -> None:
                 continue
             await maybe_await(handler(task))
         finally:
+            transcribe_active_count = max(0, transcribe_active_count - 1)
             transcribe_queue.task_done()
 
 

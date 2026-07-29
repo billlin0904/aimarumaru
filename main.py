@@ -27,6 +27,7 @@ from gpu_info import get_pynvml_gpu_info
 from text_converter import to_traditional_chinese
 from transcribe_queue import (
     enqueue_transcribe_task,
+    get_transcribe_queue_counts,
     get_transcribe_queue_size,
     is_transcribe_queue_started,
     register_transcribe_cleanup,
@@ -53,7 +54,7 @@ CORS_ORIGIN_REGEX = (
 app = FastAPI(
     title="Transcribe API",
     description="Upload audio or video and generate TXT, SRT, LRC, or JSON transcription output.",
-    version="1.0.3",
+    version="1.0.4",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",
@@ -134,6 +135,8 @@ class GpuStatusResponse(BaseModel):
 
 class TranscribeQueueStatusResponse(BaseModel):
     queue_size: int
+    waiting_count: int
+    transcribing_count: int
 
 
 @app.on_event("startup")
@@ -208,13 +211,11 @@ def get_public_config():
 @app.get(
     "/api/transcribe-queue/status",
     tags=["Queue"],
-    summary="取得轉譯佇列等待數量",
+    summary="取得轉譯佇列等待中與處理中數量",
     response_model=TranscribeQueueStatusResponse,
 )
 def get_transcribe_queue_status():
-    return {
-        "queue_size": get_transcribe_queue_size(),
-    }
+    return get_transcribe_queue_counts()
 
 
 @app.get(
