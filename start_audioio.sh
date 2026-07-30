@@ -25,6 +25,27 @@ fail() {
     exit 1
 }
 
+install_ffmpeg() {
+    if command -v ffmpeg >/dev/null 2>&1 \
+        && command -v ffprobe >/dev/null 2>&1; then
+        return
+    fi
+
+    command -v apt-get >/dev/null 2>&1 \
+        || fail "找不到 ffmpeg/ffprobe，且目前系統不支援 apt-get，請手動安裝 FFmpeg。"
+
+    log "安裝 FFmpeg"
+    if [[ "${EUID}" -eq 0 ]]; then
+        apt-get update
+        DEBIAN_FRONTEND=noninteractive apt-get install -y ffmpeg
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo apt-get update
+        sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y ffmpeg
+    else
+        fail "安裝 FFmpeg 需要 root 權限，且目前找不到 sudo。"
+    fi
+}
+
 command -v "${PYTHON_BIN}" >/dev/null 2>&1 \
     || fail "找不到 ${PYTHON_BIN}，請先安裝 Python 3.10 以上版本。"
 
@@ -71,9 +92,11 @@ else
     log "requirements.txt 未變更，略過套件安裝"
 fi
 
+install_ffmpeg
+
 for binary in ffmpeg ffprobe; do
     command -v "${binary}" >/dev/null 2>&1 \
-        || fail "找不到 ${binary}；請先執行 apt-get update && apt-get install -y ffmpeg。"
+        || fail "FFmpeg 安裝完成後仍找不到 ${binary}。"
 done
 
 cd "${PROJECT_DIR}"
