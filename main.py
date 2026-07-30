@@ -509,7 +509,7 @@ def write_transcription_output(
     elif output_format == "txt":
         auto2lrc.get_text(str(input_path), str(output_path), language=language_hint, beam_size=5)
     else:
-        segments, info = auto2lrc.get_model().transcribe(
+        segments, info = auto2lrc.transcribe(
             str(input_path),
             beam_size=5,
             language=language_hint,

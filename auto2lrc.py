@@ -30,6 +30,15 @@ class Auto2Lrc:
             self.model = WhisperModel(model_size_or_path = self.model_name, device = self.device, compute_type = self.compute_type)
         return self.model
 
+    def transcribe(self, audio_file, **options):
+        transcribe_options = {
+            "temperature": 0.0,
+            "condition_on_previous_text": False,
+            "vad_filter": False,
+        }
+        transcribe_options.update(options)
+        return self.get_model().transcribe(audio_file, **transcribe_options)
+
     def get_separator(self):
         if self.separate is None:
             from separate import AudioSeparate
@@ -97,13 +106,13 @@ class Auto2Lrc:
         logger.info("純文字文件已保存至: %s", output_file)
 
     def get_srt(self, audio_file, output_srt_file, language=None, beam_size=5):
-        segments, info = self.get_model().transcribe(audio_file, beam_size=beam_size, language=language)
+        segments, info = self.transcribe(audio_file, beam_size=beam_size, language=language)
         self.save_as_srt(segments, output_srt_file, getattr(info, "language", language))
         self.clear_model_cache()
         return info
 
     def get_text(self, audio_file, output_text_file, language=None, beam_size=5):
-        segments, info = self.get_model().transcribe(audio_file, beam_size=beam_size, language=language)
+        segments, info = self.transcribe(audio_file, beam_size=beam_size, language=language)
         self.save_as_text(segments, output_text_file, getattr(info, "language", language))
         self.clear_model_cache()
         return info
@@ -118,7 +127,7 @@ class Auto2Lrc:
             source_path = separated_path
 
         try:
-           segments, info = self.get_model().transcribe(source_path, beam_size=5)
+           segments, info = self.transcribe(source_path, beam_size=5)
            # 保存為 LRC 文件
            self.save_as_lrc(segments, output_lrc_file, getattr(info, "language", None))
         finally:

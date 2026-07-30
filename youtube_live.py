@@ -100,7 +100,7 @@ def transcribe_audio_stream(
     loop: asyncio.AbstractEventLoop,
     queue: asyncio.Queue[dict[str, Any]],
 ) -> dict[str, Any]:
-    segments, info = auto2lrc.get_model().transcribe(
+    segments, info = auto2lrc.transcribe(
         str(audio_path),
         beam_size=5,
         language=language_hint,
