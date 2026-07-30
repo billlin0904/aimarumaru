@@ -8,6 +8,7 @@ REQUIREMENTS_FILE="${REQUIREMENTS_FILE:-${PROJECT_DIR}/requirements.txt}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 HOST="${HOST:-0.0.0.0}"
 PORT="${PORT:-8090}"
+INSTALLER_REVISION="2"
 
 export HF_HOME="${HF_HOME:-/vault/cache/huggingface}"
 export XDG_CACHE_HOME="${XDG_CACHE_HOME:-/vault/cache}"
@@ -45,8 +46,9 @@ source "${VENV_DIR}/bin/activate"
 
 REQUIREMENTS_HASH="$(
     "${VENV_DIR}/bin/python" -c \
-        'import hashlib, pathlib, sys; print(hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest())' \
-        "${REQUIREMENTS_FILE}"
+        'import hashlib, pathlib, sys; data = pathlib.Path(sys.argv[1]).read_bytes() + b"\0" + sys.argv[2].encode(); print(hashlib.sha256(data).hexdigest())' \
+        "${REQUIREMENTS_FILE}" \
+        "${INSTALLER_REVISION}"
 )"
 REQUIREMENTS_MARKER="${VENV_DIR}/.requirements.sha256"
 INSTALLED_HASH=""
@@ -56,7 +58,13 @@ fi
 
 if [[ "${REQUIREMENTS_HASH}" != "${INSTALLED_HASH}" ]]; then
     log "安裝或更新 Python 套件"
-    python -m pip install --upgrade pip setuptools wheel
+    # openai-whisper 20240930 still imports pkg_resources while building.
+    # setuptools 82 removed it, and pip build isolation otherwise installs
+    # the newest setuptools into a temporary build environment.
+    python -m pip install --upgrade pip wheel "setuptools<82"
+    python -c "import pkg_resources" >/dev/null 2>&1 \
+        || fail "無法載入 pkg_resources，請確認 setuptools<82 已成功安裝。"
+    python -m pip install --no-build-isolation "openai-whisper==20240930"
     python -m pip install -r "${REQUIREMENTS_FILE}"
     printf '%s\n' "${REQUIREMENTS_HASH}" > "${REQUIREMENTS_MARKER}"
 else
