@@ -89,9 +89,6 @@ class YoutubeSrtResponse(BaseModel):
     processing_speed_x: Optional[float] = Field(
         description="每秒可處理的影片秒數；例如 2.5 表示 2.5 倍即時速度。"
     )
-    real_time_factor: Optional[float] = Field(
-        description="總耗時除以影片長度；數值越低代表處理越快。"
-    )
 
 
 def build_processing_metrics(
@@ -113,11 +110,6 @@ def build_processing_metrics(
             if has_duration and has_elapsed
             else None
         ),
-        "real_time_factor": (
-            round(elapsed_seconds / duration_seconds, 4)
-            if has_duration and has_elapsed
-            else None
-        ),
     }
 
 
@@ -126,14 +118,12 @@ def log_processing_metrics(
     metrics: dict[str, Optional[float]],
 ) -> None:
     speed = metrics["processing_speed_x"]
-    real_time_factor = metrics["real_time_factor"]
     logger.info(
         "YouTube SRT request completed: source=%s total_elapsed=%.3fs "
-        "processing_speed=%s real_time_factor=%s",
+        "processing_speed=%s",
         source,
         metrics["total_elapsed_seconds"] or 0.0,
         f"{speed:.3f}x" if speed is not None else "unknown",
-        f"{real_time_factor:.4f}" if real_time_factor is not None else "unknown",
     )
 
 
