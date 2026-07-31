@@ -1,6 +1,7 @@
 import html
 import json
 import logging
+import math
 import re
 import tempfile
 import time
@@ -9,7 +10,7 @@ from typing import Any, Optional
 from urllib.parse import parse_qs, urlparse
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from text_converter import to_traditional_chinese
 
@@ -71,6 +72,69 @@ YOUTUBE_RATE_LIMIT_MESSAGE = "429 Client Error: Too Many Requests"
 class YoutubeSrtRequest(BaseModel):
     url: str
     lrc_format: bool = False
+
+
+class YoutubeSrtResponse(BaseModel):
+    content: str
+    lrc_format: bool
+    title: Optional[str]
+    duration: Optional[float]
+    language: Optional[str]
+    language_probability: Optional[float]
+    source: str
+    segments_count: Optional[int]
+    total_elapsed_seconds: float = Field(
+        description="從收到請求到產生結果的端到端總耗時（秒）。"
+    )
+    processing_speed_x: Optional[float] = Field(
+        description="每秒可處理的影片秒數；例如 2.5 表示 2.5 倍即時速度。"
+    )
+    real_time_factor: Optional[float] = Field(
+        description="總耗時除以影片長度；數值越低代表處理越快。"
+    )
+
+
+def build_processing_metrics(
+    duration: Any,
+    started_at: float,
+) -> dict[str, Optional[float]]:
+    elapsed_seconds = max(0.0, time.perf_counter() - started_at)
+    try:
+        duration_seconds = float(duration)
+    except (TypeError, ValueError):
+        duration_seconds = 0.0
+
+    has_duration = math.isfinite(duration_seconds) and duration_seconds > 0
+    has_elapsed = math.isfinite(elapsed_seconds) and elapsed_seconds > 0
+    return {
+        "total_elapsed_seconds": round(elapsed_seconds, 3),
+        "processing_speed_x": (
+            round(duration_seconds / elapsed_seconds, 3)
+            if has_duration and has_elapsed
+            else None
+        ),
+        "real_time_factor": (
+            round(elapsed_seconds / duration_seconds, 4)
+            if has_duration and has_elapsed
+            else None
+        ),
+    }
+
+
+def log_processing_metrics(
+    source: str,
+    metrics: dict[str, Optional[float]],
+) -> None:
+    speed = metrics["processing_speed_x"]
+    real_time_factor = metrics["real_time_factor"]
+    logger.info(
+        "YouTube SRT request completed: source=%s total_elapsed=%.3fs "
+        "processing_speed=%s real_time_factor=%s",
+        source,
+        metrics["total_elapsed_seconds"] or 0.0,
+        f"{speed:.3f}x" if speed is not None else "unknown",
+        f"{real_time_factor:.4f}" if real_time_factor is not None else "unknown",
+    )
 
 
 def is_youtube_rate_limit_error(exc: Exception) -> bool:
@@ -582,14 +646,17 @@ def create_youtube_router(auto2lrc, project_root: Path) -> APIRouter:
     router = APIRouter(tags=["YouTube"])
     cookies_file = project_root / "cookies.txt"
 
-    @router.post("/youtube/srt/")
+    @router.post("/youtube/srt/", response_model=YoutubeSrtResponse)
     def transcribe_youtube_to_srt(request: YoutubeSrtRequest):
         """
         接受 YouTube URL，優先使用 YouTube 字幕，沒有字幕時下載音軌並轉錄。
         """
+        started_at = time.perf_counter()
         subtitle_result = try_get_youtube_subtitle_content(request.url, request.lrc_format, cookies_file)
         if subtitle_result is not None:
             video_info = subtitle_result["video_info"]
+            metrics = build_processing_metrics(video_info.get("duration"), started_at)
+            log_processing_metrics(subtitle_result["source"], metrics)
             return {
                 "content": subtitle_result["content"],
                 "lrc_format": request.lrc_format,
@@ -599,6 +666,7 @@ def create_youtube_router(auto2lrc, project_root: Path) -> APIRouter:
                 "language_probability": None,
                 "source": subtitle_result["source"],
                 "segments_count": subtitle_result["segments_count"],
+                **metrics,
             }
 
         with tempfile.TemporaryDirectory(prefix="yt_srt_") as temp_dir:
@@ -624,6 +692,8 @@ def create_youtube_router(auto2lrc, project_root: Path) -> APIRouter:
                 with open(output_file, "r", encoding="utf-8") as f:
                     content = f.read()
 
+                metrics = build_processing_metrics(video_info.get("duration"), started_at)
+                log_processing_metrics("whisper", metrics)
                 return {
                     "content": content,
                     "lrc_format": request.lrc_format,
@@ -633,6 +703,7 @@ def create_youtube_router(auto2lrc, project_root: Path) -> APIRouter:
                     "language_probability": getattr(transcript_info, "language_probability", None),
                     "source": "whisper",
                     "segments_count": None,
+                    **metrics,
                 }
 
             except HTTPException:
