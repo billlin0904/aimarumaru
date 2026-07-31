@@ -196,12 +196,14 @@ def serve_page(filename: str) -> HTMLResponse:
 def maintenance_page():
     state = maintenance_manager.get_state()
     headers = {"Cache-Control": "no-store"}
-    if state.enabled:
-        headers["Retry-After"] = str(state.retry_after)
+    if not state.enabled:
+        return RedirectResponse("/", status_code=307, headers=headers)
+
+    headers["Retry-After"] = str(state.retry_after)
     page_path = PROJECT_ROOT / "pages" / "maintenance.html"
     return HTMLResponse(
         page_path.read_text(encoding="utf-8"),
-        status_code=503 if state.enabled else 200,
+        status_code=503,
         headers=headers,
     )
 
