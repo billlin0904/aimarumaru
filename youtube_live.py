@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import secrets
 import tempfile
 import time
@@ -22,6 +23,8 @@ from youtube_srt import (
     YOUTUBE_RATE_LIMIT_MESSAGE,
 )
 
+
+logger = logging.getLogger(__name__)
 
 YOUTUBE_LIVE_JOB_TTL_SECONDS = 3600
 YOUTUBE_LIVE_EVENT_TIMEOUT_SECONDS = 30
@@ -100,15 +103,25 @@ def transcribe_audio_stream(
     loop: asyncio.AbstractEventLoop,
     queue: asyncio.Queue[dict[str, Any]],
 ) -> dict[str, Any]:
-    segments, info = auto2lrc.transcribe(
-        str(audio_path),
-        beam_size=5,
-        language=language_hint,
-    )
-    detected_language = getattr(info, "language", language_hint)
+    started_at = time.perf_counter()
+    audio_duration = 0.0
+    detected_language = language_hint
     segment_count = 0
     content_parts: list[str] = []
+    logger.info(
+        "Whisper transcription started: beam_size=5 language_hint=%s "
+        "temperature=0.0 condition_on_previous_text=false vad_filter=false",
+        language_hint or "auto",
+    )
+
     try:
+        segments, info = auto2lrc.transcribe(
+            str(audio_path),
+            beam_size=5,
+            language=language_hint,
+        )
+        detected_language = getattr(info, "language", language_hint)
+        audio_duration = float(getattr(info, "duration", 0.0) or 0.0)
         for segment_count, segment in enumerate(segments, start=1):
             text = to_traditional_chinese(
                 segment.text.strip(),
@@ -130,12 +143,43 @@ def transcribe_audio_stream(
                     ),
                 },
             )
+
+        elapsed_seconds = time.perf_counter() - started_at
+        real_time_factor = (
+            elapsed_seconds / audio_duration
+            if audio_duration > 0
+            else None
+        )
+        speed_ratio = (
+            audio_duration / elapsed_seconds
+            if elapsed_seconds > 0 and audio_duration > 0
+            else None
+        )
+        logger.info(
+            "Whisper transcription completed: "
+            "audio_duration=%.3fs elapsed=%.3fs real_time_factor=%s "
+            "speed=%s segments=%d emitted_segments=%d language=%s",
+            audio_duration,
+            elapsed_seconds,
+            f"{real_time_factor:.4f}" if real_time_factor is not None else "unknown",
+            f"{speed_ratio:.2f}x" if speed_ratio is not None else "unknown",
+            segment_count,
+            len(content_parts),
+            detected_language or "unknown",
+        )
         return {
             "language": detected_language,
             "language_probability": getattr(info, "language_probability", None),
             "segments_count": segment_count,
             "content": "\n".join(content_parts),
         }
+    except Exception:
+        logger.exception(
+            "Whisper transcription failed: elapsed=%.3fs segments=%d",
+            time.perf_counter() - started_at,
+            segment_count,
+        )
+        raise
     finally:
         auto2lrc.clear_model_cache()
 
