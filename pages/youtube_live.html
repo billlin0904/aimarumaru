@@ -544,6 +544,10 @@
         const response = await fetch("/api/public-config", { cache: "no-store" });
         if (!response.ok) return;
         const config = await response.json();
+        if (config.maintenance?.enabled) {
+          window.top.location.replace("/maintenance");
+          return;
+        }
         captchaEnabled = config.captcha_enabled !== false;
         if (!captchaEnabled) resetCaptchaState(false);
       } catch (_) {}

@@ -7,3 +7,4 @@ browser.json
 test_silence.wav
 uvr5_weights/
 transcribe_jobs/
+maintenance.json

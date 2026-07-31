@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>服務維護中 - Audio IO</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    html,
+    body {
+      min-height: 100%;
+    }
+    body {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      font-family: "Noto Sans TC", "Noto Sans JP", "Noto Sans KR", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+      color: #172033;
+      background: #f5f7fa;
+    }
+    .page-shell {
+      width: min(100% - 2rem, 760px);
+      margin-inline: auto;
+    }
+    .site-navbar {
+      background: rgba(255, 255, 255, .96);
+      border-bottom: 1px solid rgba(108, 117, 125, .18);
+      backdrop-filter: blur(14px);
+    }
+    .navbar-brand {
+      color: #172033;
+      font-weight: 800;
+    }
+    .language-switch {
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+    }
+    .language-switch label {
+      white-space: nowrap;
+    }
+    .language-switch .form-select {
+      min-width: 9rem;
+    }
+    .maintenance-main {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      padding-block: 2rem;
+    }
+    .maintenance-card {
+      overflow: hidden;
+      border: 1px solid rgba(108, 117, 125, .2);
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: 0 1.25rem 3.5rem rgba(23, 32, 51, .1);
+    }
+    .status-stripe {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr;
+      height: 5px;
+    }
+    .status-stripe span:nth-child(1) { background: #0d6efd; }
+    .status-stripe span:nth-child(2) { background: #198754; }
+    .status-stripe span:nth-child(3) { background: #f0ad00; }
+    .brand-mark {
+      width: 64px;
+      height: 64px;
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      border: 1px solid #dbe3ed;
+      border-radius: 8px;
+      background: #f8fafc;
+    }
+    .brand-mark img {
+      width: 38px;
+      height: 38px;
+    }
+    .status-label {
+      color: #996b00;
+      font-size: .78rem;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .maintenance-copy {
+      max-width: 36rem;
+      color: #5f6b7a;
+      line-height: 1.75;
+    }
+    .service-facts {
+      border-block: 1px solid #e5eaf0;
+      background: #f8fafc;
+    }
+    .service-fact + .service-fact {
+      border-left: 1px solid #e5eaf0;
+    }
+    .service-fact p {
+      color: #667386;
+      line-height: 1.55;
+    }
+    .announcement {
+      border-left: 4px solid #f0ad00;
+      background: #fff9e8;
+    }
+    .retry-note {
+      min-height: 1.5rem;
+      color: #667386;
+    }
+    .site-footer a {
+      color: #5f6b7a;
+      text-decoration: none;
+    }
+    .site-footer a:hover {
+      color: #0d6efd;
+      text-decoration: underline;
+    }
+    @media (max-width: 575.98px) {
+      .page-shell {
+        width: min(100% - 1.25rem, 760px);
+      }
+      .site-navbar .page-shell {
+        align-items: flex-start;
+      }
+      .language-switch {
+        width: 100%;
+        justify-content: flex-end;
+      }
+      .maintenance-main {
+        align-items: flex-start;
+        padding-block: 1rem;
+      }
+      .maintenance-card .card-body {
+        padding: 1.5rem !important;
+      }
+      .service-fact + .service-fact {
+        border-left: 0;
+        border-top: 1px solid #e5eaf0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <nav class="navbar site-navbar">
+    <div class="page-shell d-flex flex-wrap align-items-center justify-content-between gap-3 py-2">
+      <a class="navbar-brand d-flex align-items-center gap-2" href="/maintenance">
+        <img src="/favicon.svg" alt="" width="28" height="28">
+        <span>Audio IO</span>
+      </a>
+      <div class="language-switch">
+        <label class="form-label small text-secondary mb-0" for="languageSelect" data-i18n="languageSwitch">語系</label>
+        <select id="languageSelect" class="form-select form-select-sm">
+          <option value="zh-Hant">繁體中文</option>
+          <option value="en">English</option>
+          <option value="ja">日本語</option>
+          <option value="ko">한국어</option>
+        </select>
+      </div>
+    </div>
+  </nav>
+
+  <main class="maintenance-main">
+    <div class="page-shell">
+      <article class="maintenance-card">
+        <div class="status-stripe" aria-hidden="true"><span></span><span></span><span></span></div>
+        <div class="card-body p-4 p-lg-5">
+          <div class="d-flex align-items-center gap-3 mb-4">
+            <div class="brand-mark">
+              <img src="/favicon.svg" alt="">
+            </div>
+            <div>
+              <div class="status-label mb-1" data-i18n="statusLabel">Service status</div>
+              <div class="fw-semibold" data-i18n="statusValue">暫停接受新任務</div>
+            </div>
+          </div>
+
+          <h1 class="h2 fw-bold mb-3" data-i18n="heading">服務維護中</h1>
+          <p class="maintenance-copy mb-4" data-i18n="intro">我們正在進行必要的系統維護，目前暫時無法建立新的轉譯任務。服務恢復後即可繼續使用。</p>
+
+          <div id="announcement" class="announcement d-none p-3 mb-4" role="note">
+            <div class="small fw-semibold mb-1" data-i18n="announcementLabel">維護公告</div>
+            <div id="announcementText"></div>
+          </div>
+
+          <div class="service-facts row g-0 mb-4">
+            <div class="service-fact col-sm-6 p-3 p-lg-4">
+              <h2 class="h6 fw-bold mb-2" data-i18n="newJobsHeading">新的轉譯</h2>
+              <p class="small mb-0" data-i18n="newJobsText">維護期間暫停接收新的音訊與影片。</p>
+            </div>
+            <div class="service-fact col-sm-6 p-3 p-lg-4">
+              <h2 class="h6 fw-bold mb-2" data-i18n="existingJobsHeading">已提交的任務</h2>
+              <p class="small mb-0" data-i18n="existingJobsText">已在佇列中的任務會繼續處理，完成後仍可下載。</p>
+            </div>
+          </div>
+
+          <div class="d-flex flex-column flex-sm-row align-items-sm-center gap-3">
+            <button id="retryButton" class="btn btn-primary btn-lg px-4" type="button" data-i18n="retryButton">重新檢查服務</button>
+            <div id="retryNote" class="retry-note small" role="status" aria-live="polite"></div>
+          </div>
+        </div>
+      </article>
+    </div>
+  </main>
+
+  <footer class="site-footer page-shell pb-4">
+    <div class="d-flex flex-wrap align-items-center justify-content-center gap-3 small">
+      <a href="/about" data-i18n="aboutLink">關於我們</a>
+      <a href="/privacy" data-i18n="privacyLink">隱私權政策</a>
+      <a href="/terms" data-i18n="termsLink">使用條款</a>
+      <a href="/contact" data-i18n="contactLink">聯絡我們</a>
+    </div>
+  </footer>
+
+  <script>
+    const storageKey = "audioTranscribeLanguage";
+    const defaultMessage = "Service is under maintenance. Please try again later.";
+    const languageSelect = document.getElementById("languageSelect");
+    const retryButton = document.getElementById("retryButton");
+    const retryNote = document.getElementById("retryNote");
+    const announcement = document.getElementById("announcement");
+    const announcementText = document.getElementById("announcementText");
+    const translations = {
+      "zh-Hant": {
+        documentTitle: "服務維護中 - Audio IO",
+        languageSwitch: "語系",
+        statusLabel: "Service status",
+        statusValue: "暫停接受新任務",
+        heading: "服務維護中",
+        intro: "我們正在進行必要的系統維護，目前暫時無法建立新的轉譯任務。服務恢復後即可繼續使用。",
+        announcementLabel: "維護公告",
+        newJobsHeading: "新的轉譯",
+        newJobsText: "維護期間暫停接收新的音訊與影片。",
+        existingJobsHeading: "已提交的任務",
+        existingJobsText: "已在佇列中的任務會繼續處理，完成後仍可下載。",
+        retryButton: "重新檢查服務",
+        checking: "正在檢查服務狀態...",
+        retryHint: "建議約 {minutes} 分鐘後再試。",
+        stillMaintaining: "服務仍在維護中。",
+        checkFailed: "暫時無法取得服務狀態，請稍後再試。",
+        aboutLink: "關於我們",
+        privacyLink: "隱私權政策",
+        termsLink: "使用條款",
+        contactLink: "聯絡我們"
+      },
+      en: {
+        documentTitle: "Service Maintenance - Audio IO",
+        languageSwitch: "Language",
+        statusLabel: "Service status",
+        statusValue: "New jobs paused",
+        heading: "Service maintenance",
+        intro: "We are performing necessary system maintenance. New transcription jobs are temporarily unavailable and will return when maintenance is complete.",
+        announcementLabel: "Maintenance notice",
+        newJobsHeading: "New transcriptions",
+        newJobsText: "New audio and video submissions are paused during maintenance.",
+        existingJobsHeading: "Submitted jobs",
+        existingJobsText: "Jobs already in the queue will continue processing and remain available for download.",
+        retryButton: "Check service again",
+        checking: "Checking service status...",
+        retryHint: "Please try again in about {minutes} minutes.",
+        stillMaintaining: "The service is still under maintenance.",
+        checkFailed: "Service status is temporarily unavailable. Please try again later.",
+        aboutLink: "About",
+        privacyLink: "Privacy Policy",
+        termsLink: "Terms of Service",
+        contactLink: "Contact"
+      },
+      ja: {
+        documentTitle: "サービスメンテナンス中 - Audio IO",
+        languageSwitch: "言語",
+        statusLabel: "Service status",
+        statusValue: "新しいジョブを停止中",
+        heading: "サービスメンテナンス中",
+        intro: "現在、必要なシステムメンテナンスを実施しています。新しい文字起こしは一時的に利用できません。完了後に再開します。",
+        announcementLabel: "メンテナンスのお知らせ",
+        newJobsHeading: "新しい文字起こし",
+        newJobsText: "メンテナンス中は、新しい音声と動画の受付を停止しています。",
+        existingJobsHeading: "送信済みのジョブ",
+        existingJobsText: "すでにキューにあるジョブは処理を続け、完了後もダウンロードできます。",
+        retryButton: "サービスを再確認",
+        checking: "サービス状態を確認しています...",
+        retryHint: "約 {minutes} 分後にもう一度お試しください。",
+        stillMaintaining: "サービスは現在もメンテナンス中です。",
+        checkFailed: "サービス状態を取得できません。しばらくしてからお試しください。",
+        aboutLink: "私たちについて",
+        privacyLink: "プライバシーポリシー",
+        termsLink: "利用規約",
+        contactLink: "お問い合わせ"
+      },
+      ko: {
+        documentTitle: "서비스 점검 중 - Audio IO",
+        languageSwitch: "언어",
+        statusLabel: "Service status",
+        statusValue: "새 작업 접수 중지",
+        heading: "서비스 점검 중",
+        intro: "필수 시스템 점검을 진행하고 있습니다. 현재 새 전사 작업을 만들 수 없으며 점검이 끝나면 다시 이용할 수 있습니다.",
+        announcementLabel: "점검 안내",
+        newJobsHeading: "새 전사 작업",
+        newJobsText: "점검 중에는 새 오디오와 비디오 접수가 중지됩니다.",
+        existingJobsHeading: "제출된 작업",
+        existingJobsText: "이미 대기열에 있는 작업은 계속 처리되며 완료 후 다운로드할 수 있습니다.",
+        retryButton: "서비스 다시 확인",
+        checking: "서비스 상태를 확인하고 있습니다...",
+        retryHint: "약 {minutes}분 후 다시 시도해 주세요.",
+        stillMaintaining: "서비스가 아직 점검 중입니다.",
+        checkFailed: "서비스 상태를 확인할 수 없습니다. 잠시 후 다시 시도해 주세요.",
+        aboutLink: "소개",
+        privacyLink: "개인정보처리방침",
+        termsLink: "이용약관",
+        contactLink: "문의"
+      }
+    };
+
+    let currentLanguage = localStorage.getItem(storageKey) || "zh-Hant";
+    let serviceState = { enabled: true, retry_after: 1800, message: defaultMessage };
+
+    function t(key) {
+      return translations[currentLanguage]?.[key] || translations["zh-Hant"][key] || key;
+    }
+
+    function applyLanguage(language) {
+      currentLanguage = translations[language] ? language : "zh-Hant";
+      localStorage.setItem(storageKey, currentLanguage);
+      document.documentElement.lang = currentLanguage;
+      document.title = t("documentTitle");
+      languageSelect.value = currentLanguage;
+      document.querySelectorAll("[data-i18n]").forEach(element => {
+        element.textContent = t(element.dataset.i18n);
+      });
+      renderServiceState();
+    }
+
+    function renderServiceState(statusMessage = "") {
+      const minutes = Math.max(1, Math.ceil((Number(serviceState.retry_after) || 1800) / 60));
+      retryNote.textContent = statusMessage || t("retryHint").replace("{minutes}", minutes);
+      const customMessage = String(serviceState.message || "").trim();
+      const showAnnouncement = customMessage && customMessage !== defaultMessage;
+      announcement.classList.toggle("d-none", !showAnnouncement);
+      announcementText.textContent = showAnnouncement ? customMessage : "";
+    }
+
+    async function fetchServiceState() {
+      const response = await fetch("/api/service-status", { cache: "no-store" });
+      if (!response.ok) throw new Error(t("checkFailed"));
+      serviceState = await response.json();
+      return serviceState;
+    }
+
+    retryButton.addEventListener("click", async () => {
+      retryButton.disabled = true;
+      retryNote.textContent = t("checking");
+      try {
+        const state = await fetchServiceState();
+        if (!state.enabled) {
+          window.location.replace("/");
+          return;
+        }
+        renderServiceState(t("stillMaintaining"));
+      } catch (_) {
+        retryNote.textContent = t("checkFailed");
+      } finally {
+        retryButton.disabled = false;
+      }
+    });
+
+    languageSelect.addEventListener("change", () => applyLanguage(languageSelect.value));
+    applyLanguage(currentLanguage);
+    fetchServiceState().then(() => renderServiceState()).catch(() => {
+      retryNote.textContent = t("checkFailed");
+    });
+  </script>
+</body>
+</html>

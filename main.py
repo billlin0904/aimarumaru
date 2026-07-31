@@ -28,6 +28,11 @@ configure_logging()
 
 from auto2lrc import Auto2Lrc
 from gpu_info import get_pynvml_gpu_info
+from maintenance import (
+    MaintenanceManager,
+    MaintenanceMiddleware,
+    get_default_maintenance_path,
+)
 from text_converter import to_traditional_chinese
 from transcribe_queue import (
     enqueue_transcribe_task,
@@ -54,6 +59,10 @@ CORS_ORIGIN_REGEX = (
     r"^(chrome-extension://[a-z]{32}|"
     r"https?://(localhost|127\.0\.0\.1)(:\d+)?)$"
 )
+PROJECT_ROOT = Path(__file__).resolve().parent
+maintenance_manager = MaintenanceManager(
+    get_default_maintenance_path(PROJECT_ROOT)
+)
 
 app = FastAPI(
     title="Transcribe API",
@@ -63,6 +72,7 @@ app = FastAPI(
     redoc_url="/redoc",
     openapi_url="/openapi.json",
 )
+app.add_middleware(MaintenanceMiddleware, manager=maintenance_manager)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
@@ -85,7 +95,6 @@ for bin_dir in cuda_bin_dirs:
         os.environ["PATH"] += os.pathsep + bin_dir
 
 auto2lrc = Auto2Lrc()
-PROJECT_ROOT = Path(__file__).resolve().parent
 TRANSCRIBE_JOB_DIR = PROJECT_ROOT / "transcribe_jobs"
 TRANSCRIBE_JOB_TTL_SECONDS = 3600
 CAPTCHA_TTL_SECONDS = 300
@@ -143,6 +152,21 @@ class TranscribeQueueStatusResponse(BaseModel):
     transcribing_count: int
 
 
+class MaintenanceStatusResponse(BaseModel):
+    enabled: bool
+    message: str
+    retry_after: int
+
+
+def get_public_maintenance_state() -> dict[str, Any]:
+    state = maintenance_manager.get_state()
+    return {
+        "enabled": state.enabled,
+        "message": state.message,
+        "retry_after": state.retry_after,
+    }
+
+
 @app.on_event("startup")
 async def start_background_transcribe_queue():
     TRANSCRIBE_JOB_DIR.mkdir(parents=True, exist_ok=True)
@@ -166,6 +190,20 @@ def serve_page(filename: str) -> HTMLResponse:
     if not page_path.exists():
         raise HTTPException(status_code=404, detail="找不到頁面")
     return HTMLResponse(page_path.read_text(encoding="utf-8"))
+
+
+@app.get("/maintenance", include_in_schema=False)
+def maintenance_page():
+    state = maintenance_manager.get_state()
+    headers = {"Cache-Control": "no-store"}
+    if state.enabled:
+        headers["Retry-After"] = str(state.retry_after)
+    page_path = PROJECT_ROOT / "pages" / "maintenance.html"
+    return HTMLResponse(
+        page_path.read_text(encoding="utf-8"),
+        status_code=503 if state.enabled else 200,
+        headers=headers,
+    )
 
 
 @app.get("/about", include_in_schema=False)
@@ -209,7 +247,18 @@ def swagger_ui():
 def get_public_config():
     return {
         "captcha_enabled": CAPTCHA_ENABLED,
+        "maintenance": get_public_maintenance_state(),
     }
+
+
+@app.get(
+    "/api/service-status",
+    tags=["System"],
+    summary="取得目前服務維護狀態",
+    response_model=MaintenanceStatusResponse,
+)
+def get_service_status():
+    return get_public_maintenance_state()
 
 
 @app.get(
