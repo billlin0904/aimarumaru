@@ -298,6 +298,7 @@
         pageTitle: "Video Transcribe", audioTool: "音訊轉譯", urlLabel: "YouTube/小紅書/抖音網址", ignoreSubtitles: "忽略內建字幕", start: "開始",
         waiting: "等待輸入網址", resultTitle: "轉譯結果", segmentUnit: "段", downloadAll: "下載轉譯文字", downloadSrt: "下載SRT字幕", downloadChapters: "下載章節", nextTranscription: "下一個轉譯內容",
         emptyState: "進度會顯示在這裡", progressWaiting: "等待開始", progressDetail: "取得影片長度後會顯示轉譯進度。",
+        estimatingCompletion: "正在估算完成時間...", estimatedCompletion: "預計完成時間 {time}",
         captchaLabel: "驗證碼", captchaPlaceholder: "輸入圖片中的文字", refreshCaptcha: "重新選擇", verifyCaptcha: "驗證", captchaVerified: "驗證完成",
         captchaLoadFailed: "取得驗證碼失敗", captchaVerifyFailed: "驗證失敗", captchaRequired: "請先完成驗證碼",
         creating: "建立任務中", processing: "處理中",
@@ -309,6 +310,7 @@
         pageTitle: "Video Transcribe", audioTool: "Audio Tool", urlLabel: "YouTube/Xiaohongshu/Douyin URL", ignoreSubtitles: "Ignore built-in subtitles", start: "Start",
         waiting: "Waiting for a URL", resultTitle: "Transcription", segmentUnit: "segments", downloadAll: "Download Transcript", downloadSrt: "Download SRT", downloadChapters: "Download Chapters", nextTranscription: "Next Transcription",
         emptyState: "Progress will appear here", progressWaiting: "Waiting to start", progressDetail: "Progress appears after the video duration is available.",
+        estimatingCompletion: "Estimating completion time...", estimatedCompletion: "Estimated completion {time}",
         captchaLabel: "Verification", captchaPlaceholder: "Enter the text in the image", refreshCaptcha: "Choose Again", verifyCaptcha: "Verify", captchaVerified: "Verified",
         captchaLoadFailed: "Could not load verification image", captchaVerifyFailed: "Verification failed", captchaRequired: "Please complete verification first",
         creating: "Creating job", processing: "Processing",
@@ -320,6 +322,7 @@
         pageTitle: "Video Transcribe", audioTool: "音声文字起こし", urlLabel: "YouTube/小紅書/抖音 URL", ignoreSubtitles: "内蔵字幕を無視", start: "開始",
         waiting: "URL を入力してください", resultTitle: "文字起こし結果", segmentUnit: "件", downloadAll: "文字起こしをダウンロード", downloadSrt: "SRT 字幕をダウンロード", downloadChapters: "チャプターをダウンロード", nextTranscription: "次の文字起こし",
         emptyState: "進捗がここに表示されます", progressWaiting: "開始待ち", progressDetail: "動画の長さを取得後、進捗が表示されます。",
+        estimatingCompletion: "完了時刻を計算しています...", estimatedCompletion: "完了予定 {time}",
         captchaLabel: "認証コード", captchaPlaceholder: "画像内の文字を入力", refreshCaptcha: "選び直す", verifyCaptcha: "認証", captchaVerified: "認証完了",
         captchaLoadFailed: "認証画像を取得できませんでした", captchaVerifyFailed: "認証に失敗しました", captchaRequired: "先に認証を完了してください",
         creating: "ジョブを作成中", processing: "処理中",
@@ -331,6 +334,7 @@
         pageTitle: "Video Transcribe", audioTool: "오디오 전사", urlLabel: "YouTube/小紅書/抖音 URL", ignoreSubtitles: "내장 자막 무시", start: "시작",
         waiting: "URL 입력 대기 중", resultTitle: "전사 결과", segmentUnit: "개", downloadAll: "전사 텍스트 다운로드", downloadSrt: "SRT 자막 다운로드", downloadChapters: "챕터 다운로드", nextTranscription: "다음 전사",
         emptyState: "진행률이 여기에 표시됩니다", progressWaiting: "시작 대기 중", progressDetail: "영상 길이를 가져오면 진행률이 표시됩니다.",
+        estimatingCompletion: "완료 시간을 계산하는 중...", estimatedCompletion: "예상 완료 시간 {time}",
         captchaLabel: "인증 코드", captchaPlaceholder: "이미지의 문자를 입력하세요", refreshCaptcha: "다시 선택", verifyCaptcha: "인증", captchaVerified: "인증 완료",
         captchaLoadFailed: "인증 이미지를 불러오지 못했습니다", captchaVerifyFailed: "인증에 실패했습니다", captchaRequired: "먼저 인증을 완료해 주세요",
         creating: "작업 생성 중", processing: "처리 중",
@@ -442,9 +446,23 @@
     }
 
     function updateProgressFromSegment(data) {
-      if (!totalDuration || !data.end) return;
-      const percent = (Number(data.end) / totalDuration) * 100;
+      if (!totalDuration || data.end === null || data.end === undefined) return;
+      const serverPercent = Number(data.progress_percent);
+      const percent = Number.isFinite(serverPercent)
+        ? serverPercent
+        : (Number(data.end) / totalDuration) * 100;
       setProgress(percent, t("processing"));
+      if (Object.prototype.hasOwnProperty.call(data, "estimated_completion_at")) {
+        if (data.estimated_completion_at) {
+          const completionTime = new Intl.DateTimeFormat(currentLanguage, {
+            hour: "2-digit",
+            minute: "2-digit",
+          }).format(new Date(data.estimated_completion_at));
+          progressDetail.textContent = t("estimatedCompletion").replace("{time}", completionTime);
+        } else {
+          progressDetail.textContent = t("estimatingCompletion");
+        }
+      }
     }
 
     function addSegment(data) {
@@ -688,6 +706,7 @@
         eventSource.addEventListener("done", () => {
           setTranscriptionActive(false);
           setProgress(100, t("done"));
+          progressDetail.textContent = t("done");
           downloadAll.disabled = !fullText;
           downloadAll.classList.toggle("d-none", !fullText);
           downloadSrt.disabled = !srtSegments.length;

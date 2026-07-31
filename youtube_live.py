@@ -4,6 +4,7 @@ import logging
 import secrets
 import tempfile
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -28,6 +29,8 @@ logger = logging.getLogger(__name__)
 
 YOUTUBE_LIVE_JOB_TTL_SECONDS = 3600
 YOUTUBE_LIVE_EVENT_TIMEOUT_SECONDS = 30
+ETA_MIN_ELAPSED_SECONDS = 10
+ETA_MIN_PROCESSED_SECONDS = 30
 
 
 class YoutubeLiveRequest(BaseModel):
@@ -52,6 +55,57 @@ def segment_payload(
         "start": start,
         "end": end,
         "text": text.strip(),
+    }
+
+
+def transcription_progress_payload(
+    audio_duration: float,
+    processed_seconds: float,
+    elapsed_seconds: float,
+    current_timestamp: Optional[float] = None,
+) -> dict[str, Any]:
+    duration = max(0.0, float(audio_duration or 0.0))
+    processed = max(0.0, float(processed_seconds or 0.0))
+    elapsed = max(0.0, float(elapsed_seconds or 0.0))
+    progress_percent = (
+        min(100.0, processed / duration * 100)
+        if duration > 0
+        else 0.0
+    )
+    processing_speed = processed / elapsed if elapsed > 0 and processed > 0 else None
+    remaining_seconds: Optional[float] = None
+    completion_at: Optional[str] = None
+
+    if (
+        duration > 0
+        and processing_speed is not None
+        and elapsed >= ETA_MIN_ELAPSED_SECONDS
+        and processed >= ETA_MIN_PROCESSED_SECONDS
+    ):
+        remaining_seconds = max(0.0, duration - processed) / processing_speed
+        completion_timestamp = (
+            current_timestamp if current_timestamp is not None else time.time()
+        ) + remaining_seconds
+        completion_at = (
+            datetime.fromtimestamp(completion_timestamp, timezone.utc)
+            .isoformat(timespec="seconds")
+            .replace("+00:00", "Z")
+        )
+
+    return {
+        "progress_percent": round(progress_percent, 2),
+        "elapsed_seconds": round(elapsed, 3),
+        "processing_speed_x": (
+            round(processing_speed, 3)
+            if processing_speed is not None
+            else None
+        ),
+        "estimated_remaining_seconds": (
+            round(remaining_seconds, 1)
+            if remaining_seconds is not None
+            else None
+        ),
+        "estimated_completion_at": completion_at,
     }
 
 
@@ -130,17 +184,25 @@ def transcribe_audio_stream(
             if not text:
                 continue
             content_parts.append(text)
+            payload = segment_payload(
+                segment_count,
+                segment.start,
+                segment.end,
+                text,
+            )
+            payload.update(
+                transcription_progress_payload(
+                    audio_duration,
+                    float(segment.end or 0.0),
+                    time.perf_counter() - started_at,
+                )
+            )
             put_thread_event(
                 loop,
                 queue,
                 {
                     "event": "segment",
-                    "data": segment_payload(
-                        segment_count,
-                        segment.start,
-                        segment.end,
-                        text,
-                    ),
+                    "data": payload,
                 },
             )
 
