@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 import secrets
 import tempfile
 import time
@@ -8,8 +9,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import HTMLResponse, StreamingResponse
+import aiohttp
+from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
 from text_converter import to_traditional_chinese
@@ -31,6 +33,14 @@ YOUTUBE_LIVE_JOB_TTL_SECONDS = 3600
 YOUTUBE_LIVE_EVENT_TIMEOUT_SECONDS = 30
 ETA_MIN_ELAPSED_SECONDS = 10
 ETA_MIN_PROCESSED_SECONDS = 30
+TRANSLATE_API_BASE = os.getenv(
+    "TRANSLATE_API_BASE",
+    "https://translate.audio-io.com",
+).rstrip("/")
+TRANSLATE_API_TIMEOUT_SECONDS = float(
+    os.getenv("TRANSLATE_API_TIMEOUT_SECONDS", "150")
+)
+TRANSLATE_PROXY_MAX_BODY_BYTES = 128 * 1024
 
 
 class YoutubeLiveRequest(BaseModel):
@@ -49,12 +59,14 @@ def segment_payload(
     start: Optional[float],
     end: Optional[float],
     text: str,
+    language: Optional[str] = None,
 ) -> dict[str, Any]:
     return {
         "index": index,
         "start": start,
         "end": end,
         "text": text.strip(),
+        "language": language,
     }
 
 
@@ -189,6 +201,7 @@ def transcribe_audio_stream(
                 segment.start,
                 segment.end,
                 text,
+                detected_language,
             )
             payload.update(
                 transcription_progress_payload(
@@ -249,6 +262,8 @@ def transcribe_audio_stream(
 def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_token=None) -> APIRouter:
     router = APIRouter()
     page_path = project_root / "pages" / "youtube_live.html"
+    translate_page_path = project_root / "pages" / "youtube_live_translate.html"
+    translate_script_path = project_root / "pages" / "youtube_live_translate.js"
     cookies_file = project_root / "cookies.txt"
     jobs: dict[str, dict[str, Any]] = {}
 
@@ -311,6 +326,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                             segment["start"],
                             segment["end"],
                             text,
+                            subtitle_track["language"],
                         ),
                     )
                     await asyncio.sleep(0)
@@ -361,6 +377,17 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
     def youtube_live_page():
         return HTMLResponse(page_path.read_text(encoding="utf-8"))
 
+    @router.get("/youtube-live-translate", include_in_schema=False)
+    def youtube_live_translate_page():
+        return HTMLResponse(translate_page_path.read_text(encoding="utf-8"))
+
+    @router.get("/youtube-live-translate.js", include_in_schema=False)
+    def youtube_live_translate_script():
+        return Response(
+            translate_script_path.read_text(encoding="utf-8"),
+            media_type="application/javascript",
+        )
+
     @router.post("/api/youtube-live/jobs", tags=["YouTube Live"])
     async def create_youtube_live_job(request: YoutubeLiveRequest):
         cleanup_youtube_live_jobs(jobs)
@@ -375,6 +402,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             "url": url,
             "language_hint": request.language.strip() or None,
             "ignore_subtitles": request.ignore_subtitles,
+            "translation_token": secrets.token_urlsafe(32),
             "status": "queued",
             "queue": asyncio.Queue(),
             "created_at": time.time(),
@@ -394,8 +422,180 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         return {
             "job_id": job_id,
             "events_url": f"/api/youtube-live/jobs/{job_id}/events",
+            "translation_token": jobs[job_id]["translation_token"],
             "status": "queued",
         }
+
+    @router.post(
+        "/api/youtube-live/translate-batch",
+        tags=["YouTube Live Translation"],
+        summary="代理字幕批次翻譯請求",
+        description=(
+            "供即時翻譯驗證頁面使用。需要建立 YouTube job 時取得的短效 "
+            "X-Translation-Token，JSON 內容會原樣轉送至翻譯服務。"
+        ),
+        responses={
+            400: {"description": "JSON 或 Content-Length 無效"},
+            401: {"description": "翻譯權杖無效或過期"},
+            403: {"description": "request_id 與 YouTube job 不相符"},
+            413: {"description": "請求超過 128 KiB"},
+            415: {"description": "Content-Type 不是 application/json"},
+            502: {"description": "無法連線至翻譯服務"},
+            504: {"description": "翻譯服務逾時"},
+        },
+        openapi_extra={
+            "requestBody": {
+                "required": True,
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": [
+                                "request_id",
+                                "source_language",
+                                "target_language",
+                                "segments",
+                            ],
+                            "properties": {
+                                "request_id": {"type": "string"},
+                                "source_language": {
+                                    "type": "string",
+                                    "enum": ["en", "ja", "zh-TW"],
+                                },
+                                "target_language": {
+                                    "type": "string",
+                                    "enum": ["en", "ja", "zh-TW"],
+                                },
+                                "prompt_version": {
+                                    "type": "string",
+                                    "default": "subtitle-v1",
+                                },
+                                "context_segments": {
+                                    "type": "array",
+                                    "maxItems": 5,
+                                    "items": {
+                                        "type": "object",
+                                        "required": [
+                                            "id",
+                                            "source_text",
+                                            "translated_text",
+                                        ],
+                                    },
+                                },
+                                "segments": {
+                                    "type": "array",
+                                    "minItems": 1,
+                                    "maxItems": 40,
+                                    "items": {
+                                        "type": "object",
+                                        "required": ["id", "text"],
+                                    },
+                                },
+                            },
+                        }
+                    }
+                },
+            }
+        },
+    )
+    async def translate_batch_proxy(
+        request: Request,
+        translation_token: str = Header(
+            ...,
+            alias="X-Translation-Token",
+            description="建立 YouTube job 時取得的短效翻譯權杖",
+        ),
+    ):
+        cleanup_youtube_live_jobs(jobs)
+        content_type = request.headers.get("content-type", "")
+        if content_type.split(";", 1)[0].strip().lower() != "application/json":
+            raise HTTPException(status_code=415, detail="只接受 application/json")
+
+        content_length = request.headers.get("content-length")
+        if content_length:
+            try:
+                if int(content_length) > TRANSLATE_PROXY_MAX_BODY_BYTES:
+                    raise HTTPException(status_code=413, detail="翻譯請求不可超過 128 KiB")
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Content-Length 無效")
+
+        body = await request.body()
+        if len(body) > TRANSLATE_PROXY_MAX_BODY_BYTES:
+            raise HTTPException(status_code=413, detail="翻譯請求不可超過 128 KiB")
+        try:
+            payload = json.loads(body)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise HTTPException(status_code=400, detail="JSON 格式無效") from exc
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail="JSON 根節點必須是物件")
+
+        authorized_job_id = None
+        for candidate_id, job in jobs.items():
+            expected_token = str(job.get("translation_token") or "")
+            if expected_token and secrets.compare_digest(translation_token, expected_token):
+                authorized_job_id = candidate_id
+                break
+        if authorized_job_id is None:
+            raise HTTPException(status_code=401, detail="翻譯權杖無效或已過期")
+
+        request_id = str(payload.get("request_id") or "")
+        if not request_id.startswith(f"youtube-{authorized_job_id}-"):
+            raise HTTPException(status_code=403, detail="request_id 與 YouTube job 不相符")
+
+        upstream_url = f"{TRANSLATE_API_BASE}/api/v1/subtitles/translate"
+        timeout = aiohttp.ClientTimeout(total=TRANSLATE_API_TIMEOUT_SECONDS)
+        started_at = time.perf_counter()
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(
+                    upstream_url,
+                    data=body,
+                    headers={
+                        "Accept": "application/json",
+                        "Content-Type": "application/json",
+                    },
+                ) as upstream_response:
+                    response_body = await upstream_response.read()
+                    response_content_type = upstream_response.headers.get(
+                        "Content-Type",
+                        "application/json",
+                    )
+                    logger.info(
+                        "Translation proxy completed: job_id=%s status=%d "
+                        "request_bytes=%d response_bytes=%d elapsed=%.3fs",
+                        authorized_job_id,
+                        upstream_response.status,
+                        len(body),
+                        len(response_body),
+                        time.perf_counter() - started_at,
+                    )
+                    return Response(
+                        content=response_body,
+                        status_code=upstream_response.status,
+                        headers={"Content-Type": response_content_type},
+                    )
+        except asyncio.TimeoutError:
+            return JSONResponse(
+                status_code=504,
+                content={
+                    "detail": "翻譯服務逾時",
+                    "retryable": True,
+                },
+            )
+        except aiohttp.ClientError:
+            logger.exception(
+                "Translation proxy failed: job_id=%s elapsed=%.3fs",
+                authorized_job_id,
+                time.perf_counter() - started_at,
+            )
+            return JSONResponse(
+                status_code=502,
+                content={
+                    "detail": "無法連線至翻譯服務",
+                    "retryable": True,
+                },
+            )
 
     @router.get("/api/youtube-live/jobs/{job_id}/events", tags=["YouTube Live"])
     async def youtube_live_events(job_id: str):

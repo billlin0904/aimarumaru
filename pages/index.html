@@ -130,6 +130,9 @@
           <li class="nav-item" role="presentation">
             <button class="nav-link" type="button" data-tool-tab="youtube" data-i18n="tabYoutube">Video Transcribe</button>
           </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" type="button" data-tool-tab="translate" data-i18n="tabTranslate">即時翻譯</button>
+          </li>
         </ul>
         <div class="language-switch ms-lg-auto">
           <label class="form-label small text-secondary mb-0" for="languageSelect" data-i18n="languageSwitch">語系</label>
@@ -241,6 +244,9 @@
         <section id="youtubePanel" class="tool-panel d-none">
           <iframe id="youtubeFrame" class="youtube-frame" title="Video Transcribe" loading="lazy" scrolling="no"></iframe>
         </section>
+        <section id="translatePanel" class="tool-panel d-none">
+          <iframe id="translateFrame" class="youtube-frame" title="即時翻譯" loading="lazy" scrolling="no"></iframe>
+        </section>
         <p class="small text-secondary text-center mt-4 mb-0" data-i18n="accuracyNotice">轉譯結果可能包含辨識誤差，請在使用前檢查文字是否正確。</p>
       </div>
     </div>
@@ -282,6 +288,8 @@
     const audioPanel = document.getElementById("audioPanel");
     const youtubePanel = document.getElementById("youtubePanel");
     const youtubeFrame = document.getElementById("youtubeFrame");
+    const translatePanel = document.getElementById("translatePanel");
+    const translateFrame = document.getElementById("translateFrame");
     const mainNavbar = document.getElementById("mainNavbar");
 
     const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -290,10 +298,11 @@
     let latestResultText = "";
     let audioTranscriptionActive = false;
     let youtubeTranscriptionActive = false;
+    let translationActive = false;
     let captchaEnabled = true;
     const translations = {
       "zh-Hant": {
-        pageTitle: "音訊轉譯工具", badge: "Audio IO", languageSwitch: "語系", tabAudio: "音訊轉文字", tabYoutube: "Video Transcribe", headline: "音訊轉文字",
+        pageTitle: "音訊轉譯工具", badge: "Audio IO", languageSwitch: "語系", tabAudio: "音訊轉文字", tabYoutube: "Video Transcribe", tabTranslate: "即時翻譯", headline: "音訊轉文字",
         subtitle: "上傳音訊，選擇格式，完成後下載結果。", fileHelp: "支援常見音訊檔案。", outputFormat: "輸出格式",
         formatTxt: "TXT 純文字", formatSrt: "SRT 字幕", formatLrc: "LRC 歌詞時間軸", formatJson: "JSON 分段資料",
         vocalSeparation: "人聲分離", vocalSeparationHelp: "進階選項，會增加處理時間與記憶體使用量；建議音訊低於 6 分鐘以下才開啟。",
@@ -316,7 +325,7 @@
         leaveWarning: "轉譯仍在進行中，離開頁面可能會中斷等待結果。"
       },
       en: {
-        pageTitle: "Audio Transcription Tool", badge: "Audio IO", languageSwitch: "Language", tabAudio: "Audio to Text", tabYoutube: "Video Transcribe", headline: "Audio to Text",
+        pageTitle: "Audio Transcription Tool", badge: "Audio IO", languageSwitch: "Language", tabAudio: "Audio to Text", tabYoutube: "Video Transcribe", tabTranslate: "Live Translate", headline: "Audio to Text",
         subtitle: "Upload audio, choose an output format, and download the result.", fileHelp: "Common audio files are supported.",
         outputFormat: "Output Format", formatTxt: "TXT Plain Text", formatSrt: "SRT Subtitles", formatLrc: "LRC Timed Lyrics",
         formatJson: "JSON Segments",
@@ -342,7 +351,7 @@
         leaveWarning: "Transcription is still running. Leaving this page may interrupt waiting for the result."
       },
       ja: {
-        pageTitle: "音声文字起こしツール", badge: "Audio IO", languageSwitch: "言語", tabAudio: "音声をテキストへ", tabYoutube: "Video Transcribe", headline: "音声をテキストへ",
+        pageTitle: "音声文字起こしツール", badge: "Audio IO", languageSwitch: "言語", tabAudio: "音声をテキストへ", tabYoutube: "Video Transcribe", tabTranslate: "リアルタイム翻訳", headline: "音声をテキストへ",
         subtitle: "音声をアップロードし、形式を選んで、完了後に結果をダウンロードできます。", fileHelp: "一般的な音声ファイルに対応しています。",
         outputFormat: "出力形式", formatTxt: "TXT プレーンテキスト", formatSrt: "SRT 字幕", formatLrc: "LRC タイムライン歌詞",
         formatJson: "JSON セグメント",
@@ -368,7 +377,7 @@
         leaveWarning: "文字起こしがまだ進行中です。ページを離れると結果待ちが中断される可能性があります。"
       },
       ko: {
-        pageTitle: "오디오 전사 도구", badge: "Audio IO", languageSwitch: "언어", tabAudio: "오디오를 텍스트로", tabYoutube: "Video Transcribe", headline: "오디오를 텍스트로",
+        pageTitle: "오디오 전사 도구", badge: "Audio IO", languageSwitch: "언어", tabAudio: "오디오를 텍스트로", tabYoutube: "Video Transcribe", tabTranslate: "실시간 번역", headline: "오디오를 텍스트로",
         subtitle: "오디오를 업로드하고 형식을 선택하면 완료 후 결과를 다운로드할 수 있습니다.", fileHelp: "일반적인 오디오 파일을 지원합니다.",
         outputFormat: "출력 형식", formatTxt: "TXT 일반 텍스트", formatSrt: "SRT 자막", formatLrc: "LRC 타임라인 가사",
         formatJson: "JSON 세그먼트",
@@ -416,6 +425,9 @@
         element.setAttribute("alt", t(element.dataset.i18nAlt));
       });
       syncYoutubeFrameLanguage();
+      syncTranslateFrameLanguage();
+      youtubeFrame.title = t("tabYoutube");
+      translateFrame.title = t("tabTranslate");
     }
 
     function youtubeFrameUrl() {
@@ -429,20 +441,39 @@
       youtubeFrame.src = youtubeFrameUrl();
     }
 
+    function translateFrameUrl() {
+      return `/youtube-live-translate?embedded=1&lang=${encodeURIComponent(currentLanguage)}`;
+    }
+
+    function syncTranslateFrameLanguage() {
+      if (!translateFrame || translateFrame.dataset.loaded !== "true") return;
+      if (translateFrame.dataset.lang === currentLanguage) return;
+      translateFrame.dataset.lang = currentLanguage;
+      translateFrame.src = translateFrameUrl();
+    }
+
     function switchTool(tool) {
-      const activeTool = tool === "youtube" ? "youtube" : "audio";
+      const activeTool = ["youtube", "translate"].includes(tool) ? tool : "audio";
       localStorage.setItem(activeToolStorageKey, activeTool);
       tabButtons.forEach(button => {
         button.classList.toggle("active", button.dataset.toolTab === activeTool);
       });
       audioPanel.classList.toggle("d-none", activeTool !== "audio");
       youtubePanel.classList.toggle("d-none", activeTool !== "youtube");
+      translatePanel.classList.toggle("d-none", activeTool !== "translate");
       if (activeTool === "youtube" && youtubeFrame.dataset.loaded !== "true") {
         youtubeFrame.dataset.loaded = "true";
         youtubeFrame.dataset.lang = currentLanguage;
         youtubeFrame.src = youtubeFrameUrl();
       } else if (activeTool === "youtube") {
         syncYoutubeFrameLanguage();
+      }
+      if (activeTool === "translate" && translateFrame.dataset.loaded !== "true") {
+        translateFrame.dataset.loaded = "true";
+        translateFrame.dataset.lang = currentLanguage;
+        translateFrame.src = translateFrameUrl();
+      } else if (activeTool === "translate") {
+        syncTranslateFrameLanguage();
       }
       const navbarCollapse = window.bootstrap && mainNavbar ? window.bootstrap.Collapse.getInstance(mainNavbar) : null;
       if (navbarCollapse) navbarCollapse.hide();
@@ -452,15 +483,25 @@
       if (event.origin !== window.location.origin) return;
       if (event.data?.type === "youtube-live-height") {
         const height = Math.max(360, Number(event.data.height) || 0);
-        youtubeFrame.style.height = `${height}px`;
+        if (event.source === youtubeFrame.contentWindow) {
+          youtubeFrame.style.height = `${height}px`;
+        }
+        if (event.source === translateFrame.contentWindow) {
+          translateFrame.style.height = `${height}px`;
+        }
       }
       if (event.data?.type === "youtube-live-busy") {
-        youtubeTranscriptionActive = Boolean(event.data.active);
+        if (event.source === youtubeFrame.contentWindow) {
+          youtubeTranscriptionActive = Boolean(event.data.active);
+        }
+        if (event.source === translateFrame.contentWindow) {
+          translationActive = Boolean(event.data.active);
+        }
       }
     });
 
     window.addEventListener("beforeunload", event => {
-      if (!audioTranscriptionActive && !youtubeTranscriptionActive) return;
+      if (!audioTranscriptionActive && !youtubeTranscriptionActive && !translationActive) return;
       event.preventDefault();
       event.returnValue = t("leaveWarning");
       return event.returnValue;

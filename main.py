@@ -79,7 +79,12 @@ app.add_middleware(
     allow_origin_regex=CORS_ORIGIN_REGEX,
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Accept", "Content-Type", "Last-Event-ID"],
+    allow_headers=[
+        "Accept",
+        "Content-Type",
+        "Last-Event-ID",
+        "X-Translation-Token",
+    ],
     expose_headers=["Content-Disposition"],
 )
 app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)

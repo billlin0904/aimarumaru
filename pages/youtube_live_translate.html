@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Video Translate</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;800&family=Noto+Sans+JP:wght@400;500;700;800&family=Noto+Sans+KR:wght@400;500;700;800&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    :root {
+      --ink: #172033;
+      --muted: #667085;
+      --line: #d8dee8;
+      --soft: #f5f7fb;
+      --brand: #1463ff;
+      --translation: #087e8b;
+      --danger: #c4322b;
+    }
+    body {
+      min-height: 100vh;
+      margin: 0;
+      background: linear-gradient(180deg, #f8faff 0%, #eef2f8 100%);
+      color: var(--ink);
+      font-family: "Noto Sans TC", "Noto Sans JP", "Noto Sans KR", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+    .shell {
+      width: min(1120px, 100%);
+      margin: 0 auto;
+      padding: 40px 20px 64px;
+    }
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 26px;
+    }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--ink);
+      font-size: 1.05rem;
+      font-weight: 800;
+      text-decoration: none;
+    }
+    .brand-mark {
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      background: var(--brand);
+      display: grid;
+      place-items: center;
+      box-shadow: 0 14px 34px rgba(20, 99, 255, .24);
+    }
+    .brand-mark img { width: 22px; height: 22px; }
+    .panel {
+      background: rgba(255, 255, 255, .94);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: 0 22px 60px rgba(32, 42, 68, .08);
+    }
+    .workspace-panel { overflow: hidden; }
+    .input-panel { padding: 22px; }
+    .result-panel { border-top: 1px solid var(--line); }
+    .form-control,
+    .form-select,
+    .btn { border-radius: 8px; }
+    .btn-primary {
+      background: var(--brand);
+      border-color: var(--brand);
+      font-weight: 700;
+    }
+    .status-strip {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 34px;
+      color: var(--muted);
+    }
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      flex: 0 0 10px;
+      border-radius: 50%;
+      background: #9aa4b2;
+    }
+    .status-dot.running {
+      background: #12b76a;
+      box-shadow: 0 0 0 6px rgba(18, 183, 106, .14);
+    }
+    .status-dot.failed { background: #f04438; }
+    .video-meta {
+      border-top: 1px solid var(--line);
+      padding-top: 18px;
+      color: var(--muted);
+    }
+    .captcha-panel {
+      margin-top: 18px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f8fafc;
+    }
+    .video-preview {
+      margin-top: 22px;
+      padding-top: 20px;
+      border-top: 1px solid var(--line);
+    }
+    .video-preview-frame {
+      overflow: hidden;
+      border-radius: 8px;
+      background: #000;
+    }
+    .video-preview iframe {
+      width: 100%;
+      height: 100%;
+      border: 0;
+    }
+    .captcha-img {
+      width: min(220px, 100%);
+      aspect-ratio: 16 / 9;
+      object-fit: contain;
+      background: #fff;
+    }
+    .result-head {
+      padding: 18px 20px;
+      border-bottom: 1px solid var(--line);
+    }
+    .progress-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 24px;
+      padding: 20px;
+      border-bottom: 1px solid var(--line);
+    }
+    .progress-block {
+      display: grid;
+      gap: 10px;
+      min-width: 0;
+    }
+    .progress { height: 10px; }
+    .translation-progress .progress-bar { background: var(--translation); }
+    .segment-list {
+      display: grid;
+      gap: 12px;
+      padding: 18px;
+      max-height: min(60vh, 620px);
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      scroll-behavior: smooth;
+      scrollbar-gutter: stable;
+    }
+    .segment-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background: #fff;
+      transition: border-color .2s ease, box-shadow .2s ease;
+    }
+    .segment-card.active {
+      border-color: var(--brand);
+      box-shadow: 0 0 0 3px rgba(20, 99, 255, .12);
+    }
+    .segment-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 14px;
+      border-bottom: 1px solid #e8ecf2;
+      background: #f8fafc;
+      color: var(--muted);
+      font-size: .82rem;
+      font-weight: 700;
+    }
+    .segment-time {
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      cursor: pointer;
+    }
+    .segment-time:hover,
+    .segment-time:focus-visible {
+      color: var(--brand);
+      text-decoration: underline;
+    }
+    .segment-copy {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .copy-column {
+      min-width: 0;
+      padding: 14px;
+    }
+    .copy-column + .copy-column { border-top: 1px solid #e8ecf2; }
+    .copy-label {
+      margin-bottom: 7px;
+      color: var(--muted);
+      font-size: .75rem;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+    .translation-column .copy-label,
+    .translation-text.ready { color: var(--translation); }
+    .copy-text {
+      margin: 0;
+      line-height: 1.7;
+      overflow-wrap: anywhere;
+      white-space: pre-wrap;
+    }
+    .translation-text.pending { color: #8a94a6; }
+    .translation-text.failed { color: var(--danger); }
+    .empty-state {
+      min-height: 220px;
+      display: grid;
+      place-items: center;
+      padding: 30px;
+      color: var(--muted);
+      text-align: center;
+    }
+    .action-bar {
+      padding: 18px 20px;
+      border-top: 1px solid var(--line);
+      background: #fbfcfe;
+    }
+    .site-footer a {
+      color: #5f6b7a;
+      text-decoration: none;
+    }
+    .site-footer a:hover {
+      color: var(--brand);
+      text-decoration: underline;
+    }
+    body.embedded { background: transparent; }
+    body.embedded .shell {
+      width: 100%;
+      padding: 0;
+    }
+    body.embedded .topbar,
+    body.embedded .site-footer { display: none; }
+    body.embedded .panel { box-shadow: none; }
+    @media (max-width: 720px) {
+      .shell { padding: 24px 12px 48px; }
+      .topbar {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+      .input-panel { padding: 16px; }
+      .progress-grid { grid-template-columns: 1fr; }
+      .segment-list { max-height: 56vh; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="topbar">
+      <a class="brand" href="/youtube-live-translate">
+        <span class="brand-mark"><img src="/favicon.svg" alt=""></span>
+        <span data-i18n="pageTitle">Video Translate</span>
+      </a>
+      <a class="btn btn-outline-secondary btn-sm" href="/youtube-live" data-i18n="transcribeOnly">僅轉譯</a>
+    </div>
+
+    <section class="panel workspace-panel">
+      <div class="input-panel">
+      <form id="translateForm" class="row g-3 align-items-end">
+        <div class="col-12">
+          <label class="form-label fw-semibold" for="youtubeUrl" data-i18n="urlLabel">YouTube 網址</label>
+          <input id="youtubeUrl" class="form-control form-control-lg" type="url" placeholder="https://www.youtube.com/watch?v=..." required>
+          <div class="form-check mt-3">
+            <input id="ignoreSubtitles" class="form-check-input" type="checkbox">
+            <label class="form-check-label" for="ignoreSubtitles" data-i18n="ignoreSubtitles">忽略內建字幕</label>
+          </div>
+        </div>
+        <div class="col-12 col-md-5">
+          <label class="form-label fw-semibold" for="sourceLanguage" data-i18n="sourceLanguage">原文語言</label>
+          <select id="sourceLanguage" class="form-select form-select-lg">
+            <option value="" data-i18n="autoDetect">自動偵測</option>
+            <option value="en" data-i18n="languageEnglish">英文</option>
+            <option value="ja" data-i18n="languageJapanese">日文</option>
+            <option value="zh-TW" data-i18n="languageTraditionalChinese">繁體中文</option>
+          </select>
+        </div>
+        <div class="col-12 col-md-5">
+          <label class="form-label fw-semibold" for="targetLanguage" data-i18n="targetLanguage">翻譯目標語言</label>
+          <select id="targetLanguage" class="form-select form-select-lg">
+            <option value="zh-TW" data-i18n="languageTraditionalChinese">繁體中文</option>
+            <option value="en" data-i18n="languageEnglish">英文</option>
+            <option value="ja" data-i18n="languageJapanese">日文</option>
+          </select>
+        </div>
+        <div class="col-12 col-md-2 d-grid">
+          <button id="startBtn" class="btn btn-primary btn-lg" type="submit" data-i18n="start">開始轉譯並翻譯</button>
+        </div>
+      </form>
+
+      <div id="videoPreview" class="video-preview d-none">
+        <div class="fw-bold mb-3" data-i18n="videoPreview">影片預覽</div>
+        <div class="video-preview-frame ratio ratio-16x9">
+          <div id="youtubePlayer"></div>
+        </div>
+      </div>
+
+      <div id="captchaBlock" class="captcha-panel d-none">
+        <label class="form-label fw-semibold" for="captchaAnswer" data-i18n="captchaLabel">驗證碼</label>
+        <div class="border rounded-3 p-3 bg-white text-center shadow-sm">
+          <img id="captchaImage" class="captcha-img rounded border" alt="驗證碼" data-i18n-alt="captchaLabel">
+        </div>
+        <input id="captchaId" type="hidden">
+        <input id="captchaToken" type="hidden">
+        <div class="mt-3">
+          <input id="captchaAnswer" class="form-control form-control-lg" autocomplete="off" data-i18n-placeholder="captchaPlaceholder">
+        </div>
+        <div class="d-grid d-sm-flex justify-content-center gap-3 mt-3">
+          <button id="refreshCaptcha" class="btn btn-outline-secondary btn-lg px-4" type="button" data-i18n="refreshCaptcha">重新選擇</button>
+          <button id="verifyCaptcha" class="btn btn-dark btn-lg px-4" type="button" data-i18n="verifyCaptcha">驗證</button>
+        </div>
+        <div id="captchaStatus" class="small text-success mt-2 d-none" data-i18n="captchaVerified">驗證完成</div>
+      </div>
+
+      <div class="status-strip mt-4">
+        <span id="statusDot" class="status-dot"></span>
+        <span id="statusText" data-i18n="waiting">等待輸入網址</span>
+      </div>
+
+      <div id="videoMeta" class="video-meta mt-3 d-none">
+        <div class="fw-bold text-dark" id="videoTitle"></div>
+        <div class="small mt-1" id="videoDetail"></div>
+      </div>
+      </div>
+
+      <div class="result-panel">
+      <div class="result-head d-flex flex-wrap align-items-center justify-content-between gap-2">
+        <h1 class="h5 mb-0" data-i18n="resultTitle">即時字幕</h1>
+        <span id="segmentCount" class="small text-secondary">0</span>
+      </div>
+
+      <div id="progressGrid" class="progress-grid d-none">
+        <div class="progress-block">
+          <div class="d-flex justify-content-between gap-3">
+            <span class="fw-bold" data-i18n="transcriptionProgress">轉譯進度</span>
+            <span id="transcriptionPercent" class="text-secondary fw-semibold">0%</span>
+          </div>
+          <div class="progress" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+            <div id="transcriptionBar" class="progress-bar progress-bar-striped progress-bar-animated" style="width: 0%"></div>
+          </div>
+          <div id="transcriptionDetail" class="small text-secondary" data-i18n="progressDetail">取得影片長度後會顯示轉譯進度。</div>
+        </div>
+        <div class="progress-block translation-progress">
+          <div class="d-flex justify-content-between gap-3">
+            <span class="fw-bold" data-i18n="translationProgress">翻譯進度</span>
+            <span id="translationPercent" class="text-secondary fw-semibold">—</span>
+          </div>
+          <div class="progress" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+            <div id="translationBar" class="progress-bar progress-bar-striped progress-bar-animated" style="width: 0%"></div>
+          </div>
+          <div id="translationDetail" class="small text-secondary" data-i18n="translationWaiting">等待轉譯內容。</div>
+        </div>
+      </div>
+
+      <div id="segmentList" class="segment-list">
+        <div id="emptyState" class="empty-state" data-i18n="emptyState">原文與譯文會一段一段顯示在這裡。</div>
+      </div>
+
+      <div id="actionBar" class="action-bar d-none">
+        <div class="d-grid d-lg-flex justify-content-center gap-2">
+          <button id="downloadSourceSrt" class="btn btn-outline-primary" type="button" data-i18n="downloadSourceSrt">下載原始 SRT</button>
+          <button id="downloadTranslatedSrt" class="btn btn-outline-primary" type="button" data-i18n="downloadTranslatedSrt">下載翻譯 SRT</button>
+          <button id="downloadBilingualSrt" class="btn btn-primary" type="button" data-i18n="downloadBilingualSrt">下載雙語 SRT</button>
+          <button id="downloadSegmentsJson" class="btn btn-outline-secondary" type="button" data-i18n="downloadJson">下載 segments JSON</button>
+          <button id="nextTranscription" class="btn btn-outline-secondary" type="button" data-i18n="nextTranscription">下一個轉譯內容</button>
+        </div>
+      </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer container pb-5">
+    <div class="d-flex flex-wrap align-items-center justify-content-center gap-3 small">
+      <a href="/about" data-i18n="about">關於我們</a>
+      <a href="/privacy" data-i18n="privacy">隱私權政策</a>
+      <a href="/terms" data-i18n="terms">使用條款</a>
+      <a href="/contact" data-i18n="contact">聯絡我們</a>
+    </div>
+  </footer>
+
+  <script src="/youtube-live-translate.js" defer></script>
+</body>
+</html>
