@@ -7,7 +7,10 @@ const sourceLanguage = document.getElementById("sourceLanguage");
 const targetLanguage = document.getElementById("targetLanguage");
 const startBtn = document.getElementById("startBtn");
 const videoPreview = document.getElementById("videoPreview");
-const videoPreviewFrame = videoPreview.querySelector(".video-preview-frame");
+const videoPlayerLayer = document.getElementById("videoPlayerLayer");
+const videoSubtitleOverlay = document.getElementById("videoSubtitleOverlay");
+const videoSubtitleSource = document.getElementById("videoSubtitleSource");
+const videoSubtitleTranslation = document.getElementById("videoSubtitleTranslation");
 const statusDot = document.getElementById("statusDot");
 const statusText = document.getElementById("statusText");
 const videoMeta = document.getElementById("videoMeta");
@@ -239,6 +242,32 @@ function stopPlaybackSync() {
   playbackSyncEnabled = false;
   activePlaybackSegmentId = null;
   document.querySelector(".segment-card.active")?.classList.remove("active");
+  clearVideoSubtitleOverlay();
+}
+
+function clearVideoSubtitleOverlay() {
+  videoSubtitleSource.textContent = "";
+  videoSubtitleTranslation.textContent = "";
+  videoSubtitleSource.classList.remove("d-none");
+  videoSubtitleOverlay.classList.add("d-none");
+}
+
+function updateVideoSubtitleOverlay(segment) {
+  const translatedText = segment
+    ? translatedSegments.get(segment.id)?.translatedText
+    : "";
+  if (!segment || !translatedText) {
+    clearVideoSubtitleOverlay();
+    return;
+  }
+
+  videoSubtitleSource.textContent = segment.sourceText;
+  videoSubtitleTranslation.textContent = translatedText;
+  videoSubtitleSource.classList.toggle(
+    "d-none",
+    segment.sourceText.trim() === translatedText.trim(),
+  );
+  videoSubtitleOverlay.classList.remove("d-none");
 }
 
 function resetVideoPlayerMount() {
@@ -249,11 +278,11 @@ function resetVideoPlayerMount() {
     } catch (_) {}
   }
   youtubePlayerController = null;
-  videoPreviewFrame.replaceChildren();
+  videoPlayerLayer.replaceChildren();
   const mount = document.createElement("div");
   mount.id = "youtubePlayer";
   mount.setAttribute("title", t("videoPreview"));
-  videoPreviewFrame.append(mount);
+  videoPlayerLayer.append(mount);
   return mount;
 }
 
@@ -272,6 +301,7 @@ function playbackSegmentAt(seconds) {
 }
 
 function focusPlaybackSegment(segment) {
+  updateVideoSubtitleOverlay(segment);
   const nextId = segment?.id || null;
   if (nextId === activePlaybackSegmentId) return;
   if (activePlaybackSegmentId) {
@@ -460,6 +490,7 @@ function resetView() {
   sameLanguageNoticeShown = false;
   unsupportedLanguageNotice = "";
   activePlaybackSegmentId = null;
+  clearVideoSubtitleOverlay();
   setTranscriptionActive(false);
   setTranslationActive(false);
   segmentList.replaceChildren(emptyState);
