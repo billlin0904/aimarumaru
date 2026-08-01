@@ -465,7 +465,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                                 "request_id": {"type": "string"},
                                 "source_language": {
                                     "type": "string",
-                                    "enum": ["en", "ja", "zh-TW"],
+                                    "enum": ["en", "ja", "ko", "zh-TW"],
                                 },
                                 "target_language": {
                                     "type": "string",

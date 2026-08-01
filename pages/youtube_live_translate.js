@@ -58,7 +58,7 @@ const translations = {
   "zh-Hant": {
     pageTitle: "Video Translate", transcribeOnly: "僅轉譯", urlLabel: "YouTube 網址", ignoreSubtitles: "忽略內建字幕",
     videoPreview: "影片預覽", subtitleWaiting: "字幕完成後會顯示在這裡",
-    sourceLanguage: "原文語言", targetLanguage: "翻譯目標語言", autoDetect: "自動偵測", languageEnglish: "英文", languageJapanese: "日文", languageTraditionalChinese: "繁體中文",
+    sourceLanguage: "原文語言", targetLanguage: "翻譯目標語言", autoDetect: "自動偵測", languageEnglish: "英文", languageJapanese: "日文", languageKorean: "韓文", languageTraditionalChinese: "繁體中文",
     start: "開始轉譯並翻譯", waiting: "等待輸入網址", creating: "建立任務中", processing: "處理中", done: "轉譯與翻譯完成", partialDone: "處理完成，部分翻譯失敗", failed: "處理失敗", disconnected: "連線中斷", requestFailed: "請求失敗",
     resultTitle: "即時字幕", emptyState: "原文與譯文會一段一段顯示在這裡。", segmentUnit: "段", sourceText: "原文", translatedText: "翻譯", translationPending: "正在等待翻譯…", translationFailed: "翻譯失敗", retryTranslation: "重新翻譯",
     transcriptionProgress: "轉譯進度", translationProgress: "翻譯進度", progressDetail: "取得影片長度後會顯示轉譯進度。", translationWaiting: "等待轉譯內容。", estimatingCompletion: "正在估算完成時間…", estimatedCompletion: "預計完成時間 {time}", durationPrefix: "長度", seconds: "秒",
@@ -70,7 +70,7 @@ const translations = {
   en: {
     pageTitle: "Video Translate", transcribeOnly: "Transcribe only", urlLabel: "YouTube URL", ignoreSubtitles: "Ignore built-in subtitles",
     videoPreview: "Video preview", subtitleWaiting: "Subtitles will appear here when ready",
-    sourceLanguage: "Source language", targetLanguage: "Target language", autoDetect: "Auto detect", languageEnglish: "English", languageJapanese: "Japanese", languageTraditionalChinese: "Traditional Chinese",
+    sourceLanguage: "Source language", targetLanguage: "Target language", autoDetect: "Auto detect", languageEnglish: "English", languageJapanese: "Japanese", languageKorean: "Korean", languageTraditionalChinese: "Traditional Chinese",
     start: "Transcribe and translate", waiting: "Waiting for a URL", creating: "Creating job", processing: "Processing", done: "Transcription and translation complete", partialDone: "Complete with some translation failures", failed: "Processing failed", disconnected: "Connection interrupted", requestFailed: "Request failed",
     resultTitle: "Live subtitles", emptyState: "Source text and translation will appear here segment by segment.", segmentUnit: "segments", sourceText: "Source", translatedText: "Translation", translationPending: "Waiting for translation…", translationFailed: "Translation failed", retryTranslation: "Retry",
     transcriptionProgress: "Transcription", translationProgress: "Translation", progressDetail: "Progress appears after the video duration is available.", translationWaiting: "Waiting for transcription.", estimatingCompletion: "Estimating completion time…", estimatedCompletion: "Estimated completion {time}", durationPrefix: "Duration", seconds: "sec",
@@ -82,7 +82,7 @@ const translations = {
   ja: {
     pageTitle: "Video Translate", transcribeOnly: "文字起こしのみ", urlLabel: "YouTube URL", ignoreSubtitles: "内蔵字幕を無視",
     videoPreview: "動画プレビュー", subtitleWaiting: "字幕の準備ができるとここに表示されます",
-    sourceLanguage: "原文の言語", targetLanguage: "翻訳先の言語", autoDetect: "自動検出", languageEnglish: "英語", languageJapanese: "日本語", languageTraditionalChinese: "繁体字中国語",
+    sourceLanguage: "原文の言語", targetLanguage: "翻訳先の言語", autoDetect: "自動検出", languageEnglish: "英語", languageJapanese: "日本語", languageKorean: "韓国語", languageTraditionalChinese: "繁体字中国語",
     start: "文字起こしと翻訳を開始", waiting: "URL を入力してください", creating: "ジョブを作成中", processing: "処理中", done: "文字起こしと翻訳が完了しました", partialDone: "一部の翻訳に失敗しました", failed: "処理に失敗しました", disconnected: "接続が切断されました", requestFailed: "リクエストに失敗しました",
     resultTitle: "リアルタイム字幕", emptyState: "原文と翻訳が順番に表示されます。", segmentUnit: "件", sourceText: "原文", translatedText: "翻訳", translationPending: "翻訳待ち…", translationFailed: "翻訳に失敗しました", retryTranslation: "再翻訳",
     transcriptionProgress: "文字起こしの進捗", translationProgress: "翻訳の進捗", progressDetail: "動画の長さを取得後、進捗が表示されます。", translationWaiting: "文字起こしを待っています。", estimatingCompletion: "完了時刻を計算中…", estimatedCompletion: "完了予定 {time}", durationPrefix: "長さ", seconds: "秒",
@@ -94,7 +94,7 @@ const translations = {
   ko: {
     pageTitle: "Video Translate", transcribeOnly: "전사만", urlLabel: "YouTube URL", ignoreSubtitles: "내장 자막 무시",
     videoPreview: "동영상 미리보기", subtitleWaiting: "자막이 준비되면 여기에 표시됩니다",
-    sourceLanguage: "원문 언어", targetLanguage: "번역 언어", autoDetect: "자동 감지", languageEnglish: "영어", languageJapanese: "일본어", languageTraditionalChinese: "번체 중국어",
+    sourceLanguage: "원문 언어", targetLanguage: "번역 언어", autoDetect: "자동 감지", languageEnglish: "영어", languageJapanese: "일본어", languageKorean: "한국어", languageTraditionalChinese: "번체 중국어",
     start: "전사 및 번역 시작", waiting: "URL 입력 대기 중", creating: "작업 생성 중", processing: "처리 중", done: "전사 및 번역 완료", partialDone: "일부 번역 실패와 함께 완료", failed: "처리 실패", disconnected: "연결이 끊겼습니다", requestFailed: "요청 실패",
     resultTitle: "실시간 자막", emptyState: "원문과 번역이 구간별로 표시됩니다.", segmentUnit: "개", sourceText: "원문", translatedText: "번역", translationPending: "번역 대기 중…", translationFailed: "번역 실패", retryTranslation: "다시 번역",
     transcriptionProgress: "전사 진행률", translationProgress: "번역 진행률", progressDetail: "영상 길이를 가져오면 진행률이 표시됩니다.", translationWaiting: "전사 내용을 기다리는 중입니다.", estimatingCompletion: "완료 시간을 계산하는 중…", estimatedCompletion: "예상 완료 시간 {time}", durationPrefix: "길이", seconds: "초",
@@ -416,6 +416,7 @@ function normalizeTranslationLanguage(language) {
   const value = String(language || "").toLowerCase();
   if (value.startsWith("en")) return "en";
   if (value.startsWith("ja")) return "ja";
+  if (value.startsWith("ko")) return "ko";
   if (value.startsWith("zh")) return "zh-TW";
   return null;
 }
