@@ -246,11 +246,11 @@ function stopPlaybackSync() {
   clearVideoSubtitleOverlay();
 }
 
-function clearVideoSubtitleOverlay() {
+function clearVideoSubtitleOverlay(showWaiting = true) {
   videoSubtitleSource.textContent = "";
-  videoSubtitleTranslation.textContent = t("subtitleWaiting");
+  videoSubtitleTranslation.textContent = showWaiting ? t("subtitleWaiting") : "";
   videoSubtitleSource.classList.add("d-none");
-  videoSubtitleOverlay.classList.add("waiting");
+  videoSubtitleOverlay.classList.toggle("waiting", showWaiting);
   videoSubtitleOverlay.classList.remove("error");
 }
 
@@ -273,7 +273,11 @@ function updateVideoSubtitleOverlay(segment) {
   const translatedText = segment
     ? translatedSegments.get(segment.id)?.translatedText
     : "";
-  if (!segment || !translatedText) {
+  if (!segment) {
+    clearVideoSubtitleOverlay(false);
+    return;
+  }
+  if (!translatedText) {
     clearVideoSubtitleOverlay();
     return;
   }
