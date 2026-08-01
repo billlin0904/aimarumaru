@@ -379,13 +379,17 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
 
     @router.get("/youtube-live-translate", include_in_schema=False)
     def youtube_live_translate_page():
-        return HTMLResponse(translate_page_path.read_text(encoding="utf-8"))
+        return HTMLResponse(
+            translate_page_path.read_text(encoding="utf-8"),
+            headers={"Cache-Control": "no-store, max-age=0"},
+        )
 
     @router.get("/youtube-live-translate.js", include_in_schema=False)
     def youtube_live_translate_script():
         return Response(
             translate_script_path.read_text(encoding="utf-8"),
             media_type="application/javascript",
+            headers={"Cache-Control": "no-store, max-age=0"},
         )
 
     @router.post("/api/youtube-live/jobs", tags=["YouTube Live"])

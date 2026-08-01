@@ -112,10 +112,14 @@
       border-top: 1px solid var(--line);
     }
     .video-preview-frame {
-      position: relative;
-      aspect-ratio: 16 / 9;
       overflow: hidden;
       border-radius: 8px;
+      background: #000;
+    }
+    .video-player-viewport {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
       background: #000;
     }
     .video-player-layer {
@@ -129,24 +133,20 @@
       border: 0;
     }
     .video-subtitle-overlay {
-      position: absolute;
-      right: 5%;
-      bottom: 9%;
-      left: 5%;
-      z-index: 2;
-      display: grid;
-      justify-items: center;
+      min-height: 104px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
       gap: 5px;
-      pointer-events: none;
+      padding: 16px 5%;
+      border-top: 1px solid rgba(255, 255, 255, .16);
+      background: #050505;
       text-align: center;
-      text-shadow: 0 2px 5px rgba(0, 0, 0, .95);
     }
-    .video-subtitle-overlay.d-none { display: none; }
     .video-subtitle-source,
     .video-subtitle-translation {
       max-width: 100%;
-      padding: 3px 8px;
-      background: rgba(0, 0, 0, .72);
       color: #fff;
       line-height: 1.45;
       overflow-wrap: anywhere;
@@ -155,6 +155,11 @@
     .video-subtitle-translation {
       font-size: 1.08rem;
       font-weight: 700;
+    }
+    .video-subtitle-overlay.waiting .video-subtitle-translation {
+      color: #98a2b3;
+      font-size: .94rem;
+      font-weight: 500;
     }
     .captcha-img {
       width: min(220px, 100%);
@@ -339,12 +344,14 @@
       <div id="videoPreview" class="video-preview d-none">
         <div class="fw-bold mb-3" data-i18n="videoPreview">影片預覽</div>
         <div class="video-preview-frame">
-          <div id="videoPlayerLayer" class="video-player-layer">
-            <div id="youtubePlayer"></div>
+          <div class="video-player-viewport">
+            <div id="videoPlayerLayer" class="video-player-layer">
+              <div id="youtubePlayer"></div>
+            </div>
           </div>
-          <div id="videoSubtitleOverlay" class="video-subtitle-overlay d-none" aria-live="off">
+          <div id="videoSubtitleOverlay" class="video-subtitle-overlay waiting" aria-live="polite">
             <div id="videoSubtitleSource" class="video-subtitle-source"></div>
-            <div id="videoSubtitleTranslation" class="video-subtitle-translation"></div>
+            <div id="videoSubtitleTranslation" class="video-subtitle-translation" data-i18n="subtitleWaiting">字幕完成後會顯示在這裡</div>
           </div>
         </div>
       </div>
@@ -432,6 +439,6 @@
     </div>
   </footer>
 
-  <script src="/youtube-live-translate.js" defer></script>
+  <script src="/youtube-live-translate.js?v=20260801-1" defer></script>
 </body>
 </html>
