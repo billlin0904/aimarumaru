@@ -62,7 +62,7 @@ const translations = {
     start: "開始轉譯並翻譯", waiting: "等待輸入網址", creating: "建立任務中", processing: "處理中", done: "轉譯與翻譯完成", partialDone: "處理完成，部分翻譯失敗", failed: "處理失敗", disconnected: "連線中斷", requestFailed: "請求失敗",
     resultTitle: "即時字幕", emptyState: "原文與譯文會一段一段顯示在這裡。", segmentUnit: "段", sourceText: "原文", translatedText: "翻譯", translationPending: "正在等待翻譯…", translationFailed: "翻譯失敗", retryTranslation: "重新翻譯",
     transcriptionProgress: "轉譯進度", translationProgress: "翻譯進度", progressDetail: "取得影片長度後會顯示轉譯進度。", translationWaiting: "等待轉譯內容。", estimatingCompletion: "正在估算完成時間…", estimatedCompletion: "預計完成時間 {time}", durationPrefix: "長度", seconds: "秒",
-    translationCounts: "已翻譯 {translated} / 已收到 {received} 段 · 等待翻譯 {waiting} 段", translationPercentDone: "翻譯完成 {percent}% · 失敗 {failed} 段", sameLanguage: "原文與目標語言相同，已略過翻譯。", unsupportedLanguage: "目前翻譯服務不支援偵測到的語言：{language}",
+    translationCounts: "已翻譯 {translated} / 已收到 {received} 段 · 等待翻譯 {waiting} 段", translationPercentDone: "翻譯完成 {percent}% · 失敗 {failed} 段", translationErrorCodes: "錯誤碼 {codes}", sameLanguage: "原文與目標語言相同，已略過翻譯。", unsupportedLanguage: "目前翻譯服務不支援偵測到的語言：{language}",
     downloadSourceSrt: "下載原始 SRT", downloadTranslatedSrt: "下載翻譯 SRT", downloadBilingualSrt: "下載雙語 SRT", downloadJson: "下載 segments JSON", partialSuffix: "（部分完成）", partialDownloadWarning: "部分段落尚未翻譯，下載檔將以原文補位。是否繼續？", nextTranscription: "下一個轉譯內容",
     captchaLabel: "驗證碼", captchaPlaceholder: "輸入圖片中的文字", refreshCaptcha: "重新選擇", verifyCaptcha: "驗證", captchaVerified: "驗證完成", captchaLoadFailed: "取得驗證碼失敗", captchaVerifyFailed: "驗證失敗", captchaRequired: "請先完成驗證碼",
     translationServiceFailed: "翻譯服務暫時無法使用", invalidTranslation: "翻譯回應格式不正確", videoTitle: "YouTube 影片", about: "關於我們", privacy: "隱私權政策", terms: "使用條款", contact: "聯絡我們", leaveWarning: "轉譯或翻譯仍在進行中，確定要離開頁面嗎？"
@@ -74,7 +74,7 @@ const translations = {
     start: "Transcribe and translate", waiting: "Waiting for a URL", creating: "Creating job", processing: "Processing", done: "Transcription and translation complete", partialDone: "Complete with some translation failures", failed: "Processing failed", disconnected: "Connection interrupted", requestFailed: "Request failed",
     resultTitle: "Live subtitles", emptyState: "Source text and translation will appear here segment by segment.", segmentUnit: "segments", sourceText: "Source", translatedText: "Translation", translationPending: "Waiting for translation…", translationFailed: "Translation failed", retryTranslation: "Retry",
     transcriptionProgress: "Transcription", translationProgress: "Translation", progressDetail: "Progress appears after the video duration is available.", translationWaiting: "Waiting for transcription.", estimatingCompletion: "Estimating completion time…", estimatedCompletion: "Estimated completion {time}", durationPrefix: "Duration", seconds: "sec",
-    translationCounts: "Translated {translated} / {received} received · {waiting} waiting", translationPercentDone: "Translation {percent}% · {failed} failed", sameLanguage: "Source and target languages match. Translation was skipped.", unsupportedLanguage: "The translation service does not support the detected language: {language}",
+    translationCounts: "Translated {translated} / {received} received · {waiting} waiting", translationPercentDone: "Translation {percent}% · {failed} failed", translationErrorCodes: "Error code {codes}", sameLanguage: "Source and target languages match. Translation was skipped.", unsupportedLanguage: "The translation service does not support the detected language: {language}",
     downloadSourceSrt: "Download source SRT", downloadTranslatedSrt: "Download translated SRT", downloadBilingualSrt: "Download bilingual SRT", downloadJson: "Download segments JSON", partialSuffix: " (partial)", partialDownloadWarning: "Some segments are not translated. Source text will be used as fallback. Continue?", nextTranscription: "Next transcription",
     captchaLabel: "Verification", captchaPlaceholder: "Enter the text in the image", refreshCaptcha: "Choose again", verifyCaptcha: "Verify", captchaVerified: "Verified", captchaLoadFailed: "Could not load verification image", captchaVerifyFailed: "Verification failed", captchaRequired: "Please complete verification first",
     translationServiceFailed: "Translation service is temporarily unavailable", invalidTranslation: "The translation response is invalid", videoTitle: "YouTube video", about: "About", privacy: "Privacy", terms: "Terms", contact: "Contact", leaveWarning: "Transcription or translation is still running. Leave this page?"
@@ -86,7 +86,7 @@ const translations = {
     start: "文字起こしと翻訳を開始", waiting: "URL を入力してください", creating: "ジョブを作成中", processing: "処理中", done: "文字起こしと翻訳が完了しました", partialDone: "一部の翻訳に失敗しました", failed: "処理に失敗しました", disconnected: "接続が切断されました", requestFailed: "リクエストに失敗しました",
     resultTitle: "リアルタイム字幕", emptyState: "原文と翻訳が順番に表示されます。", segmentUnit: "件", sourceText: "原文", translatedText: "翻訳", translationPending: "翻訳待ち…", translationFailed: "翻訳に失敗しました", retryTranslation: "再翻訳",
     transcriptionProgress: "文字起こしの進捗", translationProgress: "翻訳の進捗", progressDetail: "動画の長さを取得後、進捗が表示されます。", translationWaiting: "文字起こしを待っています。", estimatingCompletion: "完了時刻を計算中…", estimatedCompletion: "完了予定 {time}", durationPrefix: "長さ", seconds: "秒",
-    translationCounts: "翻訳済み {translated} / 受信 {received} 件・待機 {waiting} 件", translationPercentDone: "翻訳 {percent}%・失敗 {failed} 件", sameLanguage: "原文と翻訳先が同じため、翻訳を省略しました。", unsupportedLanguage: "検出された言語は現在サポートされていません：{language}",
+    translationCounts: "翻訳済み {translated} / 受信 {received} 件・待機 {waiting} 件", translationPercentDone: "翻訳 {percent}%・失敗 {failed} 件", translationErrorCodes: "エラーコード {codes}", sameLanguage: "原文と翻訳先が同じため、翻訳を省略しました。", unsupportedLanguage: "検出された言語は現在サポートされていません：{language}",
     downloadSourceSrt: "原文 SRT をダウンロード", downloadTranslatedSrt: "翻訳 SRT をダウンロード", downloadBilingualSrt: "二言語 SRT をダウンロード", downloadJson: "segments JSON をダウンロード", partialSuffix: "（一部完了）", partialDownloadWarning: "未翻訳の区間は原文で補完されます。続行しますか？", nextTranscription: "次の文字起こし",
     captchaLabel: "認証コード", captchaPlaceholder: "画像内の文字を入力", refreshCaptcha: "選び直す", verifyCaptcha: "認証", captchaVerified: "認証完了", captchaLoadFailed: "認証画像を取得できませんでした", captchaVerifyFailed: "認証に失敗しました", captchaRequired: "先に認証を完了してください",
     translationServiceFailed: "翻訳サービスを利用できません", invalidTranslation: "翻訳レスポンスが不正です", videoTitle: "YouTube 動画", about: "私たちについて", privacy: "プライバシー", terms: "利用規約", contact: "お問い合わせ", leaveWarning: "文字起こしまたは翻訳が進行中です。ページを離れますか？"
@@ -98,7 +98,7 @@ const translations = {
     start: "전사 및 번역 시작", waiting: "URL 입력 대기 중", creating: "작업 생성 중", processing: "처리 중", done: "전사 및 번역 완료", partialDone: "일부 번역 실패와 함께 완료", failed: "처리 실패", disconnected: "연결이 끊겼습니다", requestFailed: "요청 실패",
     resultTitle: "실시간 자막", emptyState: "원문과 번역이 구간별로 표시됩니다.", segmentUnit: "개", sourceText: "원문", translatedText: "번역", translationPending: "번역 대기 중…", translationFailed: "번역 실패", retryTranslation: "다시 번역",
     transcriptionProgress: "전사 진행률", translationProgress: "번역 진행률", progressDetail: "영상 길이를 가져오면 진행률이 표시됩니다.", translationWaiting: "전사 내용을 기다리는 중입니다.", estimatingCompletion: "완료 시간을 계산하는 중…", estimatedCompletion: "예상 완료 시간 {time}", durationPrefix: "길이", seconds: "초",
-    translationCounts: "번역 {translated} / 수신 {received}개 · 대기 {waiting}개", translationPercentDone: "번역 {percent}% · 실패 {failed}개", sameLanguage: "원문과 대상 언어가 같아 번역을 건너뛰었습니다.", unsupportedLanguage: "감지된 언어는 현재 지원되지 않습니다: {language}",
+    translationCounts: "번역 {translated} / 수신 {received}개 · 대기 {waiting}개", translationPercentDone: "번역 {percent}% · 실패 {failed}개", translationErrorCodes: "오류 코드 {codes}", sameLanguage: "원문과 대상 언어가 같아 번역을 건너뛰었습니다.", unsupportedLanguage: "감지된 언어는 현재 지원되지 않습니다: {language}",
     downloadSourceSrt: "원문 SRT 다운로드", downloadTranslatedSrt: "번역 SRT 다운로드", downloadBilingualSrt: "이중 언어 SRT 다운로드", downloadJson: "segments JSON 다운로드", partialSuffix: " (일부 완료)", partialDownloadWarning: "번역되지 않은 구간은 원문으로 대체됩니다. 계속하시겠습니까?", nextTranscription: "다음 전사",
     captchaLabel: "인증 코드", captchaPlaceholder: "이미지의 문자를 입력하세요", refreshCaptcha: "다시 선택", verifyCaptcha: "인증", captchaVerified: "인증 완료", captchaLoadFailed: "인증 이미지를 불러오지 못했습니다", captchaVerifyFailed: "인증에 실패했습니다", captchaRequired: "먼저 인증을 완료해 주세요",
     translationServiceFailed: "번역 서비스를 일시적으로 사용할 수 없습니다", invalidTranslation: "번역 응답이 올바르지 않습니다", videoTitle: "YouTube 영상", about: "소개", privacy: "개인정보 처리방침", terms: "이용약관", contact: "문의", leaveWarning: "전사 또는 번역이 진행 중입니다. 페이지를 떠나시겠습니까?"
@@ -115,6 +115,7 @@ const sourceSegments = new Map();
 const translatedSegments = new Map();
 const segmentNodes = new Map();
 const failedSegmentIds = new Set();
+const translationFailureCodes = new Map();
 let pendingSegments = [];
 let eventSource = null;
 let translationQueue = Promise.resolve();
@@ -250,9 +251,25 @@ function clearVideoSubtitleOverlay() {
   videoSubtitleTranslation.textContent = t("subtitleWaiting");
   videoSubtitleSource.classList.add("d-none");
   videoSubtitleOverlay.classList.add("waiting");
+  videoSubtitleOverlay.classList.remove("error");
 }
 
 function updateVideoSubtitleOverlay(segment) {
+  const failureCode = segment
+    ? translationFailureCodes.get(segment.id)
+    : "";
+  if (segment && failureCode) {
+    videoSubtitleSource.textContent = "";
+    videoSubtitleSource.classList.add("d-none");
+    videoSubtitleTranslation.textContent = `${t("translationFailed")} · ${t(
+      "translationErrorCodes",
+      { codes: failureCode },
+    )}`;
+    videoSubtitleOverlay.classList.remove("waiting");
+    videoSubtitleOverlay.classList.add("error");
+    return;
+  }
+
   const translatedText = segment
     ? translatedSegments.get(segment.id)?.translatedText
     : "";
@@ -268,6 +285,7 @@ function updateVideoSubtitleOverlay(segment) {
     segment.sourceText.trim() === translatedText.trim(),
   );
   videoSubtitleOverlay.classList.remove("waiting");
+  videoSubtitleOverlay.classList.remove("error");
 }
 
 function resetVideoPlayerMount() {
@@ -290,7 +308,7 @@ function playbackSegmentAt(seconds) {
   for (const segment of sortedSourceSegments()) {
     if (segment.start > seconds) break;
     if (
-      translatedSegments.has(segment.id)
+      (translatedSegments.has(segment.id) || failedSegmentIds.has(segment.id))
       && seconds >= segment.start
       && seconds < segment.end
     ) {
@@ -477,6 +495,7 @@ function resetView() {
   translatedSegments.clear();
   segmentNodes.clear();
   failedSegmentIds.clear();
+  translationFailureCodes.clear();
   pendingSegments = [];
   translationQueue = Promise.resolve();
   queuedBatchCount = 0;
@@ -540,6 +559,27 @@ function unresolvedCount() {
   return Math.max(0, sourceSegments.size - translatedSegments.size - failedSegmentIds.size);
 }
 
+function translationErrorCode(error) {
+  const codes = [];
+  if (Number.isInteger(error?.status)) codes.push(`HTTP ${error.status}`);
+  if (error?.code) {
+    const code = String(error.code).trim();
+    if (code && !codes.includes(code)) codes.push(code);
+  }
+  return codes.join(" / ") || "TRANSLATION_ERROR";
+}
+
+function currentTranslationErrorCodes() {
+  return [...new Set(translationFailureCodes.values())].sort();
+}
+
+function appendTranslationErrorCodes(message) {
+  const codes = currentTranslationErrorCodes();
+  return codes.length > 0
+    ? `${message} · ${t("translationErrorCodes", { codes: codes.join(", ") })}`
+    : message;
+}
+
 function updateTranslationProgress() {
   const received = sourceSegments.size;
   const translated = translatedSegments.size;
@@ -550,15 +590,16 @@ function updateTranslationProgress() {
   if (transcriptionDone) {
     const rounded = Math.max(0, Math.min(100, Math.round(percent)));
     translationPercent.textContent = `${rounded}%`;
-    translationDetail.textContent = t("translationPercentDone", {
+    translationDetail.textContent = appendTranslationErrorCodes(t("translationPercentDone", {
       percent: rounded,
       failed,
-    });
+    }));
   } else {
     translationPercent.textContent = received > 0 ? `${translated}/${received}` : "—";
-    translationDetail.textContent = received > 0
+    const detail = received > 0
       ? t("translationCounts", { translated, received, waiting })
       : t("translationWaiting");
+    translationDetail.textContent = appendTranslationErrorCodes(detail);
   }
 
   translationBar.style.width = `${Math.max(0, Math.min(100, percent))}%`;
@@ -759,6 +800,7 @@ async function requestTranslation(payload) {
   } catch (error) {
     const wrapped = new Error(error.message || t("translationServiceFailed"));
     wrapped.retryable = true;
+    wrapped.code = "NETWORK_ERROR";
     throw wrapped;
   }
 
@@ -771,26 +813,39 @@ async function requestTranslation(payload) {
     const error = new Error(translationErrorMessage(data, t("translationServiceFailed")));
     error.retryable = responseIsRetryable(response, data);
     error.status = response.status;
+    const upstreamCode = data?.code
+      ?? data?.error_code
+      ?? data?.detail?.code
+      ?? data?.detail?.error_code;
+    if (upstreamCode !== undefined && upstreamCode !== null) {
+      error.code = String(upstreamCode);
+    }
     throw error;
   }
   return data;
 }
 
+function invalidTranslationResponseError() {
+  const error = new Error(t("invalidTranslation"));
+  error.code = "INVALID_RESPONSE";
+  return error;
+}
+
 function validateTranslationResponse(payload, data, batch) {
   if (!data || typeof data !== "object" || data.request_id !== payload.request_id) {
-    throw new Error(t("invalidTranslation"));
+    throw invalidTranslationResponseError();
   }
   if (!Array.isArray(data.translations) || data.translations.length !== batch.length) {
-    throw new Error(t("invalidTranslation"));
+    throw invalidTranslationResponseError();
   }
   const expectedIds = batch.map(segment => segment.id);
   const actualIds = data.translations.map(result => Number(result?.id));
   if (expectedIds.some((id, index) => id !== actualIds[index])) {
-    throw new Error(t("invalidTranslation"));
+    throw invalidTranslationResponseError();
   }
   for (const result of data.translations) {
     if (typeof result.translated_text !== "string" || !result.translated_text.trim()) {
-      throw new Error(t("invalidTranslation"));
+      throw invalidTranslationResponseError();
     }
   }
   return data.translations;
@@ -823,6 +878,7 @@ async function translateBatch(batch) {
           translatedText,
         });
         failedSegmentIds.delete(Number(result.id));
+        translationFailureCodes.delete(Number(result.id));
         showSegmentTranslation(Number(result.id), "ready", translatedText);
       }
       return;
@@ -833,8 +889,10 @@ async function translateBatch(batch) {
     }
   }
 
+  const failureCode = translationErrorCode(lastError);
   for (const segment of batch) {
     failedSegmentIds.add(segment.id);
+    translationFailureCodes.set(segment.id, failureCode);
     showSegmentTranslation(
       segment.id,
       "failed",
@@ -854,8 +912,10 @@ function enqueueTranslation(batch) {
       await translateBatch(batch);
     } catch (error) {
       console.error("Translation queue failed", error);
+      const failureCode = translationErrorCode(error);
       for (const segment of batch) {
         failedSegmentIds.add(segment.id);
+        translationFailureCodes.set(segment.id, failureCode);
         showSegmentTranslation(segment.id, "failed", error.message || t("translationFailed"));
       }
     } finally {
@@ -897,8 +957,9 @@ function addSegment(data) {
     const rawLanguage = segment.rawLanguage || "unknown";
     unsupportedLanguageNotice = t("unsupportedLanguage", { language: rawLanguage });
     failedSegmentIds.add(id);
+    translationFailureCodes.set(id, "UNSUPPORTED_LANGUAGE");
     showSegmentTranslation(id, "failed", unsupportedLanguageNotice);
-    setStatus(unsupportedLanguageNotice, "failed");
+    setStatus(appendTranslationErrorCodes(unsupportedLanguageNotice), "failed");
   } else if (normalizedLanguage === selectedTargetLanguage) {
     translatedSegments.set(id, { id, translatedText: sourceText });
     showSegmentTranslation(id, "ready", sourceText);
@@ -926,7 +987,7 @@ function maybeFinalize() {
   if (transcriptionFailed) {
     setStatus(t("failed"), "failed");
   } else if (hasFailures) {
-    setStatus(t("partialDone"), "failed");
+    setStatus(appendTranslationErrorCodes(t("partialDone")), "failed");
   } else {
     setStatus(t("done"), "idle");
   }
@@ -1050,6 +1111,7 @@ segmentList.addEventListener("click", event => {
   const segment = sourceSegments.get(segmentId);
   if (!segment || !segment.language) return;
   failedSegmentIds.delete(segmentId);
+  translationFailureCodes.delete(segmentId);
   translatedSegments.delete(segmentId);
   showSegmentTranslation(segmentId, "pending");
   setTranslationActive(true);
