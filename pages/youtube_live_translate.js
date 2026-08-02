@@ -6,6 +6,11 @@ const ignoreSubtitles = document.getElementById("ignoreSubtitles");
 const sourceLanguage = document.getElementById("sourceLanguage");
 const targetLanguage = document.getElementById("targetLanguage");
 const startBtn = document.getElementById("startBtn");
+const languageConfirmation = document.getElementById("languageConfirmation");
+const detectedLanguageTitle = document.getElementById("detectedLanguageTitle");
+const languageConfidence = document.getElementById("languageConfidence");
+const confirmedSourceLanguage = document.getElementById("confirmedSourceLanguage");
+const confirmLanguageBtn = document.getElementById("confirmLanguageBtn");
 const videoPreview = document.getElementById("videoPreview");
 const videoPlayerLayer = document.getElementById("videoPlayerLayer");
 const videoSubtitleOverlay = document.getElementById("videoSubtitleOverlay");
@@ -16,6 +21,7 @@ const statusText = document.getElementById("statusText");
 const videoMeta = document.getElementById("videoMeta");
 const videoTitle = document.getElementById("videoTitle");
 const videoDetail = document.getElementById("videoDetail");
+const resultPanel = document.getElementById("resultPanel");
 const progressGrid = document.getElementById("progressGrid");
 const transcriptionPercent = document.getElementById("transcriptionPercent");
 const transcriptionBar = document.getElementById("transcriptionBar");
@@ -59,7 +65,8 @@ const translations = {
     pageTitle: "Video Translate", transcribeOnly: "僅轉譯", urlLabel: "YouTube 網址", ignoreSubtitles: "忽略內建字幕",
     videoPreview: "影片預覽", subtitleWaiting: "字幕完成後會顯示在這裡",
     sourceLanguage: "原文語言", targetLanguage: "翻譯目標語言", autoDetect: "自動偵測", languageEnglish: "英文", languageJapanese: "日文", languageKorean: "韓文", languageThai: "泰文", languageTraditionalChinese: "繁體中文",
-    start: "開始轉譯並翻譯", waiting: "等待輸入網址", creating: "建立任務中", processing: "處理中", done: "轉譯與翻譯完成", partialDone: "處理完成，部分翻譯失敗", failed: "處理失敗", disconnected: "連線中斷", requestFailed: "請求失敗",
+    start: "開始轉譯並翻譯", detectLanguage: "偵測語言", waiting: "等待輸入網址", creating: "建立任務中", processing: "處理中", done: "轉譯與翻譯完成", partialDone: "處理完成，部分翻譯失敗", failed: "處理失敗", disconnected: "連線中斷", requestFailed: "請求失敗",
+    detectedLanguageLabel: "偵測結果", detectedLanguageValue: "偵測為 {language}", confirmSourceLanguage: "確認原文語言", confirmAndStart: "確認並開始", confirmDetectedLanguage: "請確認原文語言後再開始轉譯", confirmingLanguage: "正在送出語言選擇", confidence: "偵測信心 {percent}%", subtitleLanguageSource: "來自 YouTube 字幕語言", unknownLanguage: "未知語言",
     resultTitle: "即時字幕", emptyState: "原文與譯文會一段一段顯示在這裡。", segmentUnit: "段", sourceText: "原文", translatedText: "翻譯", translationPending: "正在等待翻譯…", translationFailed: "翻譯失敗", retryTranslation: "重新翻譯",
     transcriptionProgress: "轉譯進度", translationProgress: "翻譯進度", progressDetail: "取得影片長度後會顯示轉譯進度。", translationWaiting: "等待轉譯內容。", estimatingCompletion: "正在估算完成時間…", estimatedCompletion: "預計完成時間 {time}", durationPrefix: "長度", seconds: "秒",
     translationCounts: "已翻譯 {translated} / 已收到 {received} 段 · 等待翻譯 {waiting} 段", translationPercentDone: "翻譯完成 {percent}% · 失敗 {failed} 段", translationErrorCodes: "錯誤碼 {codes}", sameLanguage: "原文與目標語言相同，已略過翻譯。", unsupportedLanguage: "目前翻譯服務不支援偵測到的語言：{language}",
@@ -71,7 +78,8 @@ const translations = {
     pageTitle: "Video Translate", transcribeOnly: "Transcribe only", urlLabel: "YouTube URL", ignoreSubtitles: "Ignore built-in subtitles",
     videoPreview: "Video preview", subtitleWaiting: "Subtitles will appear here when ready",
     sourceLanguage: "Source language", targetLanguage: "Target language", autoDetect: "Auto detect", languageEnglish: "English", languageJapanese: "Japanese", languageKorean: "Korean", languageThai: "Thai", languageTraditionalChinese: "Traditional Chinese",
-    start: "Transcribe and translate", waiting: "Waiting for a URL", creating: "Creating job", processing: "Processing", done: "Transcription and translation complete", partialDone: "Complete with some translation failures", failed: "Processing failed", disconnected: "Connection interrupted", requestFailed: "Request failed",
+    start: "Transcribe and translate", detectLanguage: "Detect language", waiting: "Waiting for a URL", creating: "Creating job", processing: "Processing", done: "Transcription and translation complete", partialDone: "Complete with some translation failures", failed: "Processing failed", disconnected: "Connection interrupted", requestFailed: "Request failed",
+    detectedLanguageLabel: "Detection result", detectedLanguageValue: "Detected as {language}", confirmSourceLanguage: "Confirm source language", confirmAndStart: "Confirm and start", confirmDetectedLanguage: "Confirm the source language to begin transcription", confirmingLanguage: "Submitting language selection", confidence: "Detection confidence {percent}%", subtitleLanguageSource: "From YouTube subtitle language", unknownLanguage: "Unknown language",
     resultTitle: "Live subtitles", emptyState: "Source text and translation will appear here segment by segment.", segmentUnit: "segments", sourceText: "Source", translatedText: "Translation", translationPending: "Waiting for translation…", translationFailed: "Translation failed", retryTranslation: "Retry",
     transcriptionProgress: "Transcription", translationProgress: "Translation", progressDetail: "Progress appears after the video duration is available.", translationWaiting: "Waiting for transcription.", estimatingCompletion: "Estimating completion time…", estimatedCompletion: "Estimated completion {time}", durationPrefix: "Duration", seconds: "sec",
     translationCounts: "Translated {translated} / {received} received · {waiting} waiting", translationPercentDone: "Translation {percent}% · {failed} failed", translationErrorCodes: "Error code {codes}", sameLanguage: "Source and target languages match. Translation was skipped.", unsupportedLanguage: "The translation service does not support the detected language: {language}",
@@ -83,7 +91,8 @@ const translations = {
     pageTitle: "Video Translate", transcribeOnly: "文字起こしのみ", urlLabel: "YouTube URL", ignoreSubtitles: "内蔵字幕を無視",
     videoPreview: "動画プレビュー", subtitleWaiting: "字幕の準備ができるとここに表示されます",
     sourceLanguage: "原文の言語", targetLanguage: "翻訳先の言語", autoDetect: "自動検出", languageEnglish: "英語", languageJapanese: "日本語", languageKorean: "韓国語", languageThai: "タイ語", languageTraditionalChinese: "繁体字中国語",
-    start: "文字起こしと翻訳を開始", waiting: "URL を入力してください", creating: "ジョブを作成中", processing: "処理中", done: "文字起こしと翻訳が完了しました", partialDone: "一部の翻訳に失敗しました", failed: "処理に失敗しました", disconnected: "接続が切断されました", requestFailed: "リクエストに失敗しました",
+    start: "文字起こしと翻訳を開始", detectLanguage: "言語を検出", waiting: "URL を入力してください", creating: "ジョブを作成中", processing: "処理中", done: "文字起こしと翻訳が完了しました", partialDone: "一部の翻訳に失敗しました", failed: "処理に失敗しました", disconnected: "接続が切断されました", requestFailed: "リクエストに失敗しました",
+    detectedLanguageLabel: "検出結果", detectedLanguageValue: "{language} として検出", confirmSourceLanguage: "原文の言語を確認", confirmAndStart: "確認して開始", confirmDetectedLanguage: "原文の言語を確認してから開始してください", confirmingLanguage: "言語設定を送信中", confidence: "検出の信頼度 {percent}%", subtitleLanguageSource: "YouTube 字幕の言語", unknownLanguage: "不明な言語",
     resultTitle: "リアルタイム字幕", emptyState: "原文と翻訳が順番に表示されます。", segmentUnit: "件", sourceText: "原文", translatedText: "翻訳", translationPending: "翻訳待ち…", translationFailed: "翻訳に失敗しました", retryTranslation: "再翻訳",
     transcriptionProgress: "文字起こしの進捗", translationProgress: "翻訳の進捗", progressDetail: "動画の長さを取得後、進捗が表示されます。", translationWaiting: "文字起こしを待っています。", estimatingCompletion: "完了時刻を計算中…", estimatedCompletion: "完了予定 {time}", durationPrefix: "長さ", seconds: "秒",
     translationCounts: "翻訳済み {translated} / 受信 {received} 件・待機 {waiting} 件", translationPercentDone: "翻訳 {percent}%・失敗 {failed} 件", translationErrorCodes: "エラーコード {codes}", sameLanguage: "原文と翻訳先が同じため、翻訳を省略しました。", unsupportedLanguage: "検出された言語は現在サポートされていません：{language}",
@@ -95,7 +104,8 @@ const translations = {
     pageTitle: "Video Translate", transcribeOnly: "전사만", urlLabel: "YouTube URL", ignoreSubtitles: "내장 자막 무시",
     videoPreview: "동영상 미리보기", subtitleWaiting: "자막이 준비되면 여기에 표시됩니다",
     sourceLanguage: "원문 언어", targetLanguage: "번역 언어", autoDetect: "자동 감지", languageEnglish: "영어", languageJapanese: "일본어", languageKorean: "한국어", languageThai: "태국어", languageTraditionalChinese: "번체 중국어",
-    start: "전사 및 번역 시작", waiting: "URL 입력 대기 중", creating: "작업 생성 중", processing: "처리 중", done: "전사 및 번역 완료", partialDone: "일부 번역 실패와 함께 완료", failed: "처리 실패", disconnected: "연결이 끊겼습니다", requestFailed: "요청 실패",
+    start: "전사 및 번역 시작", detectLanguage: "언어 감지", waiting: "URL 입력 대기 중", creating: "작업 생성 중", processing: "처리 중", done: "전사 및 번역 완료", partialDone: "일부 번역 실패와 함께 완료", failed: "처리 실패", disconnected: "연결이 끊겼습니다", requestFailed: "요청 실패",
+    detectedLanguageLabel: "감지 결과", detectedLanguageValue: "{language}(으)로 감지", confirmSourceLanguage: "원문 언어 확인", confirmAndStart: "확인 후 시작", confirmDetectedLanguage: "원문 언어를 확인한 뒤 전사를 시작하세요", confirmingLanguage: "언어 선택을 전송하는 중", confidence: "감지 신뢰도 {percent}%", subtitleLanguageSource: "YouTube 자막 언어", unknownLanguage: "알 수 없는 언어",
     resultTitle: "실시간 자막", emptyState: "원문과 번역이 구간별로 표시됩니다.", segmentUnit: "개", sourceText: "원문", translatedText: "번역", translationPending: "번역 대기 중…", translationFailed: "번역 실패", retryTranslation: "다시 번역",
     transcriptionProgress: "전사 진행률", translationProgress: "번역 진행률", progressDetail: "영상 길이를 가져오면 진행률이 표시됩니다.", translationWaiting: "전사 내용을 기다리는 중입니다.", estimatingCompletion: "완료 시간을 계산하는 중…", estimatedCompletion: "예상 완료 시간 {time}", durationPrefix: "길이", seconds: "초",
     translationCounts: "번역 {translated} / 수신 {received}개 · 대기 {waiting}개", translationPercentDone: "번역 {percent}% · 실패 {failed}개", translationErrorCodes: "오류 코드 {codes}", sameLanguage: "원문과 대상 언어가 같아 번역을 건너뛰었습니다.", unsupportedLanguage: "감지된 언어는 현재 지원되지 않습니다: {language}",
@@ -142,6 +152,7 @@ let youtubePlayerController = null;
 let playbackSyncTimer = null;
 let playbackSyncEnabled = false;
 let activePlaybackSegmentId = null;
+let detectedLanguageData = null;
 
 function t(key, replacements = {}) {
   let value = translations[currentLanguage]?.[key]
@@ -169,6 +180,8 @@ function applyLanguage(languageKey) {
   });
   const playerFrame = document.getElementById("youtubePlayer");
   if (playerFrame) playerFrame.setAttribute("title", t("videoPreview"));
+  updateStartButton();
+  if (detectedLanguageData) showLanguageConfirmation(detectedLanguageData);
   updateTranslationProgress();
   updateActionButtons();
 }
@@ -426,6 +439,57 @@ function normalizeTranslationLanguage(language) {
   return null;
 }
 
+function languageName(language) {
+  const names = {
+    en: "languageEnglish",
+    ja: "languageJapanese",
+    ko: "languageKorean",
+    th: "languageThai",
+    "zh-TW": "languageTraditionalChinese",
+  };
+  return names[language] ? t(names[language]) : t("unknownLanguage");
+}
+
+function updateStartButton() {
+  startBtn.textContent = sourceLanguage.value ? t("start") : t("detectLanguage");
+}
+
+function revealResults() {
+  resultPanel.classList.remove("d-none");
+  notifyParentHeight();
+}
+
+function showLanguageConfirmation(data) {
+  detectedLanguageData = data;
+  const normalized = normalizeTranslationLanguage(data.language);
+  const displayLanguage = normalized
+    ? languageName(normalized)
+    : String(data.language || t("unknownLanguage"));
+  detectedLanguageTitle.textContent = t("detectedLanguageValue", { language: displayLanguage });
+  confirmedSourceLanguage.value = normalized || "";
+  confirmLanguageBtn.disabled = !normalized;
+
+  const hasProbability = data.language_probability !== null
+    && data.language_probability !== undefined
+    && data.language_probability !== "";
+  const probability = hasProbability ? Number(data.language_probability) : Number.NaN;
+  languageConfidence.classList.remove("medium", "low");
+  if (data.source === "youtube_subtitles") {
+    languageConfidence.textContent = t("subtitleLanguageSource");
+  } else if (Number.isFinite(probability)) {
+    const percent = Math.round(Math.max(0, Math.min(1, probability)) * 100);
+    languageConfidence.textContent = t("confidence", { percent });
+    if (percent < 60) languageConfidence.classList.add("low");
+    else if (percent < 80) languageConfidence.classList.add("medium");
+  } else {
+    languageConfidence.textContent = t("unknownLanguage");
+    languageConfidence.classList.add("low");
+  }
+  languageConfirmation.classList.remove("d-none");
+  setStatus(t("confirmDetectedLanguage"), "idle");
+  notifyParentHeight();
+}
+
 function setStatus(message, state = "idle") {
   statusText.textContent = message;
   statusDot.classList.toggle("running", state === "running");
@@ -509,6 +573,7 @@ function resetView() {
   currentJobId = "";
   currentTranslationToken = "";
   detectedSourceLanguage = "";
+  detectedLanguageData = null;
   totalDuration = 0;
   transcriptionDone = false;
   transcriptionFailed = false;
@@ -524,6 +589,8 @@ function resetView() {
   segmentCount.textContent = `0 ${t("segmentUnit")}`;
   progressGrid.classList.add("d-none");
   actionBar.classList.add("d-none");
+  languageConfirmation.classList.add("d-none");
+  resultPanel.classList.add("d-none");
   videoMeta.classList.add("d-none");
   videoTitle.textContent = "";
   videoDetail.textContent = "";
@@ -1237,6 +1304,7 @@ async function beginTranscription() {
   captchaBlock.classList.add("d-none");
   setTranscriptionActive(true);
   setStatus(t("creating"), "running");
+  if (requestedSourceLanguage) revealResults();
 
   const whisperLanguage = requestedSourceLanguage === "zh-TW"
     ? "zh"
@@ -1279,6 +1347,13 @@ async function beginTranscription() {
       videoMeta.classList.remove("d-none");
       progressGrid.classList.remove("d-none");
       notifyParentHeight();
+    });
+    eventSource.addEventListener("language_detected", event => {
+      try {
+        showLanguageConfirmation(JSON.parse(event.data || "{}"));
+      } catch (error) {
+        console.error("Could not process language detection", error);
+      }
     });
     eventSource.addEventListener("segment", event => {
       try {
@@ -1340,8 +1415,39 @@ async function beginTranscription() {
   }
 }
 
+confirmedSourceLanguage.addEventListener("change", () => {
+  confirmLanguageBtn.disabled = !confirmedSourceLanguage.value;
+});
+
+confirmLanguageBtn.addEventListener("click", async () => {
+  const language = confirmedSourceLanguage.value;
+  if (!language || !currentJobId || !currentTranslationToken) return;
+  confirmLanguageBtn.disabled = true;
+  setStatus(t("confirmingLanguage"), "running");
+  try {
+    const response = await fetch(`/api/youtube-live/jobs/${encodeURIComponent(currentJobId)}/language`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Translation-Token": currentTranslationToken,
+      },
+      body: JSON.stringify({ language }),
+    });
+    if (!response.ok) throw new Error(await readError(response));
+    requestedSourceLanguage = language;
+    detectedSourceLanguage = language;
+    languageConfirmation.classList.add("d-none");
+    revealResults();
+    setStatus(t("creating"), "running");
+  } catch (error) {
+    setStatus(error.message || t("requestFailed"), "failed");
+    confirmLanguageBtn.disabled = false;
+  }
+});
+
 youtubeUrl.addEventListener("input", scheduleVideoPreview);
 youtubeUrl.addEventListener("change", updateVideoPreview);
+sourceLanguage.addEventListener("change", updateStartButton);
 
 form.addEventListener("submit", async event => {
   event.preventDefault();

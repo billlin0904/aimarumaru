@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import secrets
+import shutil
 import tempfile
 import time
 from datetime import datetime, timezone
@@ -14,8 +15,14 @@ from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
+from app_logging import log_structured_event, set_request_log_metadata
 from text_converter import to_traditional_chinese
-from transcribe_queue import enqueue_transcribe_task, register_transcribe_cleanup, register_transcribe_handler
+from transcribe_queue import (
+    enqueue_transcribe_task,
+    get_transcribe_queue_counts,
+    register_transcribe_cleanup,
+    register_transcribe_handler,
+)
 from youtube_srt import (
     choose_subtitle_track,
     download_subtitle_content,
@@ -48,6 +55,10 @@ class YoutubeLiveRequest(BaseModel):
     language: str = ""
     captcha_token: str = ""
     ignore_subtitles: bool = False
+
+
+class YoutubeLanguageSelection(BaseModel):
+    language: str
 
 
 def sse_message(event: str, data: dict[str, Any]) -> str:
@@ -144,10 +155,31 @@ def cleanup_youtube_live_jobs(jobs: dict[str, dict[str, Any]]) -> None:
     expired_ids = [
         job_id
         for job_id, job in jobs.items()
-        if job.get("expires_at", 0) <= now and job.get("status") not in {"running", "queued"}
+        if job.get("expires_at", 0) <= now
+        and job.get("status") not in {"running", "queued", "queued_for_transcription"}
     ]
     for job_id in expired_ids:
-        jobs.pop(job_id, None)
+        job = jobs.pop(job_id, None)
+        if job:
+            if job.get("status") == "awaiting_language_confirmation":
+                queue = job.get("queue")
+                if queue is not None:
+                    queue.put_nowait(
+                        {
+                            "event": "failed",
+                            "data": {"message": "語言確認已逾時，請重新建立轉譯任務"},
+                        }
+                    )
+                    queue.put_nowait({"event": "close", "data": {}})
+            cleanup_youtube_live_job_artifacts(job)
+
+
+def cleanup_youtube_live_job_artifacts(job: dict[str, Any]) -> None:
+    work_dir = job.pop("work_dir", None)
+    job.pop("audio_path", None)
+    job.pop("subtitle_segments", None)
+    if work_dir:
+        shutil.rmtree(work_dir, ignore_errors=True)
 
 
 def readable_exception_message(exc: Exception) -> str:
@@ -168,6 +200,7 @@ def transcribe_audio_stream(
     language_hint: Optional[str],
     loop: asyncio.AbstractEventLoop,
     queue: asyncio.Queue[dict[str, Any]],
+    job_id: Optional[str] = None,
 ) -> dict[str, Any]:
     started_at = time.perf_counter()
     audio_duration = 0.0
@@ -175,8 +208,9 @@ def transcribe_audio_stream(
     segment_count = 0
     content_parts: list[str] = []
     logger.info(
-        "Whisper transcription started: beam_size=5 language_hint=%s "
+        "Whisper transcription started: job_id=%s beam_size=5 language_hint=%s "
         "temperature=0.0 condition_on_previous_text=false vad_filter=false",
+        job_id or "unknown",
         language_hint or "auto",
     )
 
@@ -231,9 +265,10 @@ def transcribe_audio_stream(
             else None
         )
         logger.info(
-            "Whisper transcription completed: "
+            "Whisper transcription completed: job_id=%s "
             "audio_duration=%.3fs elapsed=%.3fs real_time_factor=%s "
             "speed=%s segments=%d emitted_segments=%d language=%s",
+            job_id or "unknown",
             audio_duration,
             elapsed_seconds,
             f"{real_time_factor:.4f}" if real_time_factor is not None else "unknown",
@@ -247,14 +282,55 @@ def transcribe_audio_stream(
             "language_probability": getattr(info, "language_probability", None),
             "segments_count": segment_count,
             "content": "\n".join(content_parts),
+            "audio_duration_seconds": round(audio_duration, 3),
+            "transcription_elapsed_seconds": round(elapsed_seconds, 3),
+            "processing_speed_x": round(speed_ratio, 3) if speed_ratio is not None else None,
         }
     except Exception:
         logger.exception(
-            "Whisper transcription failed: elapsed=%.3fs segments=%d",
+            "Whisper transcription failed: job_id=%s elapsed=%.3fs segments=%d",
+            job_id or "unknown",
             time.perf_counter() - started_at,
             segment_count,
         )
         raise
+    finally:
+        auto2lrc.clear_model_cache()
+
+
+def detect_audio_language(
+    auto2lrc,
+    audio_path: Path,
+    job_id: Optional[str] = None,
+) -> dict[str, Any]:
+    logger.info(
+        "Whisper language detection started: job_id=%s",
+        job_id or "unknown",
+    )
+    started_at = time.perf_counter()
+    try:
+        segments, info = auto2lrc.transcribe(
+            str(audio_path),
+            beam_size=5,
+            language=None,
+        )
+        del segments
+        language = getattr(info, "language", None)
+        probability = getattr(info, "language_probability", None)
+        logger.info(
+            "Whisper language detection completed: job_id=%s language=%s "
+            "probability=%s elapsed=%.3fs",
+            job_id or "unknown",
+            language or "unknown",
+            f"{probability:.4f}" if probability is not None else "unknown",
+            time.perf_counter() - started_at,
+        )
+        return {
+            "language": language,
+            "language_probability": probability,
+            "duration": float(getattr(info, "duration", 0.0) or 0.0),
+            "detection_elapsed_seconds": round(time.perf_counter() - started_at, 3),
+        }
     finally:
         auto2lrc.clear_model_cache()
 
@@ -270,21 +346,137 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
     async def push_event(job: dict[str, Any], event: str, data: dict[str, Any]) -> None:
         await job["queue"].put({"event": event, "data": data})
 
+    async def emit_subtitle_segments(job: dict[str, Any]) -> dict[str, Any]:
+        segments = job.get("subtitle_segments") or []
+        source_language = job.get("language_hint") or job.get("detected_language")
+        content_parts: list[str] = []
+        emitted_count = 0
+        for segment in segments:
+            text = to_traditional_chinese(
+                segment["text"].strip(),
+                job.get("detected_language"),
+            )
+            if not text:
+                continue
+            emitted_count += 1
+            content_parts.append(text)
+            await push_event(
+                job,
+                "segment",
+                segment_payload(
+                    emitted_count,
+                    segment["start"],
+                    segment["end"],
+                    text,
+                    source_language,
+                ),
+            )
+            await asyncio.sleep(0)
+        return {
+            "source": job.get("subtitle_source", "subtitle"),
+            "language": source_language,
+            "language_probability": None,
+            "segments_count": emitted_count,
+            "content": "\n".join(content_parts),
+        }
+
     async def run_job(job_id: str) -> None:
         job = jobs.get(job_id)
         if not job:
             return
 
         queue: asyncio.Queue[dict[str, Any]] = job["queue"]
+        terminal = False
+        phase = "queued"
+        run_started = time.perf_counter()
+        queue_wait_ms = round(
+            max(0.0, run_started - float(job.get("queued_monotonic", run_started)))
+            * 1000
+        )
+        log_structured_event(
+            "video_job_started",
+            job_id=job_id,
+            job_status=job.get("status"),
+            phase=(
+                "transcription"
+                if job.get("status") == "queued_for_transcription"
+                else "preparation"
+            ),
+            queue_wait_ms=queue_wait_ms,
+            source_language=job.get("language_hint") or "auto",
+            ignore_subtitles=job.get("ignore_subtitles"),
+        )
         try:
+            if job.get("status") == "queued_for_transcription":
+                phase = "transcription"
+                job["status"] = "running"
+                await push_event(job, "status", {"message": "語言已確認，開始逐段轉譯"})
+                if job.get("prepared_source") == "subtitle":
+                    info = await emit_subtitle_segments(job)
+                else:
+                    audio_path = Path(str(job.get("audio_path") or ""))
+                    if not audio_path.is_file():
+                        raise RuntimeError("暫存音訊已失效，請重新建立轉譯任務")
+                    info = await asyncio.to_thread(
+                        transcribe_audio_stream,
+                        auto2lrc,
+                        audio_path,
+                        job.get("language_hint"),
+                        asyncio.get_running_loop(),
+                        queue,
+                        job_id,
+                    )
+                job["status"] = "done"
+                terminal = True
+                await push_event(job, "done", info)
+                log_structured_event(
+                    "video_job_completed",
+                    job_id=job_id,
+                    job_status="done",
+                    subtitle_source=info.get("source") or job.get("prepared_source"),
+                    source_language=info.get("language") or job.get("language_hint"),
+                    segments=info.get("segments_count"),
+                    audio_duration_seconds=info.get("audio_duration_seconds")
+                    or job.get("video_duration_seconds"),
+                    processing_speed_x=info.get("processing_speed_x"),
+                    run_elapsed_ms=round((time.perf_counter() - run_started) * 1000),
+                    total_elapsed_ms=round(
+                        (
+                            time.perf_counter()
+                            - float(job.get("created_monotonic", run_started))
+                        )
+                        * 1000
+                    ),
+                )
+                return
+
+            if job.get("status") != "queued":
+                return
+
             job["status"] = "running"
             if job["ignore_subtitles"]:
                 await push_event(job, "status", {"message": "已略過內建字幕，準備下載音訊"})
             else:
                 await push_event(job, "status", {"message": "檢查 YouTube 字幕中"})
 
-            video_info = await asyncio.to_thread(get_youtube_video_info, job["url"], cookies_file)
+            phase = "metadata"
+            metadata_started = time.perf_counter()
+            video_info = await asyncio.to_thread(
+                get_youtube_video_info,
+                job["url"],
+                cookies_file,
+            )
             chapters = chapter_payloads(video_info)
+            job["video_duration_seconds"] = float(video_info.get("duration") or 0.0)
+            log_structured_event(
+                "video_metadata_loaded",
+                job_id=job_id,
+                duration_seconds=job["video_duration_seconds"],
+                chapters=len(chapters),
+                metadata_elapsed_ms=round(
+                    (time.perf_counter() - metadata_started) * 1000
+                ),
+            )
             await push_event(
                 job,
                 "metadata",
@@ -298,6 +490,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
 
             subtitle_track = None if job["ignore_subtitles"] else choose_subtitle_track(video_info)
             if subtitle_track is not None:
+                phase = "subtitle_download"
                 await push_event(
                     job,
                     "status",
@@ -307,65 +500,189 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                         "language": subtitle_track["language"],
                     },
                 )
+                subtitle_started = time.perf_counter()
                 subtitle_content = await asyncio.to_thread(download_subtitle_content, subtitle_track["url"])
                 segments = parse_subtitle_content(subtitle_content, subtitle_track["extension"])
-                content_parts: list[str] = []
-                for index, segment in enumerate(segments, start=1):
-                    text = to_traditional_chinese(
-                        segment["text"].strip(),
-                        subtitle_track["language"],
-                    )
-                    if not text:
-                        continue
-                    content_parts.append(text)
+                job.update(
+                    {
+                        "prepared_source": "subtitle",
+                        "subtitle_source": subtitle_track["source"],
+                        "subtitle_segments": segments,
+                        "detected_language": subtitle_track["language"],
+                    }
+                )
+                log_structured_event(
+                    "video_subtitles_prepared",
+                    job_id=job_id,
+                    subtitle_source=subtitle_track["source"],
+                    detected_language=subtitle_track["language"],
+                    segments=len(segments),
+                    subtitle_elapsed_ms=round(
+                        (time.perf_counter() - subtitle_started) * 1000
+                    ),
+                )
+                if not job.get("language_hint"):
+                    phase = "language_confirmation"
+                    job["status"] = "awaiting_language_confirmation"
+                    job["detection_source"] = "youtube_subtitles"
+                    job["language_probability"] = None
+                    job["language_detected_monotonic"] = time.perf_counter()
+                    job["expires_at"] = time.time() + YOUTUBE_LIVE_JOB_TTL_SECONDS
                     await push_event(
                         job,
-                        "segment",
-                        segment_payload(
-                            index,
-                            segment["start"],
-                            segment["end"],
-                            text,
-                            subtitle_track["language"],
-                        ),
+                        "language_detected",
+                        {
+                            "language": subtitle_track["language"],
+                            "language_probability": None,
+                            "source": "youtube_subtitles",
+                        },
                     )
-                    await asyncio.sleep(0)
+                    log_structured_event(
+                        "video_job_awaiting_language",
+                        job_id=job_id,
+                        job_status="awaiting_language_confirmation",
+                        detected_language=subtitle_track["language"],
+                        subtitle_source=subtitle_track["source"],
+                        segments=len(segments),
+                    )
+                    return
 
+                info = await emit_subtitle_segments(job)
                 job["status"] = "done"
-                await push_event(
-                    job,
-                    "done",
-                    {
-                        "source": subtitle_track["source"],
-                        "language": subtitle_track["language"],
-                        "segments_count": len(segments),
-                        "content": "\n".join(content_parts),
-                    },
+                terminal = True
+                await push_event(job, "done", info)
+                log_structured_event(
+                    "video_job_completed",
+                    job_id=job_id,
+                    job_status="done",
+                    subtitle_source=info.get("source"),
+                    source_language=info.get("language"),
+                    segments=info.get("segments_count"),
+                    audio_duration_seconds=job.get("video_duration_seconds"),
+                    run_elapsed_ms=round((time.perf_counter() - run_started) * 1000),
                 )
                 return
 
-            status_message = "正在下載音訊" if job["ignore_subtitles"] else "沒有可用字幕，正在下載音訊"
+            status_message = (
+                "正在下載音訊"
+                if job["ignore_subtitles"]
+                else "沒有可用字幕，正在下載音訊"
+            )
             await push_event(job, "status", {"message": status_message})
-            with tempfile.TemporaryDirectory(prefix="yt_live_") as temp_dir:
-                audio_path, video_info = await asyncio.to_thread(download_youtube_audio, job["url"], temp_dir, cookies_file)
-                await push_event(job, "status", {"message": "音訊下載完成，開始逐段轉譯"})
-                info = await asyncio.to_thread(
-                    transcribe_audio_stream,
+            phase = "audio_download"
+            work_dir = tempfile.mkdtemp(prefix="yt_live_")
+            job["work_dir"] = work_dir
+            audio_download_started = time.perf_counter()
+            audio_path, video_info = await asyncio.to_thread(
+                download_youtube_audio,
+                job["url"],
+                work_dir,
+                cookies_file,
+            )
+            job.update(
+                {
+                    "prepared_source": "whisper",
+                    "audio_path": str(audio_path),
+                }
+            )
+            log_structured_event(
+                "video_audio_downloaded",
+                job_id=job_id,
+                audio_bytes=audio_path.stat().st_size if audio_path.is_file() else None,
+                audio_download_elapsed_ms=round(
+                    (time.perf_counter() - audio_download_started) * 1000
+                ),
+            )
+            if not job.get("language_hint"):
+                phase = "language_detection"
+                await push_event(
+                    job,
+                    "status",
+                    {"message": "音訊下載完成，正在偵測原文語言"},
+                )
+                detection = await asyncio.to_thread(
+                    detect_audio_language,
                     auto2lrc,
                     audio_path,
-                    job["language_hint"],
-                    asyncio.get_running_loop(),
-                    queue,
+                    job_id,
                 )
+                job["detected_language"] = detection["language"]
+                job["detection_source"] = "whisper"
+                job["language_probability"] = detection["language_probability"]
+                job["status"] = "awaiting_language_confirmation"
+                job["language_detected_monotonic"] = time.perf_counter()
+                job["expires_at"] = time.time() + YOUTUBE_LIVE_JOB_TTL_SECONDS
+                await push_event(
+                    job,
+                    "language_detected",
+                    {
+                        "language": detection["language"],
+                        "language_probability": detection["language_probability"],
+                        "source": "whisper",
+                    },
+                )
+                log_structured_event(
+                    "video_job_awaiting_language",
+                    job_id=job_id,
+                    job_status="awaiting_language_confirmation",
+                    detected_language=detection["language"],
+                    language_probability=detection["language_probability"],
+                    subtitle_source="whisper",
+                    detection_elapsed_ms=round(
+                        detection["detection_elapsed_seconds"] * 1000
+                    ),
+                )
+                return
+
+            phase = "transcription"
+            await push_event(job, "status", {"message": "音訊下載完成，開始逐段轉譯"})
+            info = await asyncio.to_thread(
+                transcribe_audio_stream,
+                auto2lrc,
+                audio_path,
+                job["language_hint"],
+                asyncio.get_running_loop(),
+                queue,
+                job_id,
+            )
 
             job["status"] = "done"
+            terminal = True
             await push_event(job, "done", {"source": "whisper", **info})
+            log_structured_event(
+                "video_job_completed",
+                job_id=job_id,
+                job_status="done",
+                subtitle_source="whisper",
+                source_language=info.get("language"),
+                language_probability=info.get("language_probability"),
+                segments=info.get("segments_count"),
+                audio_duration_seconds=info.get("audio_duration_seconds"),
+                processing_speed_x=info.get("processing_speed_x"),
+                run_elapsed_ms=round((time.perf_counter() - run_started) * 1000),
+            )
         except Exception as exc:
             job["status"] = "failed"
+            terminal = True
+            log_structured_event(
+                "video_job_failed",
+                job_id=job_id,
+                job_status="failed",
+                phase=phase,
+                exception_type=type(exc).__name__,
+                run_elapsed_ms=round((time.perf_counter() - run_started) * 1000),
+            )
+            logger.exception(
+                "YouTube live job failed: job_id=%s phase=%s",
+                job_id,
+                phase,
+            )
             await push_event(job, "failed", {"message": readable_exception_message(exc)})
         finally:
             job["expires_at"] = time.time() + YOUTUBE_LIVE_JOB_TTL_SECONDS
-            await queue.put({"event": "close", "data": {}})
+            if terminal:
+                cleanup_youtube_live_job_artifacts(job)
+                await queue.put({"event": "close", "data": {}})
 
     async def handle_youtube_live_task(task: dict[str, Any]) -> None:
         await run_job(str(task.get("id", "")))
@@ -393,35 +710,71 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         )
 
     @router.post("/api/youtube-live/jobs", tags=["YouTube Live"])
-    async def create_youtube_live_job(request: YoutubeLiveRequest):
+    async def create_youtube_live_job(
+        payload: YoutubeLiveRequest,
+        http_request: Request,
+    ):
         cleanup_youtube_live_jobs(jobs)
-        url = request.url.strip()
+        url = payload.url.strip()
         if not url:
             raise HTTPException(status_code=400, detail="請輸入 YouTube 網址")
         if verify_captcha_token is not None:
-            verify_captcha_token(request.captcha_token)
+            verify_captcha_token(payload.captcha_token)
 
         job_id = secrets.token_urlsafe(18)
+        created_monotonic = time.perf_counter()
         jobs[job_id] = {
             "url": url,
-            "language_hint": request.language.strip() or None,
-            "ignore_subtitles": request.ignore_subtitles,
+            "language_hint": payload.language.strip() or None,
+            "ignore_subtitles": payload.ignore_subtitles,
             "translation_token": secrets.token_urlsafe(32),
             "status": "queued",
             "queue": asyncio.Queue(),
             "created_at": time.time(),
+            "created_monotonic": created_monotonic,
+            "queued_monotonic": created_monotonic,
             "expires_at": time.time() + YOUTUBE_LIVE_JOB_TTL_SECONDS,
         }
+        set_request_log_metadata(
+            http_request,
+            request_id=job_id,
+            job_id=job_id,
+            operation="video_job_create",
+            job_status="queued",
+            source_language=jobs[job_id]["language_hint"] or "auto",
+            ignore_subtitles=payload.ignore_subtitles,
+        )
         try:
             enqueue_transcribe_task({"kind": "youtube_live", "id": job_id})
         except asyncio.QueueFull:
             jobs[job_id]["status"] = "failed"
             jobs[job_id]["expires_at"] = time.time() + YOUTUBE_LIVE_JOB_TTL_SECONDS
+            log_structured_event(
+                "video_job_rejected",
+                job_id=job_id,
+                reason="queue_full",
+            )
             raise HTTPException(status_code=503, detail="轉譯佇列已滿，請稍後再試")
         except RuntimeError as exc:
             jobs[job_id]["status"] = "failed"
             jobs[job_id]["expires_at"] = time.time() + YOUTUBE_LIVE_JOB_TTL_SECONDS
+            log_structured_event(
+                "video_job_rejected",
+                job_id=job_id,
+                reason="queue_not_started",
+            )
             raise HTTPException(status_code=503, detail="轉譯佇列尚未啟動，請稍後再試") from exc
+
+        queue_counts = get_transcribe_queue_counts()
+        log_structured_event(
+            "video_job_created",
+            job_id=job_id,
+            job_status="queued",
+            source_language=jobs[job_id]["language_hint"] or "auto",
+            ignore_subtitles=payload.ignore_subtitles,
+            waiting_count=queue_counts["waiting_count"],
+            transcribing_count=queue_counts["transcribing_count"],
+        )
 
         return {
             "job_id": job_id,
@@ -429,6 +782,94 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             "translation_token": jobs[job_id]["translation_token"],
             "status": "queued",
         }
+
+    @router.post(
+        "/api/youtube-live/jobs/{job_id}/language",
+        tags=["YouTube Live"],
+        summary="確認自動偵測到的原文語言",
+    )
+    async def confirm_youtube_live_language(
+        job_id: str,
+        selection: YoutubeLanguageSelection,
+        http_request: Request,
+        x_translation_token: str = Header(default="", alias="X-Translation-Token"),
+    ):
+        cleanup_youtube_live_jobs(jobs)
+        job = jobs.get(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="找不到這個 YouTube 轉譯請求")
+        if not x_translation_token or not secrets.compare_digest(
+            x_translation_token,
+            str(job.get("translation_token") or ""),
+        ):
+            raise HTTPException(status_code=401, detail="語言確認權杖無效或已過期")
+        if job.get("status") != "awaiting_language_confirmation":
+            raise HTTPException(status_code=409, detail="這個轉譯請求目前不需要確認語言")
+
+        requested_language = selection.language.strip()
+        normalized_language = (
+            "zh"
+            if requested_language.lower() in {"zh", "zh-tw"}
+            else requested_language.lower()
+        )
+        if normalized_language not in {"en", "ja", "ko", "th", "zh"}:
+            raise HTTPException(status_code=400, detail="目前不支援選擇的原文語言")
+
+        confirmation_wait_ms = round(
+            max(
+                0.0,
+                time.perf_counter()
+                - float(job.get("language_detected_monotonic", time.perf_counter())),
+            )
+            * 1000
+        )
+        job["language_hint"] = normalized_language
+        job["status"] = "queued_for_transcription"
+        job["queued_monotonic"] = time.perf_counter()
+        job["expires_at"] = time.time() + YOUTUBE_LIVE_JOB_TTL_SECONDS
+        set_request_log_metadata(
+            http_request,
+            request_id=job_id,
+            job_id=job_id,
+            operation="video_language_confirm",
+            job_status="queued_for_transcription",
+            detected_language=job.get("detected_language"),
+            language_probability=job.get("language_probability"),
+            source_language=normalized_language,
+            subtitle_source=job.get("detection_source"),
+        )
+        try:
+            enqueue_transcribe_task({"kind": "youtube_live", "id": job_id})
+        except asyncio.QueueFull:
+            job["status"] = "awaiting_language_confirmation"
+            set_request_log_metadata(
+                http_request,
+                job_status="awaiting_language_confirmation",
+            )
+            raise HTTPException(status_code=503, detail="轉譯佇列已滿，請稍後再試")
+        except RuntimeError as exc:
+            job["status"] = "awaiting_language_confirmation"
+            set_request_log_metadata(
+                http_request,
+                job_status="awaiting_language_confirmation",
+            )
+            raise HTTPException(status_code=503, detail="轉譯佇列尚未啟動，請稍後再試") from exc
+
+        queue_counts = get_transcribe_queue_counts()
+        log_structured_event(
+            "video_language_confirmed",
+            job_id=job_id,
+            job_status="queued_for_transcription",
+            detected_language=job.get("detected_language"),
+            language_probability=job.get("language_probability"),
+            source_language=normalized_language,
+            subtitle_source=job.get("detection_source"),
+            confirmation_wait_ms=confirmation_wait_ms,
+            waiting_count=queue_counts["waiting_count"],
+            transcribing_count=queue_counts["transcribing_count"],
+        )
+
+        return {"job_id": job_id, "language": normalized_language, "status": "queued"}
 
     @router.post(
         "/api/youtube-live/translate-batch",
@@ -547,6 +988,35 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         if not request_id.startswith(f"youtube-{authorized_job_id}-"):
             raise HTTPException(status_code=403, detail="request_id 與 YouTube job 不相符")
 
+        segments = payload.get("segments")
+        context_segments = payload.get("context_segments")
+        segments = segments if isinstance(segments, list) else []
+        context_segments = (
+            context_segments if isinstance(context_segments, list) else []
+        )
+        characters = sum(
+            len(str(item.get("text") or ""))
+            for item in segments
+            if isinstance(item, dict)
+        )
+        characters += sum(
+            len(str(item.get(key) or ""))
+            for item in context_segments
+            if isinstance(item, dict)
+            for key in ("source_text", "translated_text")
+        )
+        set_request_log_metadata(
+            request,
+            request_id=request_id,
+            job_id=authorized_job_id,
+            operation="video_translation_proxy",
+            source_language=payload.get("source_language"),
+            target_language=payload.get("target_language"),
+            segments=len(segments),
+            context_segments=len(context_segments),
+            characters=characters,
+        )
+
         upstream_url = f"{TRANSLATE_API_BASE}/api/v1/subtitles/translate"
         timeout = aiohttp.ClientTimeout(total=TRANSLATE_API_TIMEOUT_SECONDS)
         started_at = time.perf_counter()
@@ -567,9 +1037,16 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                     )
                     logger.info(
                         "Translation proxy completed: job_id=%s status=%d "
-                        "request_bytes=%d response_bytes=%d elapsed=%.3fs",
+                        "request_id=%s source=%s target=%s segments=%d context=%d "
+                        "characters=%d request_bytes=%d response_bytes=%d elapsed=%.3fs",
                         authorized_job_id,
                         upstream_response.status,
+                        request_id,
+                        payload.get("source_language"),
+                        payload.get("target_language"),
+                        len(segments),
+                        len(context_segments),
+                        characters,
                         len(body),
                         len(response_body),
                         time.perf_counter() - started_at,
@@ -602,14 +1079,30 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             )
 
     @router.get("/api/youtube-live/jobs/{job_id}/events", tags=["YouTube Live"])
-    async def youtube_live_events(job_id: str):
+    async def youtube_live_events(job_id: str, request: Request):
         cleanup_youtube_live_jobs(jobs)
         job = jobs.get(job_id)
         if not job:
             raise HTTPException(status_code=404, detail="找不到這個 YouTube 轉譯請求")
+        set_request_log_metadata(
+            request,
+            request_id=job_id,
+            job_id=job_id,
+            operation="video_job_events",
+            job_status=job.get("status"),
+        )
 
         async def event_stream():
             yield sse_message("status", {"message": "已連線，等待處理結果"})
+            if job.get("status") == "awaiting_language_confirmation":
+                yield sse_message(
+                    "language_detected",
+                    {
+                        "language": job.get("detected_language"),
+                        "language_probability": job.get("language_probability"),
+                        "source": job.get("detection_source"),
+                    },
+                )
             while True:
                 try:
                     item = await asyncio.wait_for(

@@ -9,9 +9,10 @@ from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import parse_qs, urlparse
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from app_logging import log_structured_event, set_request_log_metadata
 from text_converter import to_traditional_chinese
 
 
@@ -637,16 +638,48 @@ def create_youtube_router(auto2lrc, project_root: Path) -> APIRouter:
     cookies_file = project_root / "cookies.txt"
 
     @router.post("/youtube/srt/", response_model=YoutubeSrtResponse)
-    def transcribe_youtube_to_srt(request: YoutubeSrtRequest):
+    def transcribe_youtube_to_srt(
+        request: YoutubeSrtRequest,
+        http_request: Request,
+    ):
         """
         接受 YouTube URL，優先使用 YouTube 字幕，沒有字幕時下載音軌並轉錄。
         """
         started_at = time.perf_counter()
-        subtitle_result = try_get_youtube_subtitle_content(request.url, request.lrc_format, cookies_file)
+        set_request_log_metadata(
+            http_request,
+            operation="youtube_srt",
+            job_status="running",
+            output_format="srt" if request.lrc_format else "txt",
+            source_language="auto",
+        )
+        subtitle_result = try_get_youtube_subtitle_content(
+            request.url,
+            request.lrc_format,
+            cookies_file,
+        )
         if subtitle_result is not None:
             video_info = subtitle_result["video_info"]
             metrics = build_processing_metrics(video_info.get("duration"), started_at)
             log_processing_metrics(subtitle_result["source"], metrics)
+            set_request_log_metadata(
+                http_request,
+                job_status="done",
+                source_language=subtitle_result["language"],
+                subtitle_source=subtitle_result["source"],
+                segments=subtitle_result["segments_count"],
+            )
+            log_structured_event(
+                "youtube_srt_completed",
+                job_status="done",
+                output_format="srt" if request.lrc_format else "txt",
+                source_language=subtitle_result["language"],
+                subtitle_source=subtitle_result["source"],
+                segments=subtitle_result["segments_count"],
+                audio_duration_seconds=video_info.get("duration"),
+                total_elapsed_seconds=metrics["total_elapsed_seconds"],
+                processing_speed_x=metrics["processing_speed_x"],
+            )
             return {
                 "content": subtitle_result["content"],
                 "lrc_format": request.lrc_format,
@@ -684,13 +717,37 @@ def create_youtube_router(auto2lrc, project_root: Path) -> APIRouter:
 
                 metrics = build_processing_metrics(video_info.get("duration"), started_at)
                 log_processing_metrics("whisper", metrics)
+                detected_language = getattr(transcript_info, "language", None)
+                language_probability = getattr(
+                    transcript_info,
+                    "language_probability",
+                    None,
+                )
+                set_request_log_metadata(
+                    http_request,
+                    job_status="done",
+                    detected_language=detected_language,
+                    language_probability=language_probability,
+                    subtitle_source="whisper",
+                )
+                log_structured_event(
+                    "youtube_srt_completed",
+                    job_status="done",
+                    output_format="srt" if request.lrc_format else "txt",
+                    detected_language=detected_language,
+                    language_probability=language_probability,
+                    subtitle_source="whisper",
+                    audio_duration_seconds=video_info.get("duration"),
+                    total_elapsed_seconds=metrics["total_elapsed_seconds"],
+                    processing_speed_x=metrics["processing_speed_x"],
+                )
                 return {
                     "content": content,
                     "lrc_format": request.lrc_format,
                     "title": video_info.get("title"),
                     "duration": video_info.get("duration"),
-                    "language": getattr(transcript_info, "language", None),
-                    "language_probability": getattr(transcript_info, "language_probability", None),
+                    "language": detected_language,
+                    "language_probability": language_probability,
                     "source": "whisper",
                     "segments_count": None,
                     **metrics,

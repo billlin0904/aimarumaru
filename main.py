@@ -22,7 +22,12 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 import uvicorn
 
-from app_logging import configure_logging
+from app_logging import (
+    configure_access_logging,
+    configure_logging,
+    log_structured_event,
+    set_request_log_metadata,
+)
 
 configure_logging()
 
@@ -88,6 +93,7 @@ app.add_middleware(
     expose_headers=["Content-Disposition"],
 )
 app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
+configure_access_logging(app)
 
 ffmpeg_dir = r'C:\ProgramData\chocolatey\bin'
 cuda_bin_dirs = [
@@ -661,21 +667,70 @@ async def handle_audio_transcribe_task(task: dict[str, Any]) -> None:
     if not job:
         return
 
+    processing_started = time.perf_counter()
+    queue_wait_ms = round(
+        max(
+            0.0,
+            processing_started
+            - float(job.get("created_monotonic", processing_started)),
+        )
+        * 1000
+    )
     job["status"] = "running"
     job["started_at"] = utc_now_iso()
     job["updated_at"] = job["started_at"]
+    log_structured_event(
+        "audio_job_started",
+        job_id=req_id,
+        job_status="running",
+        media_kind=job.get("media_kind"),
+        output_format=job.get("output_format"),
+        source_language=job.get("language_hint") or "auto",
+        vocal_separation=job.get("use_vocal_separation", False),
+        queue_wait_ms=queue_wait_ms,
+    )
     try:
         await asyncio.to_thread(run_transcribe_request, req_id)
         job["status"] = "done"
         job["completed_at"] = utc_now_iso()
         job["updated_at"] = job["completed_at"]
         job["expires_at"] = time.time() + TRANSCRIBE_JOB_TTL_SECONDS
+        log_structured_event(
+            "audio_job_completed",
+            job_id=req_id,
+            job_status="done",
+            media_kind=job.get("media_kind"),
+            output_format=job.get("output_format"),
+            source_language=job.get("language_hint") or "auto",
+            vocal_separation=job.get("use_vocal_separation", False),
+            processing_elapsed_ms=round(
+                (time.perf_counter() - processing_started) * 1000
+            ),
+            output_bytes=(
+                job["output_path"].stat().st_size
+                if job["output_path"].is_file()
+                else None
+            ),
+        )
     except Exception as exc:
         job["status"] = "failed"
         job["error"] = str(exc)
         job["completed_at"] = utc_now_iso()
         job["updated_at"] = job["completed_at"]
         job["expires_at"] = time.time() + TRANSCRIBE_JOB_TTL_SECONDS
+        log_structured_event(
+            "audio_job_failed",
+            job_id=req_id,
+            job_status="failed",
+            media_kind=job.get("media_kind"),
+            output_format=job.get("output_format"),
+            source_language=job.get("language_hint") or "auto",
+            vocal_separation=job.get("use_vocal_separation", False),
+            exception_type=type(exc).__name__,
+            processing_elapsed_ms=round(
+                (time.perf_counter() - processing_started) * 1000
+            ),
+        )
 
 
 register_transcribe_handler("audio", handle_audio_transcribe_task)
@@ -713,6 +768,7 @@ def get_public_transcribe_request(req_id: str) -> dict[str, Any]:
 
 @app.post("/api/transcribe-audio/", tags=["Audio"])
 async def transcribe_audio_download(
+    http_request: Request,
     file: UploadFile = File(...),
     output_format: str = Form("txt"),
     language: str = Form(""),
@@ -750,6 +806,7 @@ async def transcribe_audio_download(
         raise HTTPException(status_code=500, detail=f"儲存上傳檔案失敗: {exc}") from exc
 
     created_at = utc_now_iso()
+    created_monotonic = time.perf_counter()
     download_token = secrets.token_urlsafe(32)
     transcribe_jobs[req_id] = {
         "status": "queued",
@@ -766,6 +823,7 @@ async def transcribe_audio_download(
         "download_token": download_token,
         "media_type": TRANSCRIBE_MEDIA_TYPES[output_format],
         "created_at": created_at,
+        "created_monotonic": created_monotonic,
         "updated_at": created_at,
         "started_at": None,
         "completed_at": None,
@@ -778,27 +836,96 @@ async def transcribe_audio_download(
     except asyncio.QueueFull:
         transcribe_jobs[req_id]["status"] = "failed"
         transcribe_jobs[req_id]["error"] = "轉譯佇列已滿，請稍後再試"
+        set_request_log_metadata(
+            http_request,
+            request_id=req_id,
+            job_id=req_id,
+            operation="audio_job_create",
+            job_status="rejected",
+            media_kind=media_kind,
+            output_format=output_format,
+            source_language=language_hint or "auto",
+            vocal_separation=vocal_separation,
+        )
+        log_structured_event(
+            "audio_job_rejected",
+            job_id=req_id,
+            reason="queue_full",
+        )
         remove_transcribe_job(req_id)
         raise HTTPException(status_code=503, detail="轉譯佇列已滿，請稍後再試")
     except RuntimeError as exc:
         transcribe_jobs[req_id]["status"] = "failed"
         transcribe_jobs[req_id]["error"] = "轉譯佇列尚未啟動，請稍後再試"
+        set_request_log_metadata(
+            http_request,
+            request_id=req_id,
+            job_id=req_id,
+            operation="audio_job_create",
+            job_status="rejected",
+            media_kind=media_kind,
+            output_format=output_format,
+            source_language=language_hint or "auto",
+            vocal_separation=vocal_separation,
+        )
+        log_structured_event(
+            "audio_job_rejected",
+            job_id=req_id,
+            reason="queue_not_started",
+        )
         remove_transcribe_job(req_id)
         raise HTTPException(status_code=503, detail="轉譯佇列尚未啟動，請稍後再試") from exc
+
+    set_request_log_metadata(
+        http_request,
+        request_id=req_id,
+        job_id=req_id,
+        operation="audio_job_create",
+        job_status="queued",
+        media_kind=media_kind,
+        output_format=output_format,
+        source_language=language_hint or "auto",
+        vocal_separation=vocal_separation,
+    )
+    queue_counts = get_transcribe_queue_counts()
+    log_structured_event(
+        "audio_job_created",
+        job_id=req_id,
+        job_status="queued",
+        media_kind=media_kind,
+        output_format=output_format,
+        source_language=language_hint or "auto",
+        vocal_separation=vocal_separation,
+        input_bytes=input_path.stat().st_size,
+        waiting_count=queue_counts["waiting_count"],
+        transcribing_count=queue_counts["transcribing_count"],
+    )
 
     return get_public_transcribe_request(req_id)
 
 
 @app.get("/api/transcribe-audio/{req_id}", tags=["Audio"])
-def get_transcribe_audio_request(req_id: str):
+def get_transcribe_audio_request(req_id: str, http_request: Request):
     """
     依 req_id 查詢轉譯狀態。
     """
-    return get_public_transcribe_request(req_id)
+    payload = get_public_transcribe_request(req_id)
+    set_request_log_metadata(
+        http_request,
+        request_id=req_id,
+        job_id=req_id,
+        operation="audio_job_status",
+        job_status=payload.get("status"),
+    )
+    return payload
 
 
 @app.get("/api/transcribe-audio/{req_id}/download", tags=["Audio"])
-def download_transcribe_audio_request(req_id: str, token: str = ""):
+def download_transcribe_audio_request(
+    req_id: str,
+    http_request: Request,
+    token: str = "",
+):
     """
     下載已完成的轉譯結果。
     """
@@ -809,6 +936,16 @@ def download_transcribe_audio_request(req_id: str, token: str = ""):
         raise HTTPException(status_code=403, detail="下載連結無效或已過期")
     if job["status"] != "done":
         raise HTTPException(status_code=409, detail="轉譯尚未完成")
+
+    set_request_log_metadata(
+        http_request,
+        request_id=req_id,
+        job_id=req_id,
+        operation="audio_job_download",
+        job_status=job["status"],
+        media_kind=job.get("media_kind"),
+        output_format=job.get("output_format"),
+    )
 
     output_path = job["output_path"]
     if not output_path.exists():

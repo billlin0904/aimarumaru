@@ -75,6 +75,54 @@
       border-color: var(--brand);
       font-weight: 700;
     }
+    .start-button {
+      min-height: 48px;
+      white-space: nowrap;
+    }
+    .language-confirmation {
+      margin: 22px -22px 0;
+      padding: 18px 22px;
+      border-top: 1px solid #cbd8ee;
+      border-bottom: 1px solid #cbd8ee;
+      background: #f1f6ff;
+    }
+    .language-confirmation-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(210px, 300px) auto;
+      align-items: end;
+      gap: 16px;
+    }
+    .language-detection-label {
+      margin-bottom: 4px;
+      color: #42526b;
+      font-size: .78rem;
+      font-weight: 800;
+    }
+    .language-detection-title {
+      margin: 0;
+      font-size: 1.08rem;
+      font-weight: 800;
+    }
+    .confidence-badge {
+      display: inline-flex;
+      align-items: center;
+      width: fit-content;
+      margin-top: 8px;
+      padding: 4px 9px;
+      border-radius: 999px;
+      background: #d9f7e8;
+      color: #087443;
+      font-size: .78rem;
+      font-weight: 800;
+    }
+    .confidence-badge.medium {
+      background: #fff1cc;
+      color: #8a5700;
+    }
+    .confidence-badge.low {
+      background: #ffe1df;
+      color: #a8241d;
+    }
     .status-strip {
       display: flex;
       align-items: center;
@@ -298,6 +346,12 @@
         flex-direction: column;
       }
       .input-panel { padding: 16px; }
+      .language-confirmation {
+        margin-right: -16px;
+        margin-left: -16px;
+        padding: 16px;
+      }
+      .language-confirmation-grid { grid-template-columns: 1fr; }
       .progress-grid { grid-template-columns: 1fr; }
       .segment-list { max-height: 56vh; }
     }
@@ -324,7 +378,7 @@
             <label class="form-check-label" for="ignoreSubtitles" data-i18n="ignoreSubtitles">忽略內建字幕</label>
           </div>
         </div>
-        <div class="col-12 col-md-5">
+        <div class="col-12 col-md-4">
           <label class="form-label fw-semibold" for="sourceLanguage" data-i18n="sourceLanguage">原文語言</label>
           <select id="sourceLanguage" class="form-select form-select-lg">
             <option value="" data-i18n="autoDetect">自動偵測</option>
@@ -335,7 +389,7 @@
             <option value="zh-TW" data-i18n="languageTraditionalChinese">繁體中文</option>
           </select>
         </div>
-        <div class="col-12 col-md-5">
+        <div class="col-12 col-md-4">
           <label class="form-label fw-semibold" for="targetLanguage" data-i18n="targetLanguage">翻譯目標語言</label>
           <select id="targetLanguage" class="form-select form-select-lg">
             <option value="zh-TW" data-i18n="languageTraditionalChinese">繁體中文</option>
@@ -343,25 +397,31 @@
             <option value="ja" data-i18n="languageJapanese">日文</option>
           </select>
         </div>
-        <div class="col-12 col-md-2 d-grid">
-          <button id="startBtn" class="btn btn-primary btn-lg" type="submit" data-i18n="start">開始轉譯並翻譯</button>
+        <div class="col-12 col-md-4 d-grid">
+          <button id="startBtn" class="btn btn-primary btn-lg start-button" type="submit" data-i18n="detectLanguage">偵測語言</button>
         </div>
       </form>
 
-      <div id="videoPreview" class="video-preview d-none">
-        <div class="fw-bold mb-3" data-i18n="videoPreview">影片預覽</div>
-        <div class="video-preview-frame">
-          <div class="video-player-viewport">
-            <div id="videoPlayerLayer" class="video-player-layer">
-              <div id="youtubePlayer"></div>
-            </div>
+      <section id="languageConfirmation" class="language-confirmation d-none" aria-live="polite">
+        <div class="language-confirmation-grid">
+          <div>
+            <div class="language-detection-label" data-i18n="detectedLanguageLabel">偵測結果</div>
+            <p id="detectedLanguageTitle" class="language-detection-title">—</p>
+            <span id="languageConfidence" class="confidence-badge">—</span>
           </div>
-          <div id="videoSubtitleOverlay" class="video-subtitle-overlay waiting" aria-live="polite">
-            <div id="videoSubtitleSource" class="video-subtitle-source"></div>
-            <div id="videoSubtitleTranslation" class="video-subtitle-translation" data-i18n="subtitleWaiting">字幕完成後會顯示在這裡</div>
+          <div>
+            <label class="form-label fw-semibold" for="confirmedSourceLanguage" data-i18n="confirmSourceLanguage">確認原文語言</label>
+            <select id="confirmedSourceLanguage" class="form-select">
+              <option value="en" data-i18n="languageEnglish">英文</option>
+              <option value="ja" data-i18n="languageJapanese">日文</option>
+              <option value="ko" data-i18n="languageKorean">韓文</option>
+              <option value="th" data-i18n="languageThai">泰文</option>
+              <option value="zh-TW" data-i18n="languageTraditionalChinese">繁體中文</option>
+            </select>
           </div>
+          <button id="confirmLanguageBtn" class="btn btn-primary" type="button" data-i18n="confirmAndStart">確認並開始</button>
         </div>
-      </div>
+      </section>
 
       <div id="captchaBlock" class="captcha-panel d-none">
         <label class="form-label fw-semibold" for="captchaAnswer" data-i18n="captchaLabel">驗證碼</label>
@@ -389,9 +449,24 @@
         <div class="fw-bold text-dark" id="videoTitle"></div>
         <div class="small mt-1" id="videoDetail"></div>
       </div>
+
+      <div id="videoPreview" class="video-preview d-none">
+        <div class="fw-bold mb-3" data-i18n="videoPreview">影片預覽</div>
+        <div class="video-preview-frame">
+          <div class="video-player-viewport">
+            <div id="videoPlayerLayer" class="video-player-layer">
+              <div id="youtubePlayer"></div>
+            </div>
+          </div>
+          <div id="videoSubtitleOverlay" class="video-subtitle-overlay waiting" aria-live="polite">
+            <div id="videoSubtitleSource" class="video-subtitle-source"></div>
+            <div id="videoSubtitleTranslation" class="video-subtitle-translation" data-i18n="subtitleWaiting">字幕完成後會顯示在這裡</div>
+          </div>
+        </div>
+      </div>
       </div>
 
-      <div class="result-panel">
+      <div id="resultPanel" class="result-panel d-none">
       <div class="result-head d-flex flex-wrap align-items-center justify-content-between gap-2">
         <h1 class="h5 mb-0" data-i18n="resultTitle">即時字幕</h1>
         <span id="segmentCount" class="small text-secondary">0</span>
@@ -446,6 +521,6 @@
     </div>
   </footer>
 
-  <script src="/youtube-live-translate.js?v=20260801-6" defer></script>
+  <script src="/youtube-live-translate.js?v=20260802-1" defer></script>
 </body>
 </html>
