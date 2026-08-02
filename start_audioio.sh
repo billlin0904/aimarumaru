@@ -8,6 +8,7 @@ REQUIREMENTS_FILE="${REQUIREMENTS_FILE:-${PROJECT_DIR}/requirements.txt}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 HOST="${HOST:-0.0.0.0}"
 PORT="${PORT:-8090}"
+PID_FILE="${PID_FILE:-${PROJECT_DIR}/audioio.pid}"
 INSTALLER_REVISION="2"
 
 export HF_HOME="${HF_HOME:-/vault/cache/huggingface}"
@@ -108,6 +109,19 @@ log "Python：$(python --version 2>&1)"
 log "FFmpeg：${FFMPEG_VERSION}"
 log "模型快取：${HF_HOME}"
 log "啟動 Audio IO：http://${HOST}:${PORT}"
+
+if [[ -f "${PID_FILE}" ]]; then
+    EXISTING_PID="$(<"${PID_FILE}")"
+    if [[ "${EXISTING_PID}" =~ ^[0-9]+$ ]] \
+        && kill -0 "${EXISTING_PID}" 2>/dev/null; then
+        fail "Audio IO 已在執行，PID：${EXISTING_PID}"
+    fi
+    rm -f -- "${PID_FILE}"
+fi
+
+mkdir -p "$(dirname "${PID_FILE}")"
+printf '%s\n' "$$" > "${PID_FILE}"
+log "PID：$$（${PID_FILE}）"
 
 exec python -m uvicorn main:app \
     --host "${HOST}" \
