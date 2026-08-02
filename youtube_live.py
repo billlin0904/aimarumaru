@@ -48,6 +48,20 @@ TRANSLATE_API_TIMEOUT_SECONDS = float(
     os.getenv("TRANSLATE_API_TIMEOUT_SECONDS", "150")
 )
 TRANSLATE_PROXY_MAX_BODY_BYTES = 128 * 1024
+YOUTUBE_WHISPER_VAD_FILTER = os.getenv(
+    "YOUTUBE_WHISPER_VAD_FILTER",
+    "true",
+).strip().lower() in {"1", "true", "yes", "on"}
+YOUTUBE_WHISPER_HALLUCINATION_SILENCE_SECONDS = float(
+    os.getenv("YOUTUBE_WHISPER_HALLUCINATION_SILENCE_SECONDS", "1.0")
+)
+YOUTUBE_WHISPER_LOW_CONFIDENCE_THRESHOLD = float(
+    os.getenv("YOUTUBE_WHISPER_LOW_CONFIDENCE_THRESHOLD", "0.35")
+)
+YOUTUBE_WHISPER_VAD_PARAMETERS = {
+    "min_silence_duration_ms": 2000,
+    "speech_pad_ms": 400,
+}
 
 
 class YoutubeLiveRequest(BaseModel):
@@ -71,14 +85,41 @@ def segment_payload(
     end: Optional[float],
     text: str,
     language: Optional[str] = None,
+    low_confidence_spans: Optional[list[str]] = None,
 ) -> dict[str, Any]:
-    return {
+    payload = {
         "index": index,
         "start": start,
         "end": end,
         "text": text.strip(),
         "language": language,
     }
+    if low_confidence_spans:
+        payload["low_confidence_spans"] = low_confidence_spans
+    return payload
+
+
+def whisper_low_confidence_spans(
+    segment: Any,
+    text: str,
+    language: Optional[str],
+) -> list[str]:
+    if str(language or "").lower().split("-", 1)[0] != "ko":
+        return []
+
+    spans: list[str] = []
+    for word in getattr(segment, "words", None) or []:
+        value = str(getattr(word, "word", "") or "").strip()
+        probability = getattr(word, "probability", None)
+        if (
+            value
+            and value in text
+            and probability is not None
+            and float(probability) < YOUTUBE_WHISPER_LOW_CONFIDENCE_THRESHOLD
+            and value not in spans
+        ):
+            spans.append(value)
+    return spans[:20]
 
 
 def transcription_progress_payload(
@@ -209,9 +250,12 @@ def transcribe_audio_stream(
     content_parts: list[str] = []
     logger.info(
         "Whisper transcription started: job_id=%s beam_size=5 language_hint=%s "
-        "temperature=0.0 condition_on_previous_text=false vad_filter=false",
+        "temperature=0.0 condition_on_previous_text=false vad_filter=%s "
+        "word_timestamps=true hallucination_silence_threshold=%.2f",
         job_id or "unknown",
         language_hint or "auto",
+        YOUTUBE_WHISPER_VAD_FILTER,
+        YOUTUBE_WHISPER_HALLUCINATION_SILENCE_SECONDS,
     )
 
     try:
@@ -219,6 +263,16 @@ def transcribe_audio_stream(
             str(audio_path),
             beam_size=5,
             language=language_hint,
+            vad_filter=YOUTUBE_WHISPER_VAD_FILTER,
+            vad_parameters=(
+                YOUTUBE_WHISPER_VAD_PARAMETERS
+                if YOUTUBE_WHISPER_VAD_FILTER
+                else None
+            ),
+            word_timestamps=True,
+            hallucination_silence_threshold=(
+                YOUTUBE_WHISPER_HALLUCINATION_SILENCE_SECONDS
+            ),
         )
         detected_language = getattr(info, "language", language_hint)
         audio_duration = float(getattr(info, "duration", 0.0) or 0.0)
@@ -236,6 +290,7 @@ def transcribe_audio_stream(
                 segment.end,
                 text,
                 detected_language,
+                whisper_low_confidence_spans(segment, text, detected_language),
             )
             payload.update(
                 transcription_progress_payload(
@@ -928,6 +983,19 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                                         ],
                                     },
                                 },
+                                "following_context_segments": {
+                                    "type": "array",
+                                    "maxItems": 5,
+                                    "items": {
+                                        "type": "object",
+                                        "required": ["id", "text"],
+                                    },
+                                },
+                                "on_screen_terms": {
+                                    "type": "array",
+                                    "maxItems": 20,
+                                    "items": {"type": "string"},
+                                },
                                 "segments": {
                                     "type": "array",
                                     "minItems": 1,
@@ -935,6 +1003,15 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                                     "items": {
                                         "type": "object",
                                         "required": ["id", "text"],
+                                        "properties": {
+                                            "id": {"type": "integer"},
+                                            "text": {"type": "string"},
+                                            "low_confidence_spans": {
+                                                "type": "array",
+                                                "maxItems": 20,
+                                                "items": {"type": "string"},
+                                            },
+                                        },
                                     },
                                 },
                             },
@@ -990,14 +1067,37 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
 
         segments = payload.get("segments")
         context_segments = payload.get("context_segments")
+        following_context_segments = payload.get("following_context_segments")
+        on_screen_terms = payload.get("on_screen_terms")
         segments = segments if isinstance(segments, list) else []
         context_segments = (
             context_segments if isinstance(context_segments, list) else []
         )
+        following_context_segments = (
+            following_context_segments
+            if isinstance(following_context_segments, list)
+            else []
+        )
+        on_screen_terms = on_screen_terms if isinstance(on_screen_terms, list) else []
         characters = sum(
             len(str(item.get("text") or ""))
             for item in segments
             if isinstance(item, dict)
+        )
+        low_confidence_span_count = sum(
+            len(spans)
+            for item in segments + following_context_segments
+            if isinstance(item, dict)
+            for spans in [item.get("low_confidence_spans")]
+            if isinstance(spans, list)
+        )
+        characters += sum(
+            len(str(span or ""))
+            for item in segments + following_context_segments
+            if isinstance(item, dict)
+            for spans in [item.get("low_confidence_spans")]
+            if isinstance(spans, list)
+            for span in spans
         )
         characters += sum(
             len(str(item.get(key) or ""))
@@ -1005,6 +1105,12 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             if isinstance(item, dict)
             for key in ("source_text", "translated_text")
         )
+        characters += sum(
+            len(str(item.get("text") or ""))
+            for item in following_context_segments
+            if isinstance(item, dict)
+        )
+        characters += sum(len(str(term or "")) for term in on_screen_terms)
         set_request_log_metadata(
             request,
             request_id=request_id,
@@ -1014,6 +1120,9 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             target_language=payload.get("target_language"),
             segments=len(segments),
             context_segments=len(context_segments),
+            following_context_segments=len(following_context_segments),
+            on_screen_terms=len(on_screen_terms),
+            low_confidence_spans=low_confidence_span_count,
             characters=characters,
         )
 
@@ -1038,6 +1147,8 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                     logger.info(
                         "Translation proxy completed: job_id=%s status=%d "
                         "request_id=%s source=%s target=%s segments=%d context=%d "
+                        "following_context=%d on_screen_terms=%d "
+                        "low_confidence_spans=%d "
                         "characters=%d request_bytes=%d response_bytes=%d elapsed=%.3fs",
                         authorized_job_id,
                         upstream_response.status,
@@ -1046,6 +1157,9 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                         payload.get("target_language"),
                         len(segments),
                         len(context_segments),
+                        len(following_context_segments),
+                        len(on_screen_terms),
+                        low_confidence_span_count,
                         characters,
                         len(body),
                         len(response_body),

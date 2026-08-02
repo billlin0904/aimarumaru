@@ -789,13 +789,16 @@ function takeNextBatch() {
   return batch;
 }
 
-function flushPendingSegments() {
+function flushPendingSegments({ final = false } = {}) {
   if (batchTimer) {
     clearTimeout(batchTimer);
     batchTimer = null;
   }
-  while (pendingSegments.length > 0) {
+  const remainingLookahead = final ? 0 : 1;
+  while (pendingSegments.length > remainingLookahead) {
+    const lookahead = final ? null : pendingSegments.pop();
     const batch = takeNextBatch();
+    if (lookahead) pendingSegments.push(lookahead);
     if (batch.length === 0) break;
     enqueueTranslation(batch);
   }
@@ -830,7 +833,11 @@ function buildContextSegments(batch) {
     }));
 
   const batchCharacters = batch.reduce(
-    (total, segment) => total + segment.sourceText.length,
+    (total, segment) => total + segment.sourceText.length
+      + (segment.lowConfidenceSpans || []).reduce(
+        (spanTotal, span) => spanTotal + span.length,
+        0,
+      ),
     0,
   );
   while (
@@ -841,6 +848,40 @@ function buildContextSegments(batch) {
     ) > REQUEST_MAX_CHARACTERS
   ) {
     candidates.shift();
+  }
+  return candidates;
+}
+
+function buildFollowingContextSegments(batch, contextSegments) {
+  const batchIds = new Set(batch.map(segment => segment.id));
+  const lastBatchId = Math.max(...batchIds);
+  const candidates = sortedSourceSegments()
+    .filter(segment => segment.id > lastBatchId && !batchIds.has(segment.id))
+    .slice(0, CONTEXT_MAX_SEGMENTS)
+    .map(segment => ({
+      id: segment.id,
+      text: segment.sourceText,
+    }));
+
+  const fixedCharacters = batch.reduce(
+    (total, segment) => total + segment.sourceText.length
+      + (segment.lowConfidenceSpans || []).reduce(
+        (spanTotal, span) => spanTotal + span.length,
+        0,
+      ),
+    0,
+  ) + contextSegments.reduce(
+    (total, segment) => total + segment.source_text.length + segment.translated_text.length,
+    0,
+  );
+  while (
+    candidates.length > 0
+    && fixedCharacters + candidates.reduce(
+      (total, segment) => total + segment.text.length,
+      0,
+    ) > REQUEST_MAX_CHARACTERS
+  ) {
+    candidates.pop();
   }
   return candidates;
 }
@@ -927,15 +968,22 @@ function validateTranslationResponse(payload, data, batch) {
 async function translateBatch(batch) {
   const batchNumber = ++batchCounter;
   const requestId = `youtube-${currentJobId}-${selectedTargetLanguage}-batch-${batchNumber}-${PROMPT_VERSION}`;
+  const contextSegments = buildContextSegments(batch);
   const payload = {
     request_id: requestId,
     source_language: batch[0].language,
     target_language: selectedTargetLanguage,
     prompt_version: PROMPT_VERSION,
-    context_segments: buildContextSegments(batch),
+    context_segments: contextSegments,
+    following_context_segments: buildFollowingContextSegments(batch, contextSegments),
     segments: batch.map(segment => ({
       id: segment.id,
       text: segment.sourceText,
+      ...(
+        segment.lowConfidenceSpans.length > 0
+          ? { low_confidence_spans: segment.lowConfidenceSpans }
+          : {}
+      ),
     })),
   };
 
@@ -1021,6 +1069,11 @@ function addSegment(data) {
     sourceText,
     language: normalizedLanguage,
     rawLanguage: String(data.language || ""),
+    lowConfidenceSpans: Array.isArray(data.low_confidence_spans)
+      ? data.low_confidence_spans
+        .filter(span => typeof span === "string" && sourceText.includes(span))
+        .slice(0, 20)
+      : [],
   };
   sourceSegments.set(id, segment);
   renderSegment(segment);
@@ -1371,7 +1424,7 @@ async function beginTranscription() {
         const normalized = normalizeTranslationLanguage(data.language);
         if (!detectedSourceLanguage && normalized) detectedSourceLanguage = normalized;
       } catch (_) {}
-      flushPendingSegments();
+      flushPendingSegments({ final: true });
       if (eventSource) eventSource.close();
       eventSource = null;
       maybeFinalize();
@@ -1385,7 +1438,7 @@ async function beginTranscription() {
         message = JSON.parse(event.data || "{}").message || message;
       } catch (_) {}
       setStatus(message, "failed");
-      flushPendingSegments();
+      flushPendingSegments({ final: true });
       if (eventSource) eventSource.close();
       eventSource = null;
       maybeFinalize();
@@ -1398,7 +1451,7 @@ async function beginTranscription() {
       setStatus(t("disconnected"), "failed");
       eventSource.close();
       eventSource = null;
-      flushPendingSegments();
+      flushPendingSegments({ final: true });
       maybeFinalize();
     };
   } catch (error) {
