@@ -10,6 +10,8 @@ OLLAMA_CHECK_MODE="${OLLAMA_CHECK_MODE:-warn}"
 OLLAMA_URL="${OLLAMA_URL:-http://127.0.0.1:11434}"
 OLLAMA_HOST="${OLLAMA_HOST:-127.0.0.1:11434}"
 OLLAMA_COMMAND="${OLLAMA_COMMAND:-ollama}"
+OLLAMA_AUTO_INSTALL="${OLLAMA_AUTO_INSTALL:-true}"
+OLLAMA_INSTALL_URL="${OLLAMA_INSTALL_URL:-https://ollama.com/install.sh}"
 OLLAMA_START_TIMEOUT_SECONDS="${OLLAMA_START_TIMEOUT_SECONDS:-30}"
 KOTOBAMARU_PROJECT_DIR="${KOTOBAMARU_PROJECT_DIR:-/vault/kotobamaru}"
 KOTOBAMARU_VENV_DIR="${KOTOBAMARU_VENV_DIR:-/vault/venvs/kotobamaru}"
@@ -89,6 +91,50 @@ ollama_pid_has_expected_gpu() {
         | grep -Fxq "CUDA_VISIBLE_DEVICES=${OLLAMA_GPU_UUID}"
 }
 
+install_ollama_if_missing() {
+    command -v "${OLLAMA_COMMAND}" >/dev/null 2>&1 && return 0
+    [[ "${OLLAMA_COMMAND}" == "ollama" ]] \
+        || fail "找不到自訂 Ollama 執行檔：${OLLAMA_COMMAND}"
+    [[ "${OLLAMA_AUTO_INSTALL}" == "true" ]] \
+        || fail "找不到 Ollama；請先安裝，或設定 OLLAMA_AUTO_INSTALL=true。"
+
+    local installer_file
+    installer_file="$(mktemp)"
+    log "找不到 Ollama，下載官方安裝程式：${OLLAMA_INSTALL_URL}"
+    if ! curl \
+        --fail \
+        --silent \
+        --show-error \
+        --location \
+        --proto '=https' \
+        --tlsv1.2 \
+        --output "${installer_file}" \
+        "${OLLAMA_INSTALL_URL}"; then
+        rm -f -- "${installer_file}"
+        fail "下載 Ollama 安裝程式失敗。"
+    fi
+
+    local installer_status=0
+    if [[ "${EUID}" -eq 0 ]]; then
+        sh "${installer_file}" || installer_status=$?
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo sh "${installer_file}" || installer_status=$?
+    else
+        rm -f -- "${installer_file}"
+        fail "安裝 Ollama 需要 root 權限，且找不到 sudo。"
+    fi
+    rm -f -- "${installer_file}"
+    hash -r
+
+    if ! command -v "${OLLAMA_COMMAND}" >/dev/null 2>&1; then
+        fail "Ollama 安裝失敗，安裝程式結束碼：${installer_status}"
+    fi
+    if [[ "${installer_status}" -ne 0 ]]; then
+        warn "安裝程式結束碼為 ${installer_status}，但 Ollama 執行檔已可使用。"
+    fi
+    log "Ollama 安裝完成：$(command -v "${OLLAMA_COMMAND}")"
+}
+
 check_ollama_binding() {
     [[ "${OLLAMA_CHECK_MODE}" != "off" ]] || return 0
     if ! ollama_systemd_is_available; then
@@ -116,6 +162,7 @@ check_ollama_binding() {
 
 start_ollama_manually() {
     local ollama_binary
+    install_ollama_if_missing
     ollama_binary="$(command -v "${OLLAMA_COMMAND}" 2>/dev/null || true)"
     [[ -n "${ollama_binary}" ]] \
         || fail "找不到 Ollama 執行檔：${OLLAMA_COMMAND}"
@@ -217,6 +264,8 @@ command -v nohup >/dev/null 2>&1 || fail "找不到 nohup。"
     || fail "Audio IO 與 Ollama 不可指定同一個 GPU UUID。"
 [[ "${OLLAMA_CHECK_MODE}" =~ ^(warn|required|off)$ ]] \
     || fail "OLLAMA_CHECK_MODE 只支援 warn、required、off。"
+[[ "${OLLAMA_AUTO_INSTALL}" =~ ^(true|false)$ ]] \
+    || fail "OLLAMA_AUTO_INSTALL 只支援 true 或 false。"
 [[ "${OLLAMA_START_TIMEOUT_SECONDS}" =~ ^[1-9][0-9]*$ ]] \
     || fail "OLLAMA_START_TIMEOUT_SECONDS 必須是正整數。"
 [[ "${KOTOBAMARU_START_TIMEOUT_SECONDS}" =~ ^[1-9][0-9]*$ ]] \
