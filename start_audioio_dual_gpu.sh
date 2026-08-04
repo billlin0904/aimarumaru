@@ -78,6 +78,42 @@ run_systemctl() {
     fi
 }
 
+run_as_root() {
+    if [[ "${EUID}" -eq 0 ]]; then
+        "$@"
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo "$@"
+    else
+        return 126
+    fi
+}
+
+install_ollama_prerequisites() {
+    command -v zstd >/dev/null 2>&1 && return 0
+
+    log "Ollama 安裝需要 zstd，正在安裝系統套件"
+    if command -v apt-get >/dev/null 2>&1; then
+        run_as_root apt-get update \
+            || fail "apt-get update 失敗，無法安裝 zstd。"
+        run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y zstd \
+            || fail "使用 apt-get 安裝 zstd 失敗。"
+    elif command -v dnf >/dev/null 2>&1; then
+        run_as_root dnf install -y zstd \
+            || fail "使用 dnf 安裝 zstd 失敗。"
+    elif command -v yum >/dev/null 2>&1; then
+        run_as_root yum install -y zstd \
+            || fail "使用 yum 安裝 zstd 失敗。"
+    elif command -v pacman >/dev/null 2>&1; then
+        run_as_root pacman -Sy --noconfirm zstd \
+            || fail "使用 pacman 安裝 zstd 失敗。"
+    else
+        fail "找不到可支援的套件管理器，請先手動安裝 zstd。"
+    fi
+
+    command -v zstd >/dev/null 2>&1 \
+        || fail "zstd 安裝完成後仍找不到執行檔。"
+}
+
 ollama_systemd_is_available() {
     command -v systemctl >/dev/null 2>&1 \
         && [[ -d /run/systemd/system ]] \
@@ -97,6 +133,8 @@ install_ollama_if_missing() {
         || fail "找不到自訂 Ollama 執行檔：${OLLAMA_COMMAND}"
     [[ "${OLLAMA_AUTO_INSTALL}" == "true" ]] \
         || fail "找不到 Ollama；請先安裝，或設定 OLLAMA_AUTO_INSTALL=true。"
+
+    install_ollama_prerequisites
 
     local installer_file
     installer_file="$(mktemp)"
