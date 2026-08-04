@@ -8,6 +8,7 @@ AUDIOIO_GPU_UUID="${AUDIOIO_GPU_UUID:-GPU-aad845f7-e9e3-f475-6792-799f510bd2f4}"
 OLLAMA_GPU_UUID="${OLLAMA_GPU_UUID:-GPU-7b8b0572-a31f-b3ed-1e39-c0680af38f9d}"
 OLLAMA_CHECK_MODE="${OLLAMA_CHECK_MODE:-warn}"
 OLLAMA_URL="${OLLAMA_URL:-http://127.0.0.1:11434}"
+OLLAMA_URLS="${OLLAMA_URLS:-${OLLAMA_URL}}"
 OLLAMA_HOST="${OLLAMA_HOST:-127.0.0.1:11434}"
 OLLAMA_COMMAND="${OLLAMA_COMMAND:-ollama}"
 OLLAMA_AUTO_INSTALL="${OLLAMA_AUTO_INSTALL:-true}"
@@ -261,6 +262,25 @@ ensure_ollama_running() {
     fi
 }
 
+ollama_worker_pool_enabled() {
+    [[ "${OLLAMA_URLS}" == *,* ]]
+}
+
+ensure_ollama_worker_pool_running() {
+    local raw_url url
+    local worker_urls=()
+    IFS=',' read -r -a worker_urls <<< "${OLLAMA_URLS}"
+    for raw_url in "${worker_urls[@]}"; do
+        url="${raw_url#"${raw_url%%[![:space:]]*}"}"
+        url="${url%"${url##*[![:space:]]}"}"
+        [[ -n "${url}" ]] || fail "OLLAMA_URLS 不可包含空白 worker URL。"
+        if ! url_is_ready "${url%/}/api/tags"; then
+            fail "Ollama worker 尚未就緒：${url}。請先在 Kotobamaru 執行 scripts/install_ollama.sh。"
+        fi
+        log "Ollama worker 已在執行：${url}"
+    done
+}
+
 ensure_kotobamaru_running() {
     local health_url="${KOTOBAMARU_URL}/health"
     if url_is_ready "${health_url}"; then
@@ -279,7 +299,7 @@ ensure_kotobamaru_running() {
         PORT="${KOTOBAMARU_PORT}" \
         PID_FILE="${KOTOBAMARU_PID_FILE}" \
         OLLAMA_URL="${OLLAMA_URL}" \
-        OLLAMA_URLS="${OLLAMA_URL}" \
+        OLLAMA_URLS="${OLLAMA_URLS}" \
         CUDA_VISIBLE_DEVICES="" \
         "${KOTOBAMARU_START_SCRIPT}" \
         > "${KOTOBAMARU_LOG_FILE}" 2>&1 &
@@ -319,8 +339,12 @@ gpu_exists "${AUDIOIO_GPU_UUID}" \
 gpu_exists "${OLLAMA_GPU_UUID}" \
     || fail "找不到 Ollama GPU：${OLLAMA_GPU_UUID}"
 
-check_ollama_binding
-ensure_ollama_running
+if ollama_worker_pool_enabled; then
+    ensure_ollama_worker_pool_running
+else
+    check_ollama_binding
+    ensure_ollama_running
+fi
 ensure_kotobamaru_running
 
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
@@ -329,6 +353,7 @@ export TRANSLATE_API_BASE="${TRANSLATE_API_BASE:-${KOTOBAMARU_URL}}"
 
 log "Audio IO GPU：${AUDIOIO_GPU_UUID}"
 log "Ollama 保留 GPU：${OLLAMA_GPU_UUID}"
+log "Kotobamaru Ollama workers：${OLLAMA_URLS}"
 log "Kotobamaru API：${TRANSLATE_API_BASE}"
 log "啟動：${START_SCRIPT}"
 

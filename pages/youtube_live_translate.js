@@ -55,6 +55,7 @@ const BATCH_MAX_SEGMENTS = 40;
 const BATCH_MAX_CHARACTERS = 2000;
 const REQUEST_MAX_CHARACTERS = 6000;
 const CONTEXT_MAX_SEGMENTS = 5;
+const TRANSLATION_WAVE_SIZE = 2;
 const RETRY_DELAYS_MS = [2000, 5000];
 const RETRYABLE_HTTP_STATUSES = new Set([429, 502, 503, 504]);
 const PROMPT_VERSION = "subtitle-v1";
@@ -66,7 +67,7 @@ const translations = {
     pageTitle: "Video Translate", transcribeOnly: "僅轉譯", urlLabel: "YouTube 網址", ignoreSubtitles: "忽略內建字幕",
     videoPreview: "影片預覽", subtitleWaiting: "字幕完成後會顯示在這裡",
     sourceLanguage: "原文語言", targetLanguage: "翻譯目標語言", autoDetect: "自動偵測", languageEnglish: "英文", languageJapanese: "日文", languageKorean: "韓文", languageThai: "泰文", languageTraditionalChinese: "繁體中文",
-    start: "開始轉譯並翻譯", detectLanguage: "偵測語言", waiting: "等待輸入網址", creating: "建立任務中", processing: "處理中", cancelJob: "取消轉譯", cancelled: "已取消轉譯與翻譯", done: "轉譯與翻譯完成", partialDone: "處理完成，部分翻譯失敗", failed: "處理失敗", disconnected: "連線中斷", requestFailed: "請求失敗",
+    start: "開始轉譯並翻譯", detectLanguage: "偵測語言", waiting: "等待輸入網址", creating: "建立任務中", processing: "處理中", cancelJob: "取消轉譯", cancelled: "已取消轉譯與翻譯", transcriptionDone: "轉譯完成，翻譯繼續處理中", done: "轉譯與翻譯完成", partialDone: "處理完成，部分翻譯失敗", failed: "處理失敗", disconnected: "連線中斷", requestFailed: "請求失敗",
     detectedLanguageLabel: "偵測結果", detectedLanguageValue: "偵測為 {language}", confirmSourceLanguage: "確認原文語言", confirmAndStart: "確認並開始", confirmDetectedLanguage: "請確認原文語言後再開始轉譯", confirmingLanguage: "正在送出語言選擇", confidence: "偵測信心 {percent}%", subtitleLanguageSource: "來自 YouTube 字幕語言", unknownLanguage: "未知語言",
     resultTitle: "即時字幕", emptyState: "原文與譯文會一段一段顯示在這裡。", segmentUnit: "段", sourceText: "原文", translatedText: "翻譯", translationPending: "正在等待翻譯…", translationFailed: "翻譯失敗", retryTranslation: "重新翻譯",
     transcriptionProgress: "轉譯進度", translationProgress: "翻譯進度", progressDetail: "取得影片長度後會顯示轉譯進度。", translationWaiting: "等待轉譯內容。", estimatingCompletion: "正在估算完成時間…", estimatedCompletion: "預計完成時間 {time}", durationPrefix: "長度", seconds: "秒",
@@ -79,7 +80,7 @@ const translations = {
     pageTitle: "Video Translate", transcribeOnly: "Transcribe only", urlLabel: "YouTube URL", ignoreSubtitles: "Ignore built-in subtitles",
     videoPreview: "Video preview", subtitleWaiting: "Subtitles will appear here when ready",
     sourceLanguage: "Source language", targetLanguage: "Target language", autoDetect: "Auto detect", languageEnglish: "English", languageJapanese: "Japanese", languageKorean: "Korean", languageThai: "Thai", languageTraditionalChinese: "Traditional Chinese",
-    start: "Transcribe and translate", detectLanguage: "Detect language", waiting: "Waiting for a URL", creating: "Creating job", processing: "Processing", cancelJob: "Cancel", cancelled: "Transcription and translation cancelled", done: "Transcription and translation complete", partialDone: "Complete with some translation failures", failed: "Processing failed", disconnected: "Connection interrupted", requestFailed: "Request failed",
+    start: "Transcribe and translate", detectLanguage: "Detect language", waiting: "Waiting for a URL", creating: "Creating job", processing: "Processing", cancelJob: "Cancel", cancelled: "Transcription and translation cancelled", transcriptionDone: "Transcription complete; translation is still running", done: "Transcription and translation complete", partialDone: "Complete with some translation failures", failed: "Processing failed", disconnected: "Connection interrupted", requestFailed: "Request failed",
     detectedLanguageLabel: "Detection result", detectedLanguageValue: "Detected as {language}", confirmSourceLanguage: "Confirm source language", confirmAndStart: "Confirm and start", confirmDetectedLanguage: "Confirm the source language to begin transcription", confirmingLanguage: "Submitting language selection", confidence: "Detection confidence {percent}%", subtitleLanguageSource: "From YouTube subtitle language", unknownLanguage: "Unknown language",
     resultTitle: "Live subtitles", emptyState: "Source text and translation will appear here segment by segment.", segmentUnit: "segments", sourceText: "Source", translatedText: "Translation", translationPending: "Waiting for translation…", translationFailed: "Translation failed", retryTranslation: "Retry",
     transcriptionProgress: "Transcription", translationProgress: "Translation", progressDetail: "Progress appears after the video duration is available.", translationWaiting: "Waiting for transcription.", estimatingCompletion: "Estimating completion time…", estimatedCompletion: "Estimated completion {time}", durationPrefix: "Duration", seconds: "sec",
@@ -92,7 +93,7 @@ const translations = {
     pageTitle: "Video Translate", transcribeOnly: "文字起こしのみ", urlLabel: "YouTube URL", ignoreSubtitles: "内蔵字幕を無視",
     videoPreview: "動画プレビュー", subtitleWaiting: "字幕の準備ができるとここに表示されます",
     sourceLanguage: "原文の言語", targetLanguage: "翻訳先の言語", autoDetect: "自動検出", languageEnglish: "英語", languageJapanese: "日本語", languageKorean: "韓国語", languageThai: "タイ語", languageTraditionalChinese: "繁体字中国語",
-    start: "文字起こしと翻訳を開始", detectLanguage: "言語を検出", waiting: "URL を入力してください", creating: "ジョブを作成中", processing: "処理中", cancelJob: "キャンセル", cancelled: "文字起こしと翻訳をキャンセルしました", done: "文字起こしと翻訳が完了しました", partialDone: "一部の翻訳に失敗しました", failed: "処理に失敗しました", disconnected: "接続が切断されました", requestFailed: "リクエストに失敗しました",
+    start: "文字起こしと翻訳を開始", detectLanguage: "言語を検出", waiting: "URL を入力してください", creating: "ジョブを作成中", processing: "処理中", cancelJob: "キャンセル", cancelled: "文字起こしと翻訳をキャンセルしました", transcriptionDone: "文字起こしが完了し、翻訳を続行しています", done: "文字起こしと翻訳が完了しました", partialDone: "一部の翻訳に失敗しました", failed: "処理に失敗しました", disconnected: "接続が切断されました", requestFailed: "リクエストに失敗しました",
     detectedLanguageLabel: "検出結果", detectedLanguageValue: "{language} として検出", confirmSourceLanguage: "原文の言語を確認", confirmAndStart: "確認して開始", confirmDetectedLanguage: "原文の言語を確認してから開始してください", confirmingLanguage: "言語設定を送信中", confidence: "検出の信頼度 {percent}%", subtitleLanguageSource: "YouTube 字幕の言語", unknownLanguage: "不明な言語",
     resultTitle: "リアルタイム字幕", emptyState: "原文と翻訳が順番に表示されます。", segmentUnit: "件", sourceText: "原文", translatedText: "翻訳", translationPending: "翻訳待ち…", translationFailed: "翻訳に失敗しました", retryTranslation: "再翻訳",
     transcriptionProgress: "文字起こしの進捗", translationProgress: "翻訳の進捗", progressDetail: "動画の長さを取得後、進捗が表示されます。", translationWaiting: "文字起こしを待っています。", estimatingCompletion: "完了時刻を計算中…", estimatedCompletion: "完了予定 {time}", durationPrefix: "長さ", seconds: "秒",
@@ -105,7 +106,7 @@ const translations = {
     pageTitle: "Video Translate", transcribeOnly: "전사만", urlLabel: "YouTube URL", ignoreSubtitles: "내장 자막 무시",
     videoPreview: "동영상 미리보기", subtitleWaiting: "자막이 준비되면 여기에 표시됩니다",
     sourceLanguage: "원문 언어", targetLanguage: "번역 언어", autoDetect: "자동 감지", languageEnglish: "영어", languageJapanese: "일본어", languageKorean: "한국어", languageThai: "태국어", languageTraditionalChinese: "번체 중국어",
-    start: "전사 및 번역 시작", detectLanguage: "언어 감지", waiting: "URL 입력 대기 중", creating: "작업 생성 중", processing: "처리 중", cancelJob: "전사 취소", cancelled: "전사와 번역이 취소되었습니다", done: "전사 및 번역 완료", partialDone: "일부 번역 실패와 함께 완료", failed: "처리 실패", disconnected: "연결이 끊겼습니다", requestFailed: "요청 실패",
+    start: "전사 및 번역 시작", detectLanguage: "언어 감지", waiting: "URL 입력 대기 중", creating: "작업 생성 중", processing: "처리 중", cancelJob: "전사 취소", cancelled: "전사와 번역이 취소되었습니다", transcriptionDone: "전사가 완료되어 번역을 계속 처리하고 있습니다", done: "전사 및 번역 완료", partialDone: "일부 번역 실패와 함께 완료", failed: "처리 실패", disconnected: "연결이 끊겼습니다", requestFailed: "요청 실패",
     detectedLanguageLabel: "감지 결과", detectedLanguageValue: "{language}(으)로 감지", confirmSourceLanguage: "원문 언어 확인", confirmAndStart: "확인 후 시작", confirmDetectedLanguage: "원문 언어를 확인한 뒤 전사를 시작하세요", confirmingLanguage: "언어 선택을 전송하는 중", confidence: "감지 신뢰도 {percent}%", subtitleLanguageSource: "YouTube 자막 언어", unknownLanguage: "알 수 없는 언어",
     resultTitle: "실시간 자막", emptyState: "원문과 번역이 구간별로 표시됩니다.", segmentUnit: "개", sourceText: "원문", translatedText: "번역", translationPending: "번역 대기 중…", translationFailed: "번역 실패", retryTranslation: "다시 번역",
     transcriptionProgress: "전사 진행률", translationProgress: "번역 진행률", progressDetail: "영상 길이를 가져오면 진행률이 표시됩니다.", translationWaiting: "전사 내용을 기다리는 중입니다.", estimatingCompletion: "완료 시간을 계산하는 중…", estimatedCompletion: "예상 완료 시간 {time}", durationPrefix: "길이", seconds: "초",
@@ -130,13 +131,15 @@ const translationFailureCodes = new Map();
 let pendingSegments = [];
 let eventSource = null;
 let translationQueue = Promise.resolve();
+let pendingTranslationBatches = [];
+let translationWaveRunning = false;
 let batchTimer = null;
 let queuedBatchCount = 0;
 let batchCounter = 0;
 let currentJobId = "";
 let currentTranslationToken = "";
 let currentCancelRequest = null;
-let translationAbortController = null;
+const translationAbortControllers = new Set();
 let jobCancellationRequested = false;
 let requestedSourceLanguage = "";
 let selectedTargetLanguage = "zh-TW";
@@ -597,12 +600,14 @@ function resetView() {
   translationFailureCodes.clear();
   pendingSegments = [];
   translationQueue = Promise.resolve();
+  pendingTranslationBatches = [];
+  translationWaveRunning = false;
   queuedBatchCount = 0;
   batchCounter = 0;
   currentJobId = "";
   currentTranslationToken = "";
   currentCancelRequest = null;
-  translationAbortController = null;
+  abortTranslationRequests();
   jobCancellationRequested = false;
   cancelJob.classList.add("d-none");
   cancelJob.disabled = false;
@@ -836,8 +841,9 @@ function flushPendingSegments({ final = false } = {}) {
     const batch = takeNextBatch();
     if (lookahead) pendingSegments.push(lookahead);
     if (batch.length === 0) break;
-    enqueueTranslation(batch);
+    enqueueTranslation(batch, { deferStart: final });
   }
+  if (final) startNextTranslationWave({ allowPartial: true });
   updateTranslationProgress();
 }
 
@@ -860,8 +866,8 @@ function buildContextSegments(batch) {
   const firstBatchId = Math.min(...batchIds);
   const candidates = sortedSourceSegments()
     .filter(segment => segment.id < firstBatchId && !batchIds.has(segment.id))
-    .filter(segment => translatedSegments.has(segment.id))
     .slice(-CONTEXT_MAX_SEGMENTS)
+    .filter(segment => translatedSegments.has(segment.id))
     .map(segment => ({
       id: segment.id,
       source_text: segment.sourceText,
@@ -888,7 +894,43 @@ function buildContextSegments(batch) {
   return candidates;
 }
 
-function buildFollowingContextSegments(batch, contextSegments) {
+function buildPrecedingContextSegments(batch, contextSegments) {
+  const batchIds = new Set(batch.map(segment => segment.id));
+  const contextIds = new Set(contextSegments.map(segment => segment.id));
+  const firstBatchId = Math.min(...batchIds);
+  const candidates = sortedSourceSegments()
+    .filter(segment => segment.id < firstBatchId)
+    .slice(-CONTEXT_MAX_SEGMENTS)
+    .filter(segment => !batchIds.has(segment.id) && !contextIds.has(segment.id))
+    .map(segment => ({
+      id: segment.id,
+      text: segment.sourceText,
+    }));
+
+  const fixedCharacters = batch.reduce(
+    (total, segment) => total + segment.sourceText.length
+      + (segment.lowConfidenceSpans || []).reduce(
+        (spanTotal, span) => spanTotal + span.length,
+        0,
+      ),
+    0,
+  ) + contextSegments.reduce(
+    (total, segment) => total + segment.source_text.length + segment.translated_text.length,
+    0,
+  );
+  while (
+    candidates.length > 0
+    && fixedCharacters + candidates.reduce(
+      (total, segment) => total + segment.text.length,
+      0,
+    ) > REQUEST_MAX_CHARACTERS
+  ) {
+    candidates.shift();
+  }
+  return candidates;
+}
+
+function buildFollowingContextSegments(batch, contextSegments, precedingContextSegments) {
   const batchIds = new Set(batch.map(segment => segment.id));
   const lastBatchId = Math.max(...batchIds);
   const candidates = sortedSourceSegments()
@@ -908,6 +950,9 @@ function buildFollowingContextSegments(batch, contextSegments) {
     0,
   ) + contextSegments.reduce(
     (total, segment) => total + segment.source_text.length + segment.translated_text.length,
+    0,
+  ) + precedingContextSegments.reduce(
+    (total, segment) => total + segment.text.length,
     0,
   );
   while (
@@ -939,7 +984,7 @@ function responseIsRetryable(response, data) {
 async function requestTranslation(payload) {
   let response;
   const controller = new AbortController();
-  translationAbortController = controller;
+  translationAbortControllers.add(controller);
   try {
     response = await fetch("/api/youtube-live/translate-batch", {
       method: "POST",
@@ -957,9 +1002,7 @@ async function requestTranslation(payload) {
     wrapped.code = "NETWORK_ERROR";
     throw wrapped;
   } finally {
-    if (translationAbortController === controller) {
-      translationAbortController = null;
-    }
+    translationAbortControllers.delete(controller);
   }
 
   let data = null;
@@ -1013,13 +1056,19 @@ async function translateBatch(batch) {
   const batchNumber = ++batchCounter;
   const requestId = `youtube-${currentJobId}-${selectedTargetLanguage}-batch-${batchNumber}-${PROMPT_VERSION}`;
   const contextSegments = buildContextSegments(batch);
+  const precedingContextSegments = buildPrecedingContextSegments(batch, contextSegments);
   const payload = {
     request_id: requestId,
     source_language: batch[0].language,
     target_language: selectedTargetLanguage,
     prompt_version: PROMPT_VERSION,
     context_segments: contextSegments,
-    following_context_segments: buildFollowingContextSegments(batch, contextSegments),
+    preceding_context_segments: precedingContextSegments,
+    following_context_segments: buildFollowingContextSegments(
+      batch,
+      contextSegments,
+      precedingContextSegments,
+    ),
     segments: batch.map(segment => ({
       id: segment.id,
       text: segment.sourceText,
@@ -1068,32 +1117,57 @@ async function translateBatch(batch) {
   }
 }
 
-function enqueueTranslation(batch) {
-  if (!batch.length || jobCancellationRequested) return translationQueue;
-  queuedBatchCount += 1;
-  setTranslationActive(true);
-  for (const segment of batch) showSegmentTranslation(segment.id, "pending");
-
-  translationQueue = translationQueue.then(async () => {
+async function processTranslationBatch(batch) {
+  if (jobCancellationRequested) return;
+  try {
+    await translateBatch(batch);
+  } catch (error) {
     if (jobCancellationRequested) return;
-    try {
-      await translateBatch(batch);
-    } catch (error) {
-      if (jobCancellationRequested) return;
-      console.error("Translation queue failed", error);
-      const failureCode = translationErrorCode(error);
-      for (const segment of batch) {
-        failedSegmentIds.add(segment.id);
-        translationFailureCodes.set(segment.id, failureCode);
-        showSegmentTranslation(segment.id, "failed", error.message || t("translationFailed"));
-      }
-    } finally {
-      queuedBatchCount = Math.max(0, queuedBatchCount - 1);
-      updateTranslationProgress();
+    console.error("Translation queue failed", error);
+    const failureCode = translationErrorCode(error);
+    for (const segment of batch) {
+      failedSegmentIds.add(segment.id);
+      translationFailureCodes.set(segment.id, failureCode);
+      showSegmentTranslation(segment.id, "failed", error.message || t("translationFailed"));
+    }
+  } finally {
+    queuedBatchCount = Math.max(0, queuedBatchCount - 1);
+    updateTranslationProgress();
+  }
+}
+
+function startNextTranslationWave({ allowPartial = false } = {}) {
+  if (translationWaveRunning || jobCancellationRequested) return translationQueue;
+  if (pendingTranslationBatches.length === 0) return translationQueue;
+  if (!allowPartial && pendingTranslationBatches.length < TRANSLATION_WAVE_SIZE) {
+    return translationQueue;
+  }
+
+  const wave = pendingTranslationBatches.splice(0, TRANSLATION_WAVE_SIZE);
+  translationWaveRunning = true;
+  translationQueue = Promise.allSettled(wave.map(processTranslationBatch)).finally(() => {
+    translationWaveRunning = false;
+    if (!jobCancellationRequested) {
+      startNextTranslationWave({ allowPartial: transcriptionDone });
       maybeFinalize();
     }
   });
   return translationQueue;
+}
+
+function enqueueTranslation(batch, { deferStart = false } = {}) {
+  if (!batch.length || jobCancellationRequested) return translationQueue;
+  queuedBatchCount += 1;
+  pendingTranslationBatches.push(batch);
+  setTranslationActive(true);
+  for (const segment of batch) showSegmentTranslation(segment.id, "pending");
+  if (!deferStart) startNextTranslationWave({ allowPartial: transcriptionDone });
+  return translationQueue;
+}
+
+function abortTranslationRequests() {
+  for (const controller of translationAbortControllers) controller.abort();
+  translationAbortControllers.clear();
 }
 
 function effectiveSourceLanguage(dataLanguage) {
@@ -1415,10 +1489,11 @@ cancelJob.addEventListener("click", async () => {
     currentCancelRequest = null;
     currentTranslationToken = "";
     pendingSegments = [];
+    pendingTranslationBatches = [];
+    queuedBatchCount = 0;
     if (batchTimer) clearTimeout(batchTimer);
     batchTimer = null;
-    if (translationAbortController) translationAbortController.abort();
-    translationAbortController = null;
+    abortTranslationRequests();
     if (eventSource) eventSource.close();
     eventSource = null;
     transcriptionDone = true;
@@ -1521,7 +1596,7 @@ async function beginTranscription() {
     eventSource.addEventListener("done", event => {
       transcriptionDone = true;
       setTranscriptionActive(false);
-      setTranscriptionProgress(100, t("done"));
+      setTranscriptionProgress(100, t("transcriptionDone"));
       try {
         const data = JSON.parse(event.data || "{}");
         const normalized = normalizeTranslationLanguage(data.language);
@@ -1553,11 +1628,12 @@ async function beginTranscription() {
       currentTranslationToken = "";
       jobCancellationRequested = true;
       pendingSegments = [];
+      pendingTranslationBatches = [];
+      queuedBatchCount = 0;
       if (batchTimer) clearTimeout(batchTimer);
       batchTimer = null;
       cancelJob.classList.add("d-none");
-      if (translationAbortController) translationAbortController.abort();
-      translationAbortController = null;
+      abortTranslationRequests();
       setTranscriptionActive(false);
       setTranslationActive(false);
       transcriptionBar.classList.remove("progress-bar-animated");
@@ -1572,11 +1648,12 @@ async function beginTranscription() {
       cancelCurrentJob();
       jobCancellationRequested = true;
       pendingSegments = [];
+      pendingTranslationBatches = [];
+      queuedBatchCount = 0;
       if (batchTimer) clearTimeout(batchTimer);
       batchTimer = null;
       cancelJob.classList.add("d-none");
-      if (translationAbortController) translationAbortController.abort();
-      translationAbortController = null;
+      abortTranslationRequests();
       transcriptionDone = true;
       transcriptionFailed = true;
       setTranscriptionActive(false);

@@ -1120,6 +1120,14 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                                         ],
                                     },
                                 },
+                                "preceding_context_segments": {
+                                    "type": "array",
+                                    "maxItems": 5,
+                                    "items": {
+                                        "type": "object",
+                                        "required": ["id", "text"],
+                                    },
+                                },
                                 "following_context_segments": {
                                     "type": "array",
                                     "maxItems": 5,
@@ -1204,11 +1212,17 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
 
         segments = payload.get("segments")
         context_segments = payload.get("context_segments")
+        preceding_context_segments = payload.get("preceding_context_segments")
         following_context_segments = payload.get("following_context_segments")
         on_screen_terms = payload.get("on_screen_terms")
         segments = segments if isinstance(segments, list) else []
         context_segments = (
             context_segments if isinstance(context_segments, list) else []
+        )
+        preceding_context_segments = (
+            preceding_context_segments
+            if isinstance(preceding_context_segments, list)
+            else []
         )
         following_context_segments = (
             following_context_segments
@@ -1244,6 +1258,11 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         )
         characters += sum(
             len(str(item.get("text") or ""))
+            for item in preceding_context_segments
+            if isinstance(item, dict)
+        )
+        characters += sum(
+            len(str(item.get("text") or ""))
             for item in following_context_segments
             if isinstance(item, dict)
         )
@@ -1257,6 +1276,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             target_language=payload.get("target_language"),
             segments=len(segments),
             context_segments=len(context_segments),
+            preceding_context_segments=len(preceding_context_segments),
             following_context_segments=len(following_context_segments),
             on_screen_terms=len(on_screen_terms),
             low_confidence_spans=low_confidence_span_count,
@@ -1288,7 +1308,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                     logger.info(
                         "Translation proxy completed: job_id=%s status=%d "
                         "request_id=%s source=%s target=%s segments=%d context=%d "
-                        "following_context=%d on_screen_terms=%d "
+                        "preceding_context=%d following_context=%d on_screen_terms=%d "
                         "low_confidence_spans=%d "
                         "characters=%d request_bytes=%d response_bytes=%d elapsed=%.3fs",
                         authorized_job_id,
@@ -1298,6 +1318,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                         payload.get("target_language"),
                         len(segments),
                         len(context_segments),
+                        len(preceding_context_segments),
                         len(following_context_segments),
                         len(on_screen_terms),
                         low_confidence_span_count,

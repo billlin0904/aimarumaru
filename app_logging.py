@@ -215,6 +215,7 @@ def configure_access_logging(app: FastAPI) -> None:
                 subtitle_source=meta.get("subtitle_source"),
                 segments=meta.get("segments"),
                 context_segments=meta.get("context_segments"),
+                preceding_context_segments=meta.get("preceding_context_segments"),
                 following_context_segments=meta.get("following_context_segments"),
                 on_screen_terms=meta.get("on_screen_terms"),
                 low_confidence_spans=meta.get("low_confidence_spans"),
