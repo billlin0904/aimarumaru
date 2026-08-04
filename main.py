@@ -12,6 +12,7 @@ import re
 import secrets
 import shutil
 import subprocess
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -40,6 +41,8 @@ from maintenance import (
 )
 from text_converter import to_traditional_chinese
 from transcribe_queue import (
+    TranscriptionCancelled,
+    cancel_queued_transcribe_task,
     enqueue_transcribe_task,
     get_transcribe_queue_counts,
     get_transcribe_queue_size,
@@ -141,6 +144,10 @@ app.include_router(create_youtube_live_router(auto2lrc, PROJECT_ROOT, lambda tok
 class CaptchaVerifyRequest(BaseModel):
     captcha_id: str
     captcha_answer: str
+
+
+class TranscribeCancelRequest(BaseModel):
+    cancel_token: str
 
 
 class GpuStatusItem(BaseModel):
@@ -515,6 +522,34 @@ def remove_transcribe_job(req_id: str, job: Optional[dict[str, Any]] = None) -> 
         shutil.rmtree(req_dir, ignore_errors=True)
 
 
+def cleanup_transcribe_job_artifacts(job: dict[str, Any]) -> None:
+    req_dir = job.get("req_dir")
+    if isinstance(req_dir, Path):
+        shutil.rmtree(req_dir, ignore_errors=True)
+
+
+def transcribe_job_cancelled(job: dict[str, Any]) -> bool:
+    cancel_event = job.get("cancel_event")
+    return job.get("status") == "cancelled" or (
+        isinstance(cancel_event, threading.Event) and cancel_event.is_set()
+    )
+
+
+def ensure_transcribe_job_not_cancelled(job: dict[str, Any]) -> None:
+    if transcribe_job_cancelled(job):
+        raise TranscriptionCancelled("轉譯已取消")
+
+
+def mark_transcribe_job_cancelled(job: dict[str, Any]) -> None:
+    cancelled_at = utc_now_iso()
+    job["status"] = "cancelled"
+    job["cancelled_at"] = cancelled_at
+    job["completed_at"] = cancelled_at
+    job["updated_at"] = cancelled_at
+    job["expires_at"] = time.time() + TRANSCRIBE_JOB_TTL_SECONDS
+    job["error"] = None
+
+
 def cleanup_stale_transcribe_job_dirs() -> None:
     if not TRANSCRIBE_JOB_DIR.exists():
         return
@@ -563,13 +598,33 @@ def write_transcription_output(
     source_filename: Optional[str],
     language_hint: Optional[str],
     use_vocal_separation: bool,
+    cancel_check,
 ) -> None:
+    if cancel_check():
+        raise TranscriptionCancelled("轉譯已取消")
     if output_format == "lrc":
-        auto2lrc.get_lrc(str(input_path), str(output_path), use_vocal_separation=use_vocal_separation)
+        auto2lrc.get_lrc(
+            str(input_path),
+            str(output_path),
+            use_vocal_separation=use_vocal_separation,
+            cancel_check=cancel_check,
+        )
     elif output_format == "srt":
-        auto2lrc.get_srt(str(input_path), str(output_path), language=language_hint, beam_size=5)
+        auto2lrc.get_srt(
+            str(input_path),
+            str(output_path),
+            language=language_hint,
+            beam_size=5,
+            cancel_check=cancel_check,
+        )
     elif output_format == "txt":
-        auto2lrc.get_text(str(input_path), str(output_path), language=language_hint, beam_size=5)
+        auto2lrc.get_text(
+            str(input_path),
+            str(output_path),
+            language=language_hint,
+            beam_size=5,
+            cancel_check=cancel_check,
+        )
     else:
         segments, info = auto2lrc.transcribe(
             str(input_path),
@@ -577,24 +632,30 @@ def write_transcription_output(
             language=language_hint,
         )
         detected_language = getattr(info, "language", language_hint)
+        output_segments = []
+        try:
+            for segment in segments:
+                if cancel_check():
+                    raise TranscriptionCancelled("轉譯已取消")
+                output_segments.append(
+                    {
+                        "start": segment.start,
+                        "end": segment.end,
+                        "text": to_traditional_chinese(
+                            segment.text.strip(),
+                            detected_language,
+                        ),
+                    }
+                )
+        finally:
+            auto2lrc.clear_model_cache()
         payload = {
             "filename": source_filename,
             "language": detected_language,
             "language_probability": getattr(info, "language_probability", None),
-            "segments": [
-                {
-                    "start": segment.start,
-                    "end": segment.end,
-                    "text": to_traditional_chinese(
-                        segment.text.strip(),
-                        detected_language,
-                    ),
-                }
-                for segment in segments
-            ],
+            "segments": output_segments,
         }
         output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        auto2lrc.clear_model_cache()
 
 
 def is_video_upload(filename: Optional[str], content_type: Optional[str]) -> bool:
@@ -603,12 +664,12 @@ def is_video_upload(filename: Optional[str], content_type: Optional[str]) -> boo
     return normalized_content_type.startswith("video/") or suffix in TRANSCRIBE_VIDEO_EXTENSIONS
 
 
-def extract_video_audio(video_path: Path, audio_path: Path) -> Path:
+def extract_video_audio(video_path: Path, audio_path: Path, cancel_check) -> Path:
     ffmpeg_path = shutil.which("ffmpeg")
     if not ffmpeg_path:
         raise RuntimeError("伺服器未安裝 ffmpeg，無法從影片抽取音軌")
 
-    process = subprocess.run(
+    process = subprocess.Popen(
         [
             ffmpeg_path,
             "-hide_banner",
@@ -626,30 +687,47 @@ def extract_video_audio(video_path: Path, audio_path: Path) -> Path:
             "pcm_s16le",
             str(audio_path),
         ],
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
         encoding="utf-8",
         errors="replace",
-        check=False,
     )
+    while process.poll() is None:
+        if cancel_check():
+            process.terminate()
+            try:
+                process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+            raise TranscriptionCancelled("轉譯已取消")
+        time.sleep(0.2)
+    _, stderr = process.communicate()
     if process.returncode != 0 or not audio_path.exists() or audio_path.stat().st_size == 0:
-        detail = process.stderr.strip() or "影片沒有可用的音軌"
+        detail = stderr.strip() or "影片沒有可用的音軌"
         raise RuntimeError(f"影片音軌抽取失敗: {detail}")
     return audio_path
 
 
 def prepare_transcription_input(job: dict[str, Any]) -> Path:
+    ensure_transcribe_job_not_cancelled(job)
     input_path = job["input_path"]
     if job.get("media_kind") != "video":
         return input_path
 
     extracted_audio_path = job["req_dir"] / "extracted_audio.wav"
-    job["prepared_input_path"] = extract_video_audio(input_path, extracted_audio_path)
+    job["prepared_input_path"] = extract_video_audio(
+        input_path,
+        extracted_audio_path,
+        lambda: transcribe_job_cancelled(job),
+    )
     return job["prepared_input_path"]
 
 
 def run_transcribe_request(req_id: str) -> None:
     job = transcribe_jobs[req_id]
+    ensure_transcribe_job_not_cancelled(job)
     transcription_input = prepare_transcription_input(job)
     write_transcription_output(
         input_path=transcription_input,
@@ -658,6 +736,7 @@ def run_transcribe_request(req_id: str) -> None:
         source_filename=job["filename"],
         language_hint=job["language_hint"],
         use_vocal_separation=job.get("use_vocal_separation", False),
+        cancel_check=lambda: transcribe_job_cancelled(job),
     )
 
 
@@ -665,6 +744,10 @@ async def handle_audio_transcribe_task(task: dict[str, Any]) -> None:
     req_id = str(task.get("id", ""))
     job = transcribe_jobs.get(req_id)
     if not job:
+        return
+    if transcribe_job_cancelled(job):
+        mark_transcribe_job_cancelled(job)
+        cleanup_transcribe_job_artifacts(job)
         return
 
     processing_started = time.perf_counter()
@@ -691,6 +774,7 @@ async def handle_audio_transcribe_task(task: dict[str, Any]) -> None:
     )
     try:
         await asyncio.to_thread(run_transcribe_request, req_id)
+        ensure_transcribe_job_not_cancelled(job)
         job["status"] = "done"
         job["completed_at"] = utc_now_iso()
         job["updated_at"] = job["completed_at"]
@@ -712,7 +796,34 @@ async def handle_audio_transcribe_task(task: dict[str, Any]) -> None:
                 else None
             ),
         )
+    except TranscriptionCancelled:
+        mark_transcribe_job_cancelled(job)
+        cleanup_transcribe_job_artifacts(job)
+        log_structured_event(
+            "audio_job_cancelled",
+            job_id=req_id,
+            job_status="cancelled",
+            media_kind=job.get("media_kind"),
+            output_format=job.get("output_format"),
+            processing_elapsed_ms=round(
+                (time.perf_counter() - processing_started) * 1000
+            ),
+        )
     except Exception as exc:
+        if transcribe_job_cancelled(job):
+            mark_transcribe_job_cancelled(job)
+            cleanup_transcribe_job_artifacts(job)
+            log_structured_event(
+                "audio_job_cancelled",
+                job_id=req_id,
+                job_status="cancelled",
+                media_kind=job.get("media_kind"),
+                output_format=job.get("output_format"),
+                processing_elapsed_ms=round(
+                    (time.perf_counter() - processing_started) * 1000
+                ),
+            )
+            return
         job["status"] = "failed"
         job["error"] = str(exc)
         job["completed_at"] = utc_now_iso()
@@ -759,6 +870,8 @@ def get_public_transcribe_request(req_id: str) -> dict[str, Any]:
         payload["started_at"] = job["started_at"]
     if job.get("completed_at"):
         payload["completed_at"] = job["completed_at"]
+    if job.get("cancelled_at"):
+        payload["cancelled_at"] = job["cancelled_at"]
     if job.get("error"):
         payload["error"] = job["error"]
     if job["status"] == "queued" and is_transcribe_queue_started():
@@ -808,6 +921,7 @@ async def transcribe_audio_download(
     created_at = utc_now_iso()
     created_monotonic = time.perf_counter()
     download_token = secrets.token_urlsafe(32)
+    cancel_token = secrets.token_urlsafe(32)
     transcribe_jobs[req_id] = {
         "status": "queued",
         "filename": file.filename or "audio",
@@ -821,6 +935,8 @@ async def transcribe_audio_download(
         "output_path": output_path,
         "download_name": download_name,
         "download_token": download_token,
+        "cancel_token": cancel_token,
+        "cancel_event": threading.Event(),
         "media_type": TRANSCRIBE_MEDIA_TYPES[output_format],
         "created_at": created_at,
         "created_monotonic": created_monotonic,
@@ -901,7 +1017,53 @@ async def transcribe_audio_download(
         transcribing_count=queue_counts["transcribing_count"],
     )
 
-    return get_public_transcribe_request(req_id)
+    response = get_public_transcribe_request(req_id)
+    response["cancel_url"] = f"/api/transcribe-audio/{req_id}/cancel"
+    response["cancel_token"] = cancel_token
+    return response
+
+
+@app.post("/api/transcribe-audio/{req_id}/cancel", tags=["Audio"])
+async def cancel_transcribe_audio_request(
+    req_id: str,
+    payload: TranscribeCancelRequest,
+    http_request: Request,
+):
+    """Cancel an owned queued or running transcription request."""
+    job = transcribe_jobs.get(req_id)
+    if not job or transcribe_job_is_expired(req_id, job):
+        raise HTTPException(status_code=404, detail="找不到這個轉譯請求")
+    expected_token = str(job.get("cancel_token") or "")
+    if not payload.cancel_token or not secrets.compare_digest(
+        payload.cancel_token,
+        expected_token,
+    ):
+        raise HTTPException(status_code=403, detail="取消權杖無效或已過期")
+
+    previous_status = str(job.get("status") or "")
+    if previous_status not in {"done", "failed", "cancelled"}:
+        cancel_event = job.get("cancel_event")
+        if isinstance(cancel_event, threading.Event):
+            cancel_event.set()
+        removed_from_queue = cancel_queued_transcribe_task("audio", req_id)
+        mark_transcribe_job_cancelled(job)
+        if removed_from_queue:
+            cleanup_transcribe_job_artifacts(job)
+        log_structured_event(
+            "audio_job_cancel_requested",
+            job_id=req_id,
+            previous_status=previous_status,
+            removed_from_queue=removed_from_queue,
+        )
+
+    set_request_log_metadata(
+        http_request,
+        request_id=req_id,
+        job_id=req_id,
+        operation="audio_job_cancel",
+        job_status=job.get("status"),
+    )
+    return {"req_id": req_id, "status": job["status"]}
 
 
 @app.get("/api/transcribe-audio/{req_id}", tags=["Audio"])

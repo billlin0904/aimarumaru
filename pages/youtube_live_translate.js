@@ -18,6 +18,7 @@ const videoSubtitleSource = document.getElementById("videoSubtitleSource");
 const videoSubtitleTranslation = document.getElementById("videoSubtitleTranslation");
 const statusDot = document.getElementById("statusDot");
 const statusText = document.getElementById("statusText");
+const cancelJob = document.getElementById("cancelJob");
 const videoMeta = document.getElementById("videoMeta");
 const videoTitle = document.getElementById("videoTitle");
 const videoDetail = document.getElementById("videoDetail");
@@ -65,53 +66,53 @@ const translations = {
     pageTitle: "Video Translate", transcribeOnly: "僅轉譯", urlLabel: "YouTube 網址", ignoreSubtitles: "忽略內建字幕",
     videoPreview: "影片預覽", subtitleWaiting: "字幕完成後會顯示在這裡",
     sourceLanguage: "原文語言", targetLanguage: "翻譯目標語言", autoDetect: "自動偵測", languageEnglish: "英文", languageJapanese: "日文", languageKorean: "韓文", languageThai: "泰文", languageTraditionalChinese: "繁體中文",
-    start: "開始轉譯並翻譯", detectLanguage: "偵測語言", waiting: "等待輸入網址", creating: "建立任務中", processing: "處理中", done: "轉譯與翻譯完成", partialDone: "處理完成，部分翻譯失敗", failed: "處理失敗", disconnected: "連線中斷", requestFailed: "請求失敗",
+    start: "開始轉譯並翻譯", detectLanguage: "偵測語言", waiting: "等待輸入網址", creating: "建立任務中", processing: "處理中", cancelJob: "取消轉譯", cancelled: "已取消轉譯與翻譯", done: "轉譯與翻譯完成", partialDone: "處理完成，部分翻譯失敗", failed: "處理失敗", disconnected: "連線中斷", requestFailed: "請求失敗",
     detectedLanguageLabel: "偵測結果", detectedLanguageValue: "偵測為 {language}", confirmSourceLanguage: "確認原文語言", confirmAndStart: "確認並開始", confirmDetectedLanguage: "請確認原文語言後再開始轉譯", confirmingLanguage: "正在送出語言選擇", confidence: "偵測信心 {percent}%", subtitleLanguageSource: "來自 YouTube 字幕語言", unknownLanguage: "未知語言",
     resultTitle: "即時字幕", emptyState: "原文與譯文會一段一段顯示在這裡。", segmentUnit: "段", sourceText: "原文", translatedText: "翻譯", translationPending: "正在等待翻譯…", translationFailed: "翻譯失敗", retryTranslation: "重新翻譯",
     transcriptionProgress: "轉譯進度", translationProgress: "翻譯進度", progressDetail: "取得影片長度後會顯示轉譯進度。", translationWaiting: "等待轉譯內容。", estimatingCompletion: "正在估算完成時間…", estimatedCompletion: "預計完成時間 {time}", durationPrefix: "長度", seconds: "秒",
     translationCounts: "已翻譯 {translated} / 已收到 {received} 段 · 等待翻譯 {waiting} 段", translationPercentDone: "翻譯完成 {percent}% · 失敗 {failed} 段", translationErrorCodes: "錯誤碼 {codes}", sameLanguage: "原文與目標語言相同，已略過翻譯。", unsupportedLanguage: "目前翻譯服務不支援偵測到的語言：{language}",
     downloadSourceSrt: "下載原始 SRT", downloadTranslatedSrt: "下載翻譯 SRT", downloadBilingualSrt: "下載雙語 SRT", downloadJson: "下載 segments JSON", partialSuffix: "（部分完成）", partialDownloadWarning: "部分段落尚未翻譯，下載檔將以原文補位。是否繼續？", nextTranscription: "下一個轉譯內容",
     captchaLabel: "驗證碼", captchaPlaceholder: "輸入圖片中的文字", refreshCaptcha: "重新選擇", verifyCaptcha: "驗證", captchaVerified: "驗證完成", captchaLoadFailed: "取得驗證碼失敗", captchaVerifyFailed: "驗證失敗", captchaRequired: "請先完成驗證碼",
-    translationServiceFailed: "翻譯服務暫時無法使用", invalidTranslation: "翻譯回應格式不正確", videoTitle: "YouTube 影片", about: "關於我們", privacy: "隱私權政策", terms: "使用條款", contact: "聯絡我們", leaveWarning: "轉譯或翻譯仍在進行中，確定要離開頁面嗎？"
+    translationServiceFailed: "翻譯服務暫時無法使用", invalidTranslation: "翻譯回應格式不正確", videoTitle: "YouTube 影片", about: "關於我們", privacy: "隱私權政策", terms: "使用條款", contact: "聯絡我們", leaveWarning: "轉譯或翻譯仍在進行中，離開頁面將取消這次工作。"
   },
   en: {
     pageTitle: "Video Translate", transcribeOnly: "Transcribe only", urlLabel: "YouTube URL", ignoreSubtitles: "Ignore built-in subtitles",
     videoPreview: "Video preview", subtitleWaiting: "Subtitles will appear here when ready",
     sourceLanguage: "Source language", targetLanguage: "Target language", autoDetect: "Auto detect", languageEnglish: "English", languageJapanese: "Japanese", languageKorean: "Korean", languageThai: "Thai", languageTraditionalChinese: "Traditional Chinese",
-    start: "Transcribe and translate", detectLanguage: "Detect language", waiting: "Waiting for a URL", creating: "Creating job", processing: "Processing", done: "Transcription and translation complete", partialDone: "Complete with some translation failures", failed: "Processing failed", disconnected: "Connection interrupted", requestFailed: "Request failed",
+    start: "Transcribe and translate", detectLanguage: "Detect language", waiting: "Waiting for a URL", creating: "Creating job", processing: "Processing", cancelJob: "Cancel", cancelled: "Transcription and translation cancelled", done: "Transcription and translation complete", partialDone: "Complete with some translation failures", failed: "Processing failed", disconnected: "Connection interrupted", requestFailed: "Request failed",
     detectedLanguageLabel: "Detection result", detectedLanguageValue: "Detected as {language}", confirmSourceLanguage: "Confirm source language", confirmAndStart: "Confirm and start", confirmDetectedLanguage: "Confirm the source language to begin transcription", confirmingLanguage: "Submitting language selection", confidence: "Detection confidence {percent}%", subtitleLanguageSource: "From YouTube subtitle language", unknownLanguage: "Unknown language",
     resultTitle: "Live subtitles", emptyState: "Source text and translation will appear here segment by segment.", segmentUnit: "segments", sourceText: "Source", translatedText: "Translation", translationPending: "Waiting for translation…", translationFailed: "Translation failed", retryTranslation: "Retry",
     transcriptionProgress: "Transcription", translationProgress: "Translation", progressDetail: "Progress appears after the video duration is available.", translationWaiting: "Waiting for transcription.", estimatingCompletion: "Estimating completion time…", estimatedCompletion: "Estimated completion {time}", durationPrefix: "Duration", seconds: "sec",
     translationCounts: "Translated {translated} / {received} received · {waiting} waiting", translationPercentDone: "Translation {percent}% · {failed} failed", translationErrorCodes: "Error code {codes}", sameLanguage: "Source and target languages match. Translation was skipped.", unsupportedLanguage: "The translation service does not support the detected language: {language}",
     downloadSourceSrt: "Download source SRT", downloadTranslatedSrt: "Download translated SRT", downloadBilingualSrt: "Download bilingual SRT", downloadJson: "Download segments JSON", partialSuffix: " (partial)", partialDownloadWarning: "Some segments are not translated. Source text will be used as fallback. Continue?", nextTranscription: "Next transcription",
     captchaLabel: "Verification", captchaPlaceholder: "Enter the text in the image", refreshCaptcha: "Choose again", verifyCaptcha: "Verify", captchaVerified: "Verified", captchaLoadFailed: "Could not load verification image", captchaVerifyFailed: "Verification failed", captchaRequired: "Please complete verification first",
-    translationServiceFailed: "Translation service is temporarily unavailable", invalidTranslation: "The translation response is invalid", videoTitle: "YouTube video", about: "About", privacy: "Privacy", terms: "Terms", contact: "Contact", leaveWarning: "Transcription or translation is still running. Leave this page?"
+    translationServiceFailed: "Translation service is temporarily unavailable", invalidTranslation: "The translation response is invalid", videoTitle: "YouTube video", about: "About", privacy: "Privacy", terms: "Terms", contact: "Contact", leaveWarning: "Transcription or translation is still running. Leaving this page will cancel the job."
   },
   ja: {
     pageTitle: "Video Translate", transcribeOnly: "文字起こしのみ", urlLabel: "YouTube URL", ignoreSubtitles: "内蔵字幕を無視",
     videoPreview: "動画プレビュー", subtitleWaiting: "字幕の準備ができるとここに表示されます",
     sourceLanguage: "原文の言語", targetLanguage: "翻訳先の言語", autoDetect: "自動検出", languageEnglish: "英語", languageJapanese: "日本語", languageKorean: "韓国語", languageThai: "タイ語", languageTraditionalChinese: "繁体字中国語",
-    start: "文字起こしと翻訳を開始", detectLanguage: "言語を検出", waiting: "URL を入力してください", creating: "ジョブを作成中", processing: "処理中", done: "文字起こしと翻訳が完了しました", partialDone: "一部の翻訳に失敗しました", failed: "処理に失敗しました", disconnected: "接続が切断されました", requestFailed: "リクエストに失敗しました",
+    start: "文字起こしと翻訳を開始", detectLanguage: "言語を検出", waiting: "URL を入力してください", creating: "ジョブを作成中", processing: "処理中", cancelJob: "キャンセル", cancelled: "文字起こしと翻訳をキャンセルしました", done: "文字起こしと翻訳が完了しました", partialDone: "一部の翻訳に失敗しました", failed: "処理に失敗しました", disconnected: "接続が切断されました", requestFailed: "リクエストに失敗しました",
     detectedLanguageLabel: "検出結果", detectedLanguageValue: "{language} として検出", confirmSourceLanguage: "原文の言語を確認", confirmAndStart: "確認して開始", confirmDetectedLanguage: "原文の言語を確認してから開始してください", confirmingLanguage: "言語設定を送信中", confidence: "検出の信頼度 {percent}%", subtitleLanguageSource: "YouTube 字幕の言語", unknownLanguage: "不明な言語",
     resultTitle: "リアルタイム字幕", emptyState: "原文と翻訳が順番に表示されます。", segmentUnit: "件", sourceText: "原文", translatedText: "翻訳", translationPending: "翻訳待ち…", translationFailed: "翻訳に失敗しました", retryTranslation: "再翻訳",
     transcriptionProgress: "文字起こしの進捗", translationProgress: "翻訳の進捗", progressDetail: "動画の長さを取得後、進捗が表示されます。", translationWaiting: "文字起こしを待っています。", estimatingCompletion: "完了時刻を計算中…", estimatedCompletion: "完了予定 {time}", durationPrefix: "長さ", seconds: "秒",
     translationCounts: "翻訳済み {translated} / 受信 {received} 件・待機 {waiting} 件", translationPercentDone: "翻訳 {percent}%・失敗 {failed} 件", translationErrorCodes: "エラーコード {codes}", sameLanguage: "原文と翻訳先が同じため、翻訳を省略しました。", unsupportedLanguage: "検出された言語は現在サポートされていません：{language}",
     downloadSourceSrt: "原文 SRT をダウンロード", downloadTranslatedSrt: "翻訳 SRT をダウンロード", downloadBilingualSrt: "二言語 SRT をダウンロード", downloadJson: "segments JSON をダウンロード", partialSuffix: "（一部完了）", partialDownloadWarning: "未翻訳の区間は原文で補完されます。続行しますか？", nextTranscription: "次の文字起こし",
     captchaLabel: "認証コード", captchaPlaceholder: "画像内の文字を入力", refreshCaptcha: "選び直す", verifyCaptcha: "認証", captchaVerified: "認証完了", captchaLoadFailed: "認証画像を取得できませんでした", captchaVerifyFailed: "認証に失敗しました", captchaRequired: "先に認証を完了してください",
-    translationServiceFailed: "翻訳サービスを利用できません", invalidTranslation: "翻訳レスポンスが不正です", videoTitle: "YouTube 動画", about: "私たちについて", privacy: "プライバシー", terms: "利用規約", contact: "お問い合わせ", leaveWarning: "文字起こしまたは翻訳が進行中です。ページを離れますか？"
+    translationServiceFailed: "翻訳サービスを利用できません", invalidTranslation: "翻訳レスポンスが不正です", videoTitle: "YouTube 動画", about: "私たちについて", privacy: "プライバシー", terms: "利用規約", contact: "お問い合わせ", leaveWarning: "文字起こしまたは翻訳が進行中です。ページを離れると、この処理はキャンセルされます。"
   },
   ko: {
     pageTitle: "Video Translate", transcribeOnly: "전사만", urlLabel: "YouTube URL", ignoreSubtitles: "내장 자막 무시",
     videoPreview: "동영상 미리보기", subtitleWaiting: "자막이 준비되면 여기에 표시됩니다",
     sourceLanguage: "원문 언어", targetLanguage: "번역 언어", autoDetect: "자동 감지", languageEnglish: "영어", languageJapanese: "일본어", languageKorean: "한국어", languageThai: "태국어", languageTraditionalChinese: "번체 중국어",
-    start: "전사 및 번역 시작", detectLanguage: "언어 감지", waiting: "URL 입력 대기 중", creating: "작업 생성 중", processing: "처리 중", done: "전사 및 번역 완료", partialDone: "일부 번역 실패와 함께 완료", failed: "처리 실패", disconnected: "연결이 끊겼습니다", requestFailed: "요청 실패",
+    start: "전사 및 번역 시작", detectLanguage: "언어 감지", waiting: "URL 입력 대기 중", creating: "작업 생성 중", processing: "처리 중", cancelJob: "전사 취소", cancelled: "전사와 번역이 취소되었습니다", done: "전사 및 번역 완료", partialDone: "일부 번역 실패와 함께 완료", failed: "처리 실패", disconnected: "연결이 끊겼습니다", requestFailed: "요청 실패",
     detectedLanguageLabel: "감지 결과", detectedLanguageValue: "{language}(으)로 감지", confirmSourceLanguage: "원문 언어 확인", confirmAndStart: "확인 후 시작", confirmDetectedLanguage: "원문 언어를 확인한 뒤 전사를 시작하세요", confirmingLanguage: "언어 선택을 전송하는 중", confidence: "감지 신뢰도 {percent}%", subtitleLanguageSource: "YouTube 자막 언어", unknownLanguage: "알 수 없는 언어",
     resultTitle: "실시간 자막", emptyState: "원문과 번역이 구간별로 표시됩니다.", segmentUnit: "개", sourceText: "원문", translatedText: "번역", translationPending: "번역 대기 중…", translationFailed: "번역 실패", retryTranslation: "다시 번역",
     transcriptionProgress: "전사 진행률", translationProgress: "번역 진행률", progressDetail: "영상 길이를 가져오면 진행률이 표시됩니다.", translationWaiting: "전사 내용을 기다리는 중입니다.", estimatingCompletion: "완료 시간을 계산하는 중…", estimatedCompletion: "예상 완료 시간 {time}", durationPrefix: "길이", seconds: "초",
     translationCounts: "번역 {translated} / 수신 {received}개 · 대기 {waiting}개", translationPercentDone: "번역 {percent}% · 실패 {failed}개", translationErrorCodes: "오류 코드 {codes}", sameLanguage: "원문과 대상 언어가 같아 번역을 건너뛰었습니다.", unsupportedLanguage: "감지된 언어는 현재 지원되지 않습니다: {language}",
     downloadSourceSrt: "원문 SRT 다운로드", downloadTranslatedSrt: "번역 SRT 다운로드", downloadBilingualSrt: "이중 언어 SRT 다운로드", downloadJson: "segments JSON 다운로드", partialSuffix: " (일부 완료)", partialDownloadWarning: "번역되지 않은 구간은 원문으로 대체됩니다. 계속하시겠습니까?", nextTranscription: "다음 전사",
     captchaLabel: "인증 코드", captchaPlaceholder: "이미지의 문자를 입력하세요", refreshCaptcha: "다시 선택", verifyCaptcha: "인증", captchaVerified: "인증 완료", captchaLoadFailed: "인증 이미지를 불러오지 못했습니다", captchaVerifyFailed: "인증에 실패했습니다", captchaRequired: "먼저 인증을 완료해 주세요",
-    translationServiceFailed: "번역 서비스를 일시적으로 사용할 수 없습니다", invalidTranslation: "번역 응답이 올바르지 않습니다", videoTitle: "YouTube 영상", about: "소개", privacy: "개인정보 처리방침", terms: "이용약관", contact: "문의", leaveWarning: "전사 또는 번역이 진행 중입니다. 페이지를 떠나시겠습니까?"
+    translationServiceFailed: "번역 서비스를 일시적으로 사용할 수 없습니다", invalidTranslation: "번역 응답이 올바르지 않습니다", videoTitle: "YouTube 영상", about: "소개", privacy: "개인정보 처리방침", terms: "이용약관", contact: "문의", leaveWarning: "전사 또는 번역이 진행 중입니다. 페이지를 떠나면 이 작업이 취소됩니다."
   }
 };
 
@@ -134,6 +135,9 @@ let queuedBatchCount = 0;
 let batchCounter = 0;
 let currentJobId = "";
 let currentTranslationToken = "";
+let currentCancelRequest = null;
+let translationAbortController = null;
+let jobCancellationRequested = false;
 let requestedSourceLanguage = "";
 let selectedTargetLanguage = "zh-TW";
 let detectedSourceLanguage = "";
@@ -529,6 +533,31 @@ window.addEventListener("beforeunload", event => {
   return event.returnValue;
 });
 
+function sendCancellationBeacon(cancelRequest) {
+  if (!cancelRequest?.url || !cancelRequest?.token) return;
+  const body = JSON.stringify({ cancel_token: cancelRequest.token });
+  if (navigator.sendBeacon) {
+    const payload = new Blob([body], { type: "application/json" });
+    if (navigator.sendBeacon(cancelRequest.url, payload)) return;
+  }
+  fetch(cancelRequest.url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body,
+    keepalive: true,
+  }).catch(() => {});
+}
+
+function cancelCurrentJob() {
+  if (!currentCancelRequest) return;
+  sendCancellationBeacon(currentCancelRequest);
+  currentCancelRequest = null;
+}
+
+window.addEventListener("pagehide", () => {
+  if (transcriptionActive || translationActive) cancelCurrentJob();
+});
+
 function formatDisplayTime(seconds) {
   const value = Math.max(0, Number(seconds) || 0);
   const hours = Math.floor(value / 3600);
@@ -572,6 +601,11 @@ function resetView() {
   batchCounter = 0;
   currentJobId = "";
   currentTranslationToken = "";
+  currentCancelRequest = null;
+  translationAbortController = null;
+  jobCancellationRequested = false;
+  cancelJob.classList.add("d-none");
+  cancelJob.disabled = false;
   detectedSourceLanguage = "";
   detectedLanguageData = null;
   totalDuration = 0;
@@ -595,6 +629,8 @@ function resetView() {
   videoTitle.textContent = "";
   videoDetail.textContent = "";
   setTranscriptionProgress(0);
+  transcriptionBar.classList.add("progress-bar-animated");
+  translationBar.classList.add("progress-bar-animated");
   updateTranslationProgress();
   notifyParentHeight();
 }
@@ -902,6 +938,8 @@ function responseIsRetryable(response, data) {
 
 async function requestTranslation(payload) {
   let response;
+  const controller = new AbortController();
+  translationAbortController = controller;
   try {
     response = await fetch("/api/youtube-live/translate-batch", {
       method: "POST",
@@ -910,12 +948,18 @@ async function requestTranslation(payload) {
         "X-Translation-Token": currentTranslationToken,
       },
       body: JSON.stringify(payload),
+      signal: controller.signal,
     });
   } catch (error) {
+    if (jobCancellationRequested || error.name === "AbortError") throw error;
     const wrapped = new Error(error.message || t("translationServiceFailed"));
     wrapped.retryable = true;
     wrapped.code = "NETWORK_ERROR";
     throw wrapped;
+  } finally {
+    if (translationAbortController === controller) {
+      translationAbortController = null;
+    }
   }
 
   let data = null;
@@ -989,6 +1033,7 @@ async function translateBatch(batch) {
 
   let lastError = null;
   for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
+    if (jobCancellationRequested) return;
     try {
       const data = await requestTranslation(payload);
       const results = validateTranslationResponse(payload, data, batch);
@@ -1005,6 +1050,7 @@ async function translateBatch(batch) {
       return;
     } catch (error) {
       lastError = error;
+      if (jobCancellationRequested) return;
       if (!error.retryable || attempt >= RETRY_DELAYS_MS.length) break;
       await new Promise(resolve => setTimeout(resolve, RETRY_DELAYS_MS[attempt]));
     }
@@ -1023,15 +1069,17 @@ async function translateBatch(batch) {
 }
 
 function enqueueTranslation(batch) {
-  if (!batch.length) return translationQueue;
+  if (!batch.length || jobCancellationRequested) return translationQueue;
   queuedBatchCount += 1;
   setTranslationActive(true);
   for (const segment of batch) showSegmentTranslation(segment.id, "pending");
 
   translationQueue = translationQueue.then(async () => {
+    if (jobCancellationRequested) return;
     try {
       await translateBatch(batch);
     } catch (error) {
+      if (jobCancellationRequested) return;
       console.error("Translation queue failed", error);
       const failureCode = translationErrorCode(error);
       for (const segment of batch) {
@@ -1053,6 +1101,7 @@ function effectiveSourceLanguage(dataLanguage) {
 }
 
 function addSegment(data) {
+  if (jobCancellationRequested) return;
   const id = Number(data.index);
   const sourceText = String(data.text || "").trim();
   if (!Number.isInteger(id) || id <= 0 || !sourceText || sourceSegments.has(id)) return;
@@ -1100,12 +1149,19 @@ function addSegment(data) {
 }
 
 function maybeFinalize() {
+  if (jobCancellationRequested) {
+    setTranslationActive(false);
+    setTranscriptionActive(false);
+    return;
+  }
   if (!transcriptionDone || pendingSegments.length > 0 || queuedBatchCount > 0) {
     setTranslationActive(pendingSegments.length > 0 || queuedBatchCount > 0);
     return;
   }
   setTranslationActive(false);
   setTranscriptionActive(false);
+  currentCancelRequest = null;
+  cancelJob.classList.add("d-none");
   updateTranslationProgress();
   updateActionButtons();
   actionBar.classList.remove("d-none");
@@ -1343,6 +1399,47 @@ refreshCaptcha.addEventListener("click", async () => {
   }
 });
 verifyCaptcha.addEventListener("click", verifyCaptchaAnswer);
+cancelJob.addEventListener("click", async () => {
+  if (!currentCancelRequest) return;
+  const cancelRequest = currentCancelRequest;
+  cancelJob.disabled = true;
+  try {
+    const response = await fetch(cancelRequest.url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cancel_token: cancelRequest.token }),
+    });
+    if (!response.ok) throw new Error(await readError(response));
+
+    jobCancellationRequested = true;
+    currentCancelRequest = null;
+    currentTranslationToken = "";
+    pendingSegments = [];
+    if (batchTimer) clearTimeout(batchTimer);
+    batchTimer = null;
+    if (translationAbortController) translationAbortController.abort();
+    translationAbortController = null;
+    if (eventSource) eventSource.close();
+    eventSource = null;
+    transcriptionDone = true;
+    setTranscriptionActive(false);
+    setTranslationActive(false);
+    cancelJob.classList.add("d-none");
+    transcriptionBar.classList.remove("progress-bar-animated");
+    translationBar.classList.remove("progress-bar-animated");
+    languageConfirmation.classList.add("d-none");
+    sourceLanguage.disabled = false;
+    targetLanguage.disabled = false;
+    youtubeUrl.disabled = false;
+    ignoreSubtitles.disabled = false;
+    setStatus(t("cancelled"), "idle");
+    resetCaptchaState(false);
+    notifyParentHeight();
+  } catch (error) {
+    cancelJob.disabled = false;
+    setStatus(error.message || t("requestFailed"), "failed");
+  }
+});
 
 async function beginTranscription() {
   resetView();
@@ -1376,11 +1473,17 @@ async function beginTranscription() {
     });
     if (!response.ok) throw new Error(await readError(response));
     const job = await response.json();
-    if (!job.job_id || !job.events_url || !job.translation_token) {
+    if (!job.job_id || !job.events_url || !job.translation_token
+      || !job.cancel_url || !job.cancel_token) {
       throw new Error(t("requestFailed"));
     }
     currentJobId = job.job_id;
     currentTranslationToken = job.translation_token;
+    currentCancelRequest = {
+      url: job.cancel_url,
+      token: job.cancel_token,
+    };
+    cancelJob.classList.remove("d-none");
 
     eventSource = new EventSource(job.events_url);
     eventSource.addEventListener("status", event => {
@@ -1443,8 +1546,37 @@ async function beginTranscription() {
       eventSource = null;
       maybeFinalize();
     });
+    eventSource.addEventListener("cancelled", event => {
+      transcriptionDone = true;
+      transcriptionFailed = false;
+      currentCancelRequest = null;
+      currentTranslationToken = "";
+      jobCancellationRequested = true;
+      pendingSegments = [];
+      if (batchTimer) clearTimeout(batchTimer);
+      batchTimer = null;
+      cancelJob.classList.add("d-none");
+      if (translationAbortController) translationAbortController.abort();
+      translationAbortController = null;
+      setTranscriptionActive(false);
+      setTranslationActive(false);
+      transcriptionBar.classList.remove("progress-bar-animated");
+      translationBar.classList.remove("progress-bar-animated");
+      setStatus(t("cancelled"), "idle");
+      if (eventSource) eventSource.close();
+      eventSource = null;
+      maybeFinalize();
+    });
     eventSource.onerror = () => {
       if (!eventSource) return;
+      cancelCurrentJob();
+      jobCancellationRequested = true;
+      pendingSegments = [];
+      if (batchTimer) clearTimeout(batchTimer);
+      batchTimer = null;
+      cancelJob.classList.add("d-none");
+      if (translationAbortController) translationAbortController.abort();
+      translationAbortController = null;
       transcriptionDone = true;
       transcriptionFailed = true;
       setTranscriptionActive(false);
@@ -1455,6 +1587,8 @@ async function beginTranscription() {
       maybeFinalize();
     };
   } catch (error) {
+    if (currentCancelRequest) cancelCurrentJob();
+    cancelJob.classList.add("d-none");
     transcriptionDone = true;
     transcriptionFailed = true;
     setTranscriptionActive(false);

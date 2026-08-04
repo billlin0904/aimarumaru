@@ -1,11 +1,19 @@
 import gc
 import logging
 import os
+from collections.abc import Callable
+from typing import Optional
 
 from text_converter import to_traditional_chinese
+from transcribe_queue import TranscriptionCancelled
 
 
 logger = logging.getLogger(__name__)
+
+
+def ensure_not_cancelled(cancel_check: Optional[Callable[[], bool]]) -> None:
+    if cancel_check is not None and cancel_check():
+        raise TranscriptionCancelled("轉譯已取消")
 
 
 class Auto2Lrc:
@@ -53,7 +61,7 @@ class Auto2Lrc:
         save_path = os.path.join(ins_root, f'vocal_{name}.wav')
         return save_path
         
-    def save_as_lrc(self, segments, output_file, language=None):
+    def save_as_lrc(self, segments, output_file, language=None, cancel_check=None):
         """
         將轉錄段落保存為 LRC 格式文件，適配 faster_whisper 的輸出格式
         :param segments: faster_whisper 模型轉錄後的段落結果 (列表，包含 'start', 'end', 'text' 字段)
@@ -66,6 +74,7 @@ class Auto2Lrc:
     
         with open(output_file, 'w', encoding='utf-8') as f:
             for segment in segments:
+                ensure_not_cancelled(cancel_check)
                 # 獲取開始時間和文本
                 start_time = format_time(segment.start)  # faster_whisper 返回的是對象字段
                 text = to_traditional_chinese(segment.text.strip(), language)
@@ -73,7 +82,7 @@ class Auto2Lrc:
     
         logger.info("LRC 文件已保存至: %s", output_file)
 
-    def save_as_srt(self, segments, output_file, language=None):
+    def save_as_srt(self, segments, output_file, language=None, cancel_check=None):
         """
         將轉錄段落保存為 SRT 字幕格式。
         """
@@ -86,6 +95,7 @@ class Auto2Lrc:
 
         with open(output_file, 'w', encoding='utf-8') as f:
             for index, segment in enumerate(segments, start=1):
+                ensure_not_cancelled(cancel_check)
                 start_time = format_time(segment.start)
                 end_time = format_time(segment.end)
                 text = to_traditional_chinese(segment.text.strip(), language)
@@ -93,43 +103,65 @@ class Auto2Lrc:
 
         logger.info("SRT 文件已保存至: %s", output_file)
 
-    def save_as_text(self, segments, output_file, language=None):
+    def save_as_text(self, segments, output_file, language=None, cancel_check=None):
         """
         將轉錄段落保存為純文字格式。
         """
         with open(output_file, 'w', encoding='utf-8') as f:
             for segment in segments:
+                ensure_not_cancelled(cancel_check)
                 text = to_traditional_chinese(segment.text.strip(), language)
                 if text:
                     f.write(f"{text}\n")
 
         logger.info("純文字文件已保存至: %s", output_file)
 
-    def get_srt(self, audio_file, output_srt_file, language=None, beam_size=5):
-        segments, info = self.transcribe(audio_file, beam_size=beam_size, language=language)
-        self.save_as_srt(segments, output_srt_file, getattr(info, "language", language))
-        self.clear_model_cache()
-        return info
+    def get_srt(self, audio_file, output_srt_file, language=None, beam_size=5, cancel_check=None):
+        try:
+            segments, info = self.transcribe(audio_file, beam_size=beam_size, language=language)
+            self.save_as_srt(
+                segments,
+                output_srt_file,
+                getattr(info, "language", language),
+                cancel_check,
+            )
+            return info
+        finally:
+            self.clear_model_cache()
 
-    def get_text(self, audio_file, output_text_file, language=None, beam_size=5):
-        segments, info = self.transcribe(audio_file, beam_size=beam_size, language=language)
-        self.save_as_text(segments, output_text_file, getattr(info, "language", language))
-        self.clear_model_cache()
-        return info
+    def get_text(self, audio_file, output_text_file, language=None, beam_size=5, cancel_check=None):
+        try:
+            segments, info = self.transcribe(audio_file, beam_size=beam_size, language=language)
+            self.save_as_text(
+                segments,
+                output_text_file,
+                getattr(info, "language", language),
+                cancel_check,
+            )
+            return info
+        finally:
+            self.clear_model_cache()
 
     
-    def get_lrc(self, audio_file, output_lrc_file, use_vocal_separation=False):
+    def get_lrc(self, audio_file, output_lrc_file, use_vocal_separation=False, cancel_check=None):
         source_path = audio_file
         separated_path = None
 
+        ensure_not_cancelled(cancel_check)
         if use_vocal_separation and self.separator_model_path and os.path.exists(self.separator_model_path):
             separated_path = self.separate_audio(audio_file)
             source_path = separated_path
+            ensure_not_cancelled(cancel_check)
 
         try:
            segments, info = self.transcribe(source_path, beam_size=5)
            # 保存為 LRC 文件
-           self.save_as_lrc(segments, output_lrc_file, getattr(info, "language", None))
+           self.save_as_lrc(
+               segments,
+               output_lrc_file,
+               getattr(info, "language", None),
+               cancel_check,
+           )
         finally:
             if separated_path and os.path.exists(separated_path):
                 os.remove(separated_path)

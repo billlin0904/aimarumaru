@@ -217,11 +217,12 @@
 
             <div id="statusBox" class="alert alert-primary d-none mt-4 mb-0 shadow-sm" role="status">
               <div class="d-flex align-items-center gap-3">
-                <div class="spinner-border spinner-border-sm" aria-hidden="true"></div>
-                <div>
+                <div id="statusSpinner" class="spinner-border spinner-border-sm" aria-hidden="true"></div>
+                <div class="flex-grow-1">
                   <strong id="statusTitle" data-i18n="statusReady">準備中</strong>
                   <div id="statusDetail" class="small" data-i18n="statusReadyDetail">請稍候，完成後會自動下載。</div>
                 </div>
+                <button id="cancelAudioJob" class="btn btn-outline-danger btn-sm d-none" type="button" data-i18n="cancelJob">取消轉譯</button>
               </div>
             </div>
 
@@ -276,6 +277,8 @@
     const submitBtn = document.getElementById("submitBtn");
     const statusTitle = document.getElementById("statusTitle");
     const statusDetail = document.getElementById("statusDetail");
+    const statusSpinner = document.getElementById("statusSpinner");
+    const cancelAudioJob = document.getElementById("cancelAudioJob");
     const captchaBlock = document.getElementById("captchaBlock");
     const captchaImage = document.getElementById("captchaImage");
     const captchaId = document.getElementById("captchaId");
@@ -297,6 +300,8 @@
     const activeToolStorageKey = "audioTranscribeActiveTool";
     let latestResultText = "";
     let audioTranscriptionActive = false;
+    let audioCancelRequest = null;
+    let audioCancellationRequested = false;
     let youtubeTranscriptionActive = false;
     let translationActive = false;
     let captchaEnabled = true;
@@ -322,7 +327,8 @@
         accuracyNotice: "轉譯結果可能包含辨識誤差，請在使用前檢查文字是否正確。",
         captchaLoadFailed: "取得驗證碼失敗", captchaVerifyFailed: "驗證失敗", statusFailed: "查詢狀態失敗",
         createRequestFailed: "建立請求失敗", downloadFailed: "下載結果失敗", transcribeFailed: "轉譯失敗", invalidState: "任務狀態異常",
-        leaveWarning: "轉譯仍在進行中，離開頁面可能會中斷等待結果。"
+        cancelJob: "取消轉譯", statusCancelled: "已取消", statusCancelledDetail: "這次轉譯工作已停止。",
+        leaveWarning: "轉譯仍在進行中，離開頁面將取消這次工作。"
       },
       en: {
         pageTitle: "Audio Transcription Tool", badge: "Audio IO", languageSwitch: "Language", tabAudio: "Audio to Text", tabYoutube: "Video Transcribe", tabTranslate: "Live Translate", headline: "Audio to Text",
@@ -348,7 +354,8 @@
         captchaLoadFailed: "Could not load verification image", captchaVerifyFailed: "Verification failed",
         statusFailed: "Could not check request status", createRequestFailed: "Could not create request", downloadFailed: "Could not download result",
         transcribeFailed: "Transcription failed", invalidState: "Unexpected request status",
-        leaveWarning: "Transcription is still running. Leaving this page may interrupt waiting for the result."
+        cancelJob: "Cancel", statusCancelled: "Cancelled", statusCancelledDetail: "This transcription job has been stopped.",
+        leaveWarning: "Transcription is still running. Leaving this page will cancel the job."
       },
       ja: {
         pageTitle: "音声文字起こしツール", badge: "Audio IO", languageSwitch: "言語", tabAudio: "音声をテキストへ", tabYoutube: "Video Transcribe", tabTranslate: "リアルタイム翻訳", headline: "音声をテキストへ",
@@ -374,7 +381,8 @@
         captchaLoadFailed: "認証画像を取得できませんでした", captchaVerifyFailed: "認証に失敗しました",
         statusFailed: "状態を確認できませんでした", createRequestFailed: "リクエストを作成できませんでした",
         downloadFailed: "結果をダウンロードできませんでした", transcribeFailed: "文字起こしに失敗しました", invalidState: "予期しないリクエスト状態です",
-        leaveWarning: "文字起こしがまだ進行中です。ページを離れると結果待ちが中断される可能性があります。"
+        cancelJob: "キャンセル", statusCancelled: "キャンセル済み", statusCancelledDetail: "この文字起こし処理を停止しました。",
+        leaveWarning: "文字起こしが進行中です。ページを離れると、この処理はキャンセルされます。"
       },
       ko: {
         pageTitle: "오디오 전사 도구", badge: "Audio IO", languageSwitch: "언어", tabAudio: "오디오를 텍스트로", tabYoutube: "Video Transcribe", tabTranslate: "실시간 번역", headline: "오디오를 텍스트로",
@@ -400,7 +408,8 @@
         captchaLoadFailed: "인증 이미지를 불러오지 못했습니다", captchaVerifyFailed: "인증에 실패했습니다",
         statusFailed: "상태를 확인하지 못했습니다", createRequestFailed: "요청을 만들지 못했습니다",
         downloadFailed: "결과를 다운로드하지 못했습니다", transcribeFailed: "전사에 실패했습니다", invalidState: "예상하지 못한 요청 상태입니다",
-        leaveWarning: "전사가 아직 진행 중입니다. 페이지를 떠나면 결과 대기가 중단될 수 있습니다."
+        cancelJob: "전사 취소", statusCancelled: "취소됨", statusCancelledDetail: "이 전사 작업을 중지했습니다.",
+        leaveWarning: "전사가 진행 중입니다. 페이지를 떠나면 이 작업이 취소됩니다."
       }
     };
     let currentLanguage = localStorage.getItem(languageStorageKey) || "zh-Hant";
@@ -505,6 +514,27 @@
       event.preventDefault();
       event.returnValue = t("leaveWarning");
       return event.returnValue;
+    });
+
+    function sendCancellationBeacon(cancelRequest) {
+      if (!cancelRequest?.url || !cancelRequest?.token) return;
+      const body = JSON.stringify({ cancel_token: cancelRequest.token });
+      if (navigator.sendBeacon) {
+        const payload = new Blob([body], { type: "application/json" });
+        if (navigator.sendBeacon(cancelRequest.url, payload)) return;
+      }
+      fetch(cancelRequest.url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+        keepalive: true,
+      }).catch(() => {});
+    }
+
+    window.addEventListener("pagehide", () => {
+      if (audioTranscriptionActive && audioCancelRequest) {
+        sendCancellationBeacon(audioCancelRequest);
+      }
     });
 
     function setStatusText(titleKey, detailKey) {
@@ -620,6 +650,7 @@
         }
         current = await response.json();
       }
+      if (current.status === "cancelled") throw new Error(t("statusCancelled"));
       if (current.status === "failed") throw new Error(current.error || t("transcribeFailed"));
       if (current.status !== "done") throw new Error(t("invalidState"));
       return current;
@@ -669,9 +700,46 @@
         }, 1600);
       }
     });
+    cancelAudioJob.addEventListener("click", async () => {
+      if (!audioCancelRequest) return;
+      const cancelRequest = audioCancelRequest;
+      audioCancellationRequested = true;
+      cancelAudioJob.disabled = true;
+      try {
+        const response = await fetch(cancelRequest.url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cancel_token: cancelRequest.token }),
+        });
+        if (!response.ok) {
+          throw new Error(await readError(response, t("statusFailed")));
+        }
+        const result = await response.json();
+        if (result.status !== "cancelled") {
+          audioCancellationRequested = false;
+          return;
+        }
+        audioCancelRequest = null;
+        audioTranscriptionActive = false;
+        statusSpinner.classList.add("d-none");
+        cancelAudioJob.classList.add("d-none");
+        setStatusText("statusCancelled", "statusCancelledDetail");
+        resetCaptchaState(false);
+      } catch (error) {
+        audioCancellationRequested = false;
+        cancelAudioJob.disabled = false;
+        errorBox.textContent = error.message;
+        errorBox.classList.remove("d-none");
+      }
+    });
 
     async function beginAudioTranscription() {
       audioTranscriptionActive = true;
+      audioCancelRequest = null;
+      audioCancellationRequested = false;
+      statusSpinner.classList.remove("d-none");
+      cancelAudioJob.classList.add("d-none");
+      cancelAudioJob.disabled = false;
       statusBox.classList.remove("d-none");
       resultBox.classList.add("d-none");
       errorBox.classList.add("d-none");
@@ -684,7 +752,16 @@
         const response = await fetch("/api/transcribe-audio/", { method: "POST", body: formData });
         if (!response.ok) throw new Error(await readError(response, t("createRequestFailed")));
         const requestInfo = await response.json();
+        if (requestInfo.cancel_url && requestInfo.cancel_token) {
+          audioCancelRequest = {
+            url: requestInfo.cancel_url,
+            token: requestInfo.cancel_token,
+          };
+          cancelAudioJob.classList.remove("d-none");
+        }
         const finishedInfo = await waitForResult(requestInfo);
+        audioCancelRequest = null;
+        cancelAudioJob.classList.add("d-none");
         setStatusText("statusDownloading", "statusDownloadingDetail");
         const downloadResponse = await fetch(finishedInfo.download_url, { cache: "no-store" });
         if (!downloadResponse.ok) throw new Error(await readError(downloadResponse, t("downloadFailed")));
@@ -700,11 +777,17 @@
         preview.textContent = text.slice(0, 6000) + (text.length > 6000 ? `\n\n...${t("previewTruncated")}...` : "");
         resultBox.classList.remove("d-none");
       } catch (error) {
-        errorBox.textContent = error.message;
-        errorBox.classList.remove("d-none");
+        if (audioCancelRequest) sendCancellationBeacon(audioCancelRequest);
+        audioCancelRequest = null;
+        if (!audioCancellationRequested) {
+          errorBox.textContent = error.message;
+          errorBox.classList.remove("d-none");
+        }
       } finally {
         audioTranscriptionActive = false;
-        statusBox.classList.add("d-none");
+        cancelAudioJob.classList.add("d-none");
+        cancelAudioJob.disabled = false;
+        if (!audioCancellationRequested) statusBox.classList.add("d-none");
         resetCaptchaState(false);
       }
     }

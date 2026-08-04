@@ -215,6 +215,7 @@
       <div class="status-strip mt-4">
         <span id="statusDot" class="status-dot"></span>
         <span id="statusText" data-i18n="waiting">等待輸入網址</span>
+        <button id="cancelJob" class="btn btn-outline-danger btn-sm ms-auto d-none" type="button" data-i18n="cancelJob">取消轉譯</button>
       </div>
 
       <div id="videoMeta" class="video-meta mt-3 d-none">
@@ -261,6 +262,7 @@
     const startBtn = document.getElementById("startBtn");
     const statusDot = document.getElementById("statusDot");
     const statusText = document.getElementById("statusText");
+    const cancelJob = document.getElementById("cancelJob");
     const videoMeta = document.getElementById("videoMeta");
     const videoTitle = document.getElementById("videoTitle");
     const videoDetail = document.getElementById("videoDetail");
@@ -284,6 +286,7 @@
     const verifyCaptcha = document.getElementById("verifyCaptcha");
     const captchaStatus = document.getElementById("captchaStatus");
     let eventSource = null;
+    let currentCancelRequest = null;
     let count = 0;
     let fullText = "";
     let srtSegments = [];
@@ -301,10 +304,10 @@
         estimatingCompletion: "正在估算完成時間...", estimatedCompletion: "預計完成時間 {time}",
         captchaLabel: "驗證碼", captchaPlaceholder: "輸入圖片中的文字", refreshCaptcha: "重新選擇", verifyCaptcha: "驗證", captchaVerified: "驗證完成",
         captchaLoadFailed: "取得驗證碼失敗", captchaVerifyFailed: "驗證失敗", captchaRequired: "請先完成驗證碼",
-        creating: "建立任務中", processing: "處理中",
-        done: "完成", failed: "處理失敗", disconnected: "連線中斷", requestFailed: "請求失敗",
+        creating: "建立任務中", processing: "處理中", cancelJob: "取消轉譯",
+        done: "完成", cancelled: "已取消轉譯", failed: "處理失敗", disconnected: "連線中斷", requestFailed: "請求失敗",
         videoTitle: "YouTube 影片", durationPrefix: "長度", seconds: "秒", sourceUrl: "原文網址",
-        leaveWarning: "轉譯仍在進行中，離開頁面可能會中斷等待結果。"
+        leaveWarning: "轉譯仍在進行中，離開頁面將取消這次工作。"
       },
       en: {
         pageTitle: "Video Transcribe", audioTool: "Audio Tool", urlLabel: "YouTube/Xiaohongshu/Douyin URL", ignoreSubtitles: "Ignore built-in subtitles", start: "Start",
@@ -313,10 +316,10 @@
         estimatingCompletion: "Estimating completion time...", estimatedCompletion: "Estimated completion {time}",
         captchaLabel: "Verification", captchaPlaceholder: "Enter the text in the image", refreshCaptcha: "Choose Again", verifyCaptcha: "Verify", captchaVerified: "Verified",
         captchaLoadFailed: "Could not load verification image", captchaVerifyFailed: "Verification failed", captchaRequired: "Please complete verification first",
-        creating: "Creating job", processing: "Processing",
-        done: "Complete", failed: "Processing failed", disconnected: "Connection interrupted", requestFailed: "Request failed",
+        creating: "Creating job", processing: "Processing", cancelJob: "Cancel",
+        done: "Complete", cancelled: "Transcription cancelled", failed: "Processing failed", disconnected: "Connection interrupted", requestFailed: "Request failed",
         videoTitle: "YouTube video", durationPrefix: "Duration", seconds: "sec", sourceUrl: "Source URL",
-        leaveWarning: "Transcription is still running. Leaving this page may interrupt waiting for the result."
+        leaveWarning: "Transcription is still running. Leaving this page will cancel the job."
       },
       ja: {
         pageTitle: "Video Transcribe", audioTool: "音声文字起こし", urlLabel: "YouTube/小紅書/抖音 URL", ignoreSubtitles: "内蔵字幕を無視", start: "開始",
@@ -325,10 +328,10 @@
         estimatingCompletion: "完了時刻を計算しています...", estimatedCompletion: "完了予定 {time}",
         captchaLabel: "認証コード", captchaPlaceholder: "画像内の文字を入力", refreshCaptcha: "選び直す", verifyCaptcha: "認証", captchaVerified: "認証完了",
         captchaLoadFailed: "認証画像を取得できませんでした", captchaVerifyFailed: "認証に失敗しました", captchaRequired: "先に認証を完了してください",
-        creating: "ジョブを作成中", processing: "処理中",
-        done: "完了", failed: "処理に失敗しました", disconnected: "接続が中断されました", requestFailed: "リクエストに失敗しました",
+        creating: "ジョブを作成中", processing: "処理中", cancelJob: "キャンセル",
+        done: "完了", cancelled: "文字起こしをキャンセルしました", failed: "処理に失敗しました", disconnected: "接続が中断されました", requestFailed: "リクエストに失敗しました",
         videoTitle: "YouTube 動画", durationPrefix: "長さ", seconds: "秒", sourceUrl: "元 URL",
-        leaveWarning: "文字起こしがまだ進行中です。ページを離れると結果待ちが中断される可能性があります。"
+        leaveWarning: "文字起こしが進行中です。ページを離れると、この処理はキャンセルされます。"
       },
       ko: {
         pageTitle: "Video Transcribe", audioTool: "오디오 전사", urlLabel: "YouTube/小紅書/抖音 URL", ignoreSubtitles: "내장 자막 무시", start: "시작",
@@ -337,10 +340,10 @@
         estimatingCompletion: "완료 시간을 계산하는 중...", estimatedCompletion: "예상 완료 시간 {time}",
         captchaLabel: "인증 코드", captchaPlaceholder: "이미지의 문자를 입력하세요", refreshCaptcha: "다시 선택", verifyCaptcha: "인증", captchaVerified: "인증 완료",
         captchaLoadFailed: "인증 이미지를 불러오지 못했습니다", captchaVerifyFailed: "인증에 실패했습니다", captchaRequired: "먼저 인증을 완료해 주세요",
-        creating: "작업 생성 중", processing: "처리 중",
-        done: "완료", failed: "처리 실패", disconnected: "연결이 끊겼습니다", requestFailed: "요청 실패",
+        creating: "작업 생성 중", processing: "처리 중", cancelJob: "전사 취소",
+        done: "완료", cancelled: "전사가 취소되었습니다", failed: "처리 실패", disconnected: "연결이 끊겼습니다", requestFailed: "요청 실패",
         videoTitle: "YouTube 영상", durationPrefix: "길이", seconds: "초", sourceUrl: "원문 URL",
-        leaveWarning: "전사가 아직 진행 중입니다. 페이지를 떠나면 결과 대기가 중단될 수 있습니다."
+        leaveWarning: "전사가 진행 중입니다. 페이지를 떠나면 이 작업이 취소됩니다."
       }
     };
     let currentLanguage = translations[params.get("lang")] ? params.get("lang") : localStorage.getItem(languageStorageKey) || "zh-Hant";
@@ -402,6 +405,31 @@
       return event.returnValue;
     });
 
+    function sendCancellationBeacon(cancelRequest) {
+      if (!cancelRequest?.url || !cancelRequest?.token) return;
+      const body = JSON.stringify({ cancel_token: cancelRequest.token });
+      if (navigator.sendBeacon) {
+        const payload = new Blob([body], { type: "application/json" });
+        if (navigator.sendBeacon(cancelRequest.url, payload)) return;
+      }
+      fetch(cancelRequest.url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+        keepalive: true,
+      }).catch(() => {});
+    }
+
+    function cancelCurrentJob() {
+      if (!currentCancelRequest) return;
+      sendCancellationBeacon(currentCancelRequest);
+      currentCancelRequest = null;
+    }
+
+    window.addEventListener("pagehide", () => {
+      if (transcriptionActive) cancelCurrentJob();
+    });
+
     function formatTime(seconds) {
       if (seconds === null || seconds === undefined) return "";
       const value = Math.max(0, Number(seconds) || 0);
@@ -418,9 +446,13 @@
       count = 0;
       fullText = "";
       srtSegments = [];
+      currentCancelRequest = null;
+      cancelJob.classList.add("d-none");
+      cancelJob.disabled = false;
       videoChapters = [];
       totalDuration = 0;
       setProgress(0, t("progressWaiting"));
+      progressBar.classList.add("progress-bar-animated");
       progressPanel.classList.add("d-none");
       if (!emptyState.parentElement) segments.prepend(emptyState);
       emptyState.classList.remove("d-none");
@@ -662,6 +694,38 @@
       }
     });
     verifyCaptcha.addEventListener("click", verifyCaptchaAnswer);
+    cancelJob.addEventListener("click", async () => {
+      if (!currentCancelRequest) return;
+      const cancelRequest = currentCancelRequest;
+      cancelJob.disabled = true;
+      try {
+        const response = await fetch(cancelRequest.url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cancel_token: cancelRequest.token }),
+        });
+        if (!response.ok) throw new Error(await readError(response));
+        const result = await response.json();
+        if (result.status !== "cancelled") {
+          cancelJob.disabled = false;
+          return;
+        }
+        currentCancelRequest = null;
+        setTranscriptionActive(false);
+        if (eventSource) eventSource.close();
+        eventSource = null;
+        cancelJob.classList.add("d-none");
+        progressBar.classList.remove("progress-bar-animated");
+        setStatus(t("cancelled"), "idle");
+        progressLabel.textContent = t("cancelled");
+        progressDetail.textContent = t("cancelled");
+        resetCaptchaState(false);
+        notifyParentHeight();
+      } catch (error) {
+        cancelJob.disabled = false;
+        setStatus(error.message || t("requestFailed"), "failed");
+      }
+    });
 
     async function beginTranscription() {
       resetView();
@@ -684,6 +748,14 @@
         });
         if (!response.ok) throw new Error(await readError(response));
         const job = await response.json();
+        if (job.cancel_url && job.cancel_token) {
+          currentCancelRequest = {
+            url: job.cancel_url,
+            token: job.cancel_token,
+          };
+          cancelJob.classList.remove("d-none");
+          progressPanel.classList.remove("d-none");
+        }
 
         eventSource = new EventSource(job.events_url);
         eventSource.addEventListener("status", event => {
@@ -704,6 +776,8 @@
         });
         eventSource.addEventListener("segment", event => addSegment(JSON.parse(event.data)));
         eventSource.addEventListener("done", () => {
+          currentCancelRequest = null;
+          cancelJob.classList.add("d-none");
           setTranscriptionActive(false);
           setProgress(100, t("done"));
           progressDetail.textContent = t("done");
@@ -721,6 +795,8 @@
           resetCaptchaState(false);
         });
         eventSource.addEventListener("failed", event => {
+          currentCancelRequest = null;
+          cancelJob.classList.add("d-none");
           setTranscriptionActive(false);
           let message = t("failed");
           if (event.data) {
@@ -733,8 +809,20 @@
           eventSource = null;
           resetCaptchaState(false);
         });
+        eventSource.addEventListener("cancelled", event => {
+          currentCancelRequest = null;
+          cancelJob.classList.add("d-none");
+          setTranscriptionActive(false);
+          progressBar.classList.remove("progress-bar-animated");
+          setStatus(t("cancelled"), "idle");
+          if (eventSource) eventSource.close();
+          eventSource = null;
+          resetCaptchaState(false);
+        });
         eventSource.onerror = () => {
           if (!eventSource) return;
+          cancelCurrentJob();
+          cancelJob.classList.add("d-none");
           setTranscriptionActive(false);
           setStatus(t("disconnected"), "failed");
           eventSource.close();
@@ -742,6 +830,8 @@
           resetCaptchaState(false);
         };
       } catch (error) {
+        if (currentCancelRequest) cancelCurrentJob();
+        cancelJob.classList.add("d-none");
         setTranscriptionActive(false);
         setStatus(error.message, "failed");
         resetCaptchaState(false);

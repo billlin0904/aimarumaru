@@ -23,6 +23,10 @@ task_handlers: dict[str, TranscribeTaskHandler] = {}
 cleanup_handlers: list[TranscribeCleanupHandler] = []
 
 
+class TranscriptionCancelled(Exception):
+    """Raised when a queued transcription has been cancelled by its owner."""
+
+
 async def maybe_await(result: Awaitable[Any] | Any) -> Any:
     if inspect.isawaitable(result):
         return await result
@@ -61,6 +65,34 @@ def enqueue_transcribe_task(task: TranscribeTask) -> None:
     if transcribe_queue is None:
         raise RuntimeError("Transcribe queue is not started")
     transcribe_queue.put_nowait(task)
+
+
+def cancel_queued_transcribe_task(kind: str, task_id: str) -> bool:
+    """Remove a matching task while preserving the order of all other tasks."""
+    if transcribe_queue is None:
+        return False
+
+    retained_tasks: list[TranscribeTask] = []
+    removed = False
+    while True:
+        try:
+            task = transcribe_queue.get_nowait()
+        except asyncio.QueueEmpty:
+            break
+
+        transcribe_queue.task_done()
+        if (
+            not removed
+            and str(task.get("kind", "")) == kind
+            and str(task.get("id", "")) == task_id
+        ):
+            removed = True
+            continue
+        retained_tasks.append(task)
+
+    for task in retained_tasks:
+        transcribe_queue.put_nowait(task)
+    return removed
 
 
 async def start_transcribe_queue(max_size: int = TRANSCRIBE_QUEUE_MAX_SIZE) -> None:

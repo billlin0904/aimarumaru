@@ -5,9 +5,11 @@ import os
 import secrets
 import shutil
 import tempfile
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any, Optional
 
 import aiohttp
@@ -18,6 +20,8 @@ from pydantic import BaseModel
 from app_logging import log_structured_event, set_request_log_metadata
 from text_converter import to_traditional_chinese
 from transcribe_queue import (
+    TranscriptionCancelled,
+    cancel_queued_transcribe_task,
     enqueue_transcribe_task,
     get_transcribe_queue_counts,
     register_transcribe_cleanup,
@@ -73,6 +77,10 @@ class YoutubeLiveRequest(BaseModel):
 
 class YoutubeLanguageSelection(BaseModel):
     language: str
+
+
+class YoutubeCancelRequest(BaseModel):
+    cancel_token: str
 
 
 def sse_message(event: str, data: dict[str, Any]) -> str:
@@ -242,6 +250,7 @@ def transcribe_audio_stream(
     loop: asyncio.AbstractEventLoop,
     queue: asyncio.Queue[dict[str, Any]],
     job_id: Optional[str] = None,
+    cancel_check: Optional[Callable[[], bool]] = None,
 ) -> dict[str, Any]:
     started_at = time.perf_counter()
     audio_duration = 0.0
@@ -259,6 +268,8 @@ def transcribe_audio_stream(
     )
 
     try:
+        if cancel_check is not None and cancel_check():
+            raise TranscriptionCancelled("轉譯已取消")
         segments, info = auto2lrc.transcribe(
             str(audio_path),
             beam_size=5,
@@ -277,6 +288,8 @@ def transcribe_audio_stream(
         detected_language = getattr(info, "language", language_hint)
         audio_duration = float(getattr(info, "duration", 0.0) or 0.0)
         for segment_count, segment in enumerate(segments, start=1):
+            if cancel_check is not None and cancel_check():
+                raise TranscriptionCancelled("轉譯已取消")
             text = to_traditional_chinese(
                 segment.text.strip(),
                 detected_language,
@@ -357,6 +370,7 @@ def detect_audio_language(
     auto2lrc,
     audio_path: Path,
     job_id: Optional[str] = None,
+    cancel_check: Optional[Callable[[], bool]] = None,
 ) -> dict[str, Any]:
     logger.info(
         "Whisper language detection started: job_id=%s",
@@ -364,12 +378,16 @@ def detect_audio_language(
     )
     started_at = time.perf_counter()
     try:
+        if cancel_check is not None and cancel_check():
+            raise TranscriptionCancelled("轉譯已取消")
         segments, info = auto2lrc.transcribe(
             str(audio_path),
             beam_size=5,
             language=None,
         )
         del segments
+        if cancel_check is not None and cancel_check():
+            raise TranscriptionCancelled("轉譯已取消")
         language = getattr(info, "language", None)
         probability = getattr(info, "language_probability", None)
         logger.info(
@@ -398,6 +416,28 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
     cookies_file = project_root / "cookies.txt"
     jobs: dict[str, dict[str, Any]] = {}
 
+    def job_is_cancelled(job: dict[str, Any]) -> bool:
+        cancel_event = job.get("cancel_event")
+        return job.get("status") == "cancelled" or (
+            isinstance(cancel_event, threading.Event) and cancel_event.is_set()
+        )
+
+    def ensure_job_not_cancelled(job: dict[str, Any]) -> None:
+        if job_is_cancelled(job):
+            raise TranscriptionCancelled("轉譯已取消")
+
+    async def close_event_stream(job: dict[str, Any]) -> None:
+        if job.get("stream_closed"):
+            return
+        job["stream_closed"] = True
+        await job["queue"].put({"event": "close", "data": {}})
+
+    async def notify_job_cancelled(job: dict[str, Any]) -> None:
+        if not job.get("cancel_notified"):
+            job["cancel_notified"] = True
+            await push_event(job, "cancelled", {"message": "轉譯已取消"})
+        await close_event_stream(job)
+
     async def push_event(job: dict[str, Any], event: str, data: dict[str, Any]) -> None:
         await job["queue"].put({"event": event, "data": data})
 
@@ -407,6 +447,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         content_parts: list[str] = []
         emitted_count = 0
         for segment in segments:
+            ensure_job_not_cancelled(job)
             text = to_traditional_chinese(
                 segment["text"].strip(),
                 job.get("detected_language"),
@@ -439,6 +480,9 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         job = jobs.get(job_id)
         if not job:
             return
+        if job_is_cancelled(job):
+            cleanup_youtube_live_job_artifacts(job)
+            return
 
         queue: asyncio.Queue[dict[str, Any]] = job["queue"]
         terminal = False
@@ -462,6 +506,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             ignore_subtitles=job.get("ignore_subtitles"),
         )
         try:
+            ensure_job_not_cancelled(job)
             if job.get("status") == "queued_for_transcription":
                 phase = "transcription"
                 job["status"] = "running"
@@ -480,7 +525,9 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                         asyncio.get_running_loop(),
                         queue,
                         job_id,
+                        lambda: job_is_cancelled(job),
                     )
+                ensure_job_not_cancelled(job)
                 job["status"] = "done"
                 terminal = True
                 await push_event(job, "done", info)
@@ -509,6 +556,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                 return
 
             job["status"] = "running"
+            ensure_job_not_cancelled(job)
             if job["ignore_subtitles"]:
                 await push_event(job, "status", {"message": "已略過內建字幕，準備下載音訊"})
             else:
@@ -521,6 +569,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                 job["url"],
                 cookies_file,
             )
+            ensure_job_not_cancelled(job)
             chapters = chapter_payloads(video_info)
             job["video_duration_seconds"] = float(video_info.get("duration") or 0.0)
             log_structured_event(
@@ -557,6 +606,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                 )
                 subtitle_started = time.perf_counter()
                 subtitle_content = await asyncio.to_thread(download_subtitle_content, subtitle_track["url"])
+                ensure_job_not_cancelled(job)
                 segments = parse_subtitle_content(subtitle_content, subtitle_track["extension"])
                 job.update(
                     {
@@ -634,6 +684,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                 work_dir,
                 cookies_file,
             )
+            ensure_job_not_cancelled(job)
             job.update(
                 {
                     "prepared_source": "whisper",
@@ -660,7 +711,9 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                     auto2lrc,
                     audio_path,
                     job_id,
+                    lambda: job_is_cancelled(job),
                 )
+                ensure_job_not_cancelled(job)
                 job["detected_language"] = detection["language"]
                 job["detection_source"] = "whisper"
                 job["language_probability"] = detection["language_probability"]
@@ -699,7 +752,9 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                 asyncio.get_running_loop(),
                 queue,
                 job_id,
+                lambda: job_is_cancelled(job),
             )
+            ensure_job_not_cancelled(job)
 
             job["status"] = "done"
             terminal = True
@@ -716,6 +771,19 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                 processing_speed_x=info.get("processing_speed_x"),
                 run_elapsed_ms=round((time.perf_counter() - run_started) * 1000),
             )
+        except TranscriptionCancelled:
+            job["status"] = "cancelled"
+            terminal = True
+            log_structured_event(
+                "video_job_cancelled",
+                job_id=job_id,
+                job_status="cancelled",
+                phase=phase,
+                run_elapsed_ms=round((time.perf_counter() - run_started) * 1000),
+            )
+            if not job.get("cancel_notified"):
+                job["cancel_notified"] = True
+                await push_event(job, "cancelled", {"message": "轉譯已取消"})
         except Exception as exc:
             job["status"] = "failed"
             terminal = True
@@ -737,7 +805,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             job["expires_at"] = time.time() + YOUTUBE_LIVE_JOB_TTL_SECONDS
             if terminal:
                 cleanup_youtube_live_job_artifacts(job)
-                await queue.put({"event": "close", "data": {}})
+                await close_event_stream(job)
 
     async def handle_youtube_live_task(task: dict[str, Any]) -> None:
         await run_job(str(task.get("id", "")))
@@ -783,6 +851,9 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             "language_hint": payload.language.strip() or None,
             "ignore_subtitles": payload.ignore_subtitles,
             "translation_token": secrets.token_urlsafe(32),
+            "translation_tasks": set(),
+            "cancel_token": secrets.token_urlsafe(32),
+            "cancel_event": threading.Event(),
             "status": "queued",
             "queue": asyncio.Queue(),
             "created_at": time.time(),
@@ -835,8 +906,74 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             "job_id": job_id,
             "events_url": f"/api/youtube-live/jobs/{job_id}/events",
             "translation_token": jobs[job_id]["translation_token"],
+            "cancel_url": f"/api/youtube-live/jobs/{job_id}/cancel",
+            "cancel_token": jobs[job_id]["cancel_token"],
             "status": "queued",
         }
+
+    @router.post(
+        "/api/youtube-live/jobs/{job_id}/cancel",
+        tags=["YouTube Live"],
+        summary="取消 Video 轉譯工作",
+    )
+    async def cancel_youtube_live_job(
+        job_id: str,
+        payload: YoutubeCancelRequest,
+        http_request: Request,
+    ):
+        cleanup_youtube_live_jobs(jobs)
+        job = jobs.get(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="找不到這個 YouTube 轉譯請求")
+        expected_token = str(job.get("cancel_token") or "")
+        if not payload.cancel_token or not secrets.compare_digest(
+            payload.cancel_token,
+            expected_token,
+        ):
+            raise HTTPException(status_code=403, detail="取消權杖無效或已過期")
+
+        previous_status = str(job.get("status") or "")
+        translation_tasks = {
+            task
+            for task in job.get("translation_tasks", set())
+            if isinstance(task, asyncio.Task) and not task.done()
+        }
+        cancelled_translation_tasks = len(translation_tasks)
+        if previous_status not in {"done", "failed", "cancelled"}:
+            cancel_event = job.get("cancel_event")
+            if isinstance(cancel_event, threading.Event):
+                cancel_event.set()
+            removed_from_queue = cancel_queued_transcribe_task(
+                "youtube_live",
+                job_id,
+            )
+            job["status"] = "cancelled"
+            job["cancelled_at"] = time.time()
+            job["expires_at"] = time.time() + YOUTUBE_LIVE_JOB_TTL_SECONDS
+            job["translation_token"] = ""
+            if removed_from_queue or previous_status == "awaiting_language_confirmation":
+                cleanup_youtube_live_job_artifacts(job)
+            await notify_job_cancelled(job)
+            log_structured_event(
+                "video_job_cancel_requested",
+                job_id=job_id,
+                previous_status=previous_status,
+                removed_from_queue=removed_from_queue,
+                cancelled_translation_tasks=cancelled_translation_tasks,
+            )
+        if translation_tasks:
+            job["translation_token"] = ""
+            for translation_task in translation_tasks:
+                translation_task.cancel()
+
+        set_request_log_metadata(
+            http_request,
+            request_id=job_id,
+            job_id=job_id,
+            operation="video_job_cancel",
+            job_status=job.get("status"),
+        )
+        return {"job_id": job_id, "status": job["status"]}
 
     @router.post(
         "/api/youtube-live/jobs/{job_id}/language",
@@ -1129,6 +1266,10 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         upstream_url = f"{TRANSLATE_API_BASE}/api/v1/subtitles/translate"
         timeout = aiohttp.ClientTimeout(total=TRANSLATE_API_TIMEOUT_SECONDS)
         started_at = time.perf_counter()
+        authorized_job = jobs[authorized_job_id]
+        translation_task = asyncio.current_task()
+        if translation_task is not None:
+            authorized_job.setdefault("translation_tasks", set()).add(translation_task)
         try:
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.post(
@@ -1170,6 +1311,20 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                         status_code=upstream_response.status,
                         headers={"Content-Type": response_content_type},
                     )
+        except asyncio.CancelledError:
+            logger.info(
+                "Translation proxy cancelled: job_id=%s request_id=%s elapsed=%.3fs",
+                authorized_job_id,
+                request_id,
+                time.perf_counter() - started_at,
+            )
+            return JSONResponse(
+                status_code=499,
+                content={
+                    "detail": "翻譯已取消",
+                    "retryable": False,
+                },
+            )
         except asyncio.TimeoutError:
             return JSONResponse(
                 status_code=504,
@@ -1191,6 +1346,11 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                     "retryable": True,
                 },
             )
+        finally:
+            if translation_task is not None:
+                authorized_job.get("translation_tasks", set()).discard(
+                    translation_task
+                )
 
     @router.get("/api/youtube-live/jobs/{job_id}/events", tags=["YouTube Live"])
     async def youtube_live_events(job_id: str, request: Request):
