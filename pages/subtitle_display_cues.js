@@ -9,6 +9,27 @@
     return String(value ?? "").replace(/\s+/gu, "");
   }
 
+  function extractTitleTerms(value, maximumTerms = 3) {
+    const text = String(value ?? "").trim();
+    if (!text) return [];
+    const terms = [];
+    const seen = new Set();
+    const add = candidate => {
+      const cleaned = String(candidate ?? "").trim();
+      const key = contentSignature(cleaned).toLocaleLowerCase();
+      if (cleaned.length < 2 || cleaned.length > 80 || !key || seen.has(key)) return;
+      seen.add(key);
+      terms.push(cleaned);
+    };
+    const bracketed = /《([^》]+)》|〈([^〉]+)〉|「([^」]+)」|『([^』]+)』/gu;
+    for (const match of text.matchAll(bracketed)) {
+      add(match.slice(1).find(Boolean));
+      if (terms.length >= maximumTerms) return terms;
+    }
+    if (terms.length === 0) add(text.split(/[|｜]/u, 1)[0]);
+    return terms.slice(0, maximumTerms);
+  }
+
   function validateDisplayCues(group, result) {
     const rawCues = result?.display_cues;
     if (!Array.isArray(rawCues) || rawCues.length === 0) return [];
@@ -119,6 +140,32 @@
     return candidate && seconds < candidate.end ? candidate : null;
   }
 
+  function progressiveSourceText(segment, currentTime) {
+    if (
+      !Array.isArray(segment?.words)
+      || segment.words.length === 0
+      || !Number.isFinite(currentTime)
+    ) {
+      return segment?.sourceText || "";
+    }
+    return segment.words
+      .filter(word => word.start <= currentTime + 0.03)
+      .map(word => word.word)
+      .join("")
+      .trimStart();
+  }
+
+  function sourceTextForOverlay({
+    activeCue,
+    segment,
+    currentTime,
+    revealWords,
+  }) {
+    if (revealWords) return progressiveSourceText(segment, currentTime);
+    if (activeCue) return activeCue.sourceLines.join("\n");
+    return segment?.sourceText || "";
+  }
+
   function translationForSourceId(cues, sourceId) {
     const texts = cues
       .filter(cue => cue.sourceIds.includes(sourceId))
@@ -129,6 +176,9 @@
   return {
     contentSignature,
     displayCueAt,
+    extractTitleTerms,
+    progressiveSourceText,
+    sourceTextForOverlay,
     translationForSourceId,
     validateDisplayCues,
   };

@@ -5,9 +5,23 @@ const test = require("node:test");
 const {
   contentSignature,
   displayCueAt,
+  extractTitleTerms,
+  progressiveSourceText,
+  sourceTextForOverlay,
   translationForSourceId,
   validateDisplayCues,
 } = require("../pages/subtitle_display_cues.js");
+
+test("extracts a work title without sending the whole YouTube title", () => {
+  assert.deepEqual(
+    extractTitleTerms("《聰明鎮》｜伊藤潤二觀看劇中角色｜Netflix"),
+    ["聰明鎮"],
+  );
+  assert.deepEqual(
+    extractTitleTerms("Bloody Smart | Netflix"),
+    ["Bloody Smart"],
+  );
+});
 
 const group = {
   groupId: "g-41-44",
@@ -74,6 +88,41 @@ test("selects the cue by its own display timeline", () => {
   );
   assert.equal(displayCueAt(cues, 4.0).cueId, "g-41-44-c2");
   assert.equal(displayCueAt(cues, 8.0), null);
+});
+
+test("keeps revealing source words after a translated display cue is ready", () => {
+  const segment = {
+    sourceText: "powerful as this one",
+    words: [
+      { word: "powerful", start: 1.0 },
+      { word: " as", start: 1.5 },
+      { word: " this", start: 2.0 },
+      { word: " one", start: 2.5 },
+    ],
+  };
+  const activeCue = {
+    sourceLines: ["powerful as this one. But when these images come"],
+  };
+
+  assert.equal(progressiveSourceText(segment, 1.6), "powerful as");
+  assert.equal(
+    sourceTextForOverlay({
+      activeCue,
+      segment,
+      currentTime: 1.6,
+      revealWords: true,
+    }),
+    "powerful as",
+  );
+  assert.equal(
+    sourceTextForOverlay({
+      activeCue,
+      segment,
+      currentTime: 1.6,
+      revealWords: false,
+    }),
+    "powerful as this one. But when these images come",
+  );
 });
 
 test("derives source cue text while an older translation service is rolling over", () => {

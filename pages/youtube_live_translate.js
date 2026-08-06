@@ -3,6 +3,8 @@
 const {
   contentSignature,
   displayCueAt,
+  extractTitleTerms,
+  sourceTextForOverlay,
   translationForSourceId,
   validateDisplayCues,
 } = window.SubtitleDisplayCues;
@@ -301,22 +303,6 @@ function clearVideoSubtitleOverlay(showWaiting = true) {
   videoSubtitleOverlay.classList.remove("error");
 }
 
-function progressiveSourceText(segment, currentTime) {
-  if (
-    !includeWordTimestamps.checked
-    || !Array.isArray(segment?.words)
-    || segment.words.length === 0
-    || !Number.isFinite(currentTime)
-  ) {
-    return segment?.sourceText || "";
-  }
-  return segment.words
-    .filter(word => word.start <= currentTime + 0.03)
-    .map(word => word.word)
-    .join("")
-    .trimStart();
-}
-
 function updateVideoSubtitleOverlay(segment, currentTime = null) {
   const failureCode = segment
     ? translationFailureCodes.get(segment.id)
@@ -350,9 +336,12 @@ function updateVideoSubtitleOverlay(segment, currentTime = null) {
     return;
   }
 
-  const sourceText = activeCue
-    ? activeCue.sourceLines.join("\n")
-    : progressiveSourceText(segment, currentTime);
+  const sourceText = sourceTextForOverlay({
+    activeCue,
+    segment,
+    currentTime,
+    revealWords: includeWordTimestamps.checked,
+  });
   videoSubtitleSource.textContent = sourceText;
   videoSubtitleTranslation.textContent = translatedText;
   videoSubtitleSource.classList.toggle(
@@ -1311,6 +1300,7 @@ async function translateBatch(batch) {
     source_language: batch[0].language,
     target_language: selectedTargetLanguage,
     prompt_version: GROUP_TRANSLATION_PROMPT_VERSION,
+    on_screen_terms: extractTitleTerms(videoTitle.textContent),
     groups: batch.map(group => ({
       group_id: group.groupId,
       source_ids: group.sourceIds,
