@@ -1,5 +1,11 @@
 "use strict";
 
+const {
+  displayCueAt,
+  translationForSourceId,
+  validateDisplayCues,
+} = window.SubtitleDisplayCues;
+
 const form = document.getElementById("translateForm");
 const youtubeUrl = document.getElementById("youtubeUrl");
 const ignoreSubtitles = document.getElementById("ignoreSubtitles");
@@ -57,6 +63,9 @@ const BATCH_MAX_CHARACTERS = 2000;
 const GROUPING_MAX_CHARACTERS = 6000;
 const SOURCE_GROUP_DURATION_TRIGGER_SECONDS = 30;
 const SOURCE_BOUNDARY_HINT_RE = /[.!?。！？…]+["'”’»）)\]】」』]*\s*$/;
+const SOURCE_WEAK_BOUNDARY_HINT_RE = /[,;:，、；：]["'”’»）)\]】」』]*\s*$/;
+const SOURCE_LONG_PAUSE_SECONDS = 0.8;
+const SOURCE_WEAK_PUNCTUATION_PAUSE_SECONDS = 0.3;
 const TRANSLATION_WAVE_SIZE = 2;
 const RETRY_DELAYS_MS = [2000, 5000];
 const RETRYABLE_HTTP_STATUSES = new Set([429, 502, 503, 504]);
@@ -133,6 +142,8 @@ if (params.get("embedded") === "1") document.body.classList.add("embedded");
 const sourceSegments = new Map();
 const playbackSegments = [];
 const translatedSegments = new Map();
+const translatedGroups = new Map();
+const translatedDisplayCues = [];
 const sourceTranslationGroups = new Map();
 const segmentNodes = new Map();
 const failedSegmentIds = new Set();
@@ -321,9 +332,14 @@ function updateVideoSubtitleOverlay(segment, currentTime = null) {
     return;
   }
 
-  const translatedText = segment
-    ? translatedSegments.get(segment.id)?.translatedText
-    : "";
+  const activeCue = Number.isFinite(currentTime)
+    ? displayCueAt(translatedDisplayCues, currentTime)
+    : null;
+  const translatedText = activeCue
+    ? activeCue.lines.join("\n")
+    : segment
+      ? translatedSegments.get(segment.id)?.translatedText
+      : "";
   if (!segment) {
     clearVideoSubtitleOverlay(false);
     return;
@@ -633,6 +649,23 @@ function sortedSourceSegments() {
   return [...sourceSegments.values()].sort((left, right) => left.id - right.id);
 }
 
+function sortedDisplayCues() {
+  return [...translatedDisplayCues].sort((left, right) => (
+    left.start - right.start || left.end - right.end || left.cueId.localeCompare(right.cueId)
+  ));
+}
+
+function sourceTextForDisplayCue(cue) {
+  const assigned = cue.sourceIds
+    .map(sourceId => sourceSegments.get(sourceId)?.sourceText || "")
+    .filter(Boolean);
+  if (assigned.length > 0) return assigned.join(" ");
+  return sortedSourceSegments()
+    .filter(segment => segment.end > cue.start && segment.start < cue.end)
+    .map(segment => segment.sourceText)
+    .join(" ");
+}
+
 function resetView() {
   if (eventSource) {
     eventSource.close();
@@ -645,6 +678,8 @@ function resetView() {
   sourceSegments.clear();
   playbackSegments.length = 0;
   translatedSegments.clear();
+  translatedGroups.clear();
+  translatedDisplayCues.length = 0;
   sourceTranslationGroups.clear();
   segmentNodes.clear();
   failedSegmentIds.clear();
@@ -881,7 +916,18 @@ function pendingSegmentsLikelyReady() {
   if (pendingSegments.length === 0) return false;
   const first = pendingSegments[0];
   const last = pendingSegments[pendingSegments.length - 1];
+  const hasPauseBoundary = pendingSegments.some((segment, index) => {
+    if (index === 0) return false;
+    const previous = pendingSegments[index - 1];
+    const pause = segment.start - previous.end;
+    return pause >= SOURCE_LONG_PAUSE_SECONDS
+      || (
+        pause >= SOURCE_WEAK_PUNCTUATION_PAUSE_SECONDS
+        && SOURCE_WEAK_BOUNDARY_HINT_RE.test(previous.sourceText)
+      );
+  });
   return pendingSegments.some(segment => SOURCE_BOUNDARY_HINT_RE.test(segment.sourceText))
+    || hasPauseBoundary
     || pendingSegments.length >= BATCH_SEGMENT_TRIGGER
     || pendingCharacterCount() >= BATCH_CHARACTER_TRIGGER
     || last.end - first.start >= SOURCE_GROUP_DURATION_TRIGGER_SECONDS;
@@ -1261,6 +1307,25 @@ async function translateBatch(batch) {
       low_confidence_spans: [...new Set(
         group.segments.flatMap(segment => segment.lowConfidenceSpans || []),
       )],
+      segments: group.segments.map(segment => ({
+        id: segment.id,
+        source_text: segment.sourceText,
+        start_ms: Math.round(segment.start * 1000),
+        end_ms: Math.round(segment.end * 1000),
+        words: (segment.words || [])
+          .map(word => ({
+            word: word.word,
+            start_ms: Math.max(
+              Math.round(segment.start * 1000),
+              Math.round(word.start * 1000),
+            ),
+            end_ms: Math.min(
+              Math.round(segment.end * 1000),
+              Math.round(word.end * 1000),
+            ),
+          }))
+          .filter(word => word.word.trim() && word.end_ms > word.start_ms),
+      })),
     })),
   };
 
@@ -1274,11 +1339,28 @@ async function translateBatch(batch) {
         const result = results[index];
         const group = batch[index];
         const translatedText = result.translated_text.trim();
+        const displayCues = validateDisplayCues(group, result);
+        translatedGroups.set(group.groupId, {
+          groupId: group.groupId,
+          sourceIds: [...group.sourceIds],
+          translatedText,
+          forcedBoundary: group.forcedBoundary,
+        });
+        for (let cueIndex = translatedDisplayCues.length - 1; cueIndex >= 0; cueIndex -= 1) {
+          if (translatedDisplayCues[cueIndex].groupId === group.groupId) {
+            translatedDisplayCues.splice(cueIndex, 1);
+          }
+        }
+        translatedDisplayCues.push(...displayCues);
+        translatedDisplayCues.sort((left, right) => (
+          left.start - right.start || left.end - right.end || left.cueId.localeCompare(right.cueId)
+        ));
         for (const sourceId of group.sourceIds) {
-          translatedSegments.set(sourceId, { id: sourceId, translatedText });
+          const displayText = translationForSourceId(displayCues, sourceId) || translatedText;
+          translatedSegments.set(sourceId, { id: sourceId, translatedText: displayText });
           failedSegmentIds.delete(sourceId);
           translationFailureCodes.delete(sourceId);
-          showSegmentTranslation(sourceId, "ready", translatedText);
+          showSegmentTranslation(sourceId, "ready", displayText);
         }
       }
       return;
@@ -1487,21 +1569,64 @@ function transcriptFilename(suffix) {
 }
 
 function buildSrt(mode) {
-  return sortedSourceSegments().map((segment, index) => {
+  if (mode === "source") {
+    return sortedSourceSegments().map((segment, index) => (
+      `${index + 1}\n${formatSrtTimestamp(segment.start)} --> ${formatSrtTimestamp(segment.end)}\n${segment.sourceText}`
+    )).join("\n\n") + (sourceSegments.size ? "\n" : "");
+  }
+
+  const cueSourceIds = new Set(
+    translatedDisplayCues.flatMap(cue => cue.sourceIds),
+  );
+  const entries = sortedDisplayCues().map(cue => {
+    const translation = cue.lines.join("\n");
+    const sourceText = sourceTextForDisplayCue(cue);
+    return {
+      start: cue.start,
+      end: cue.end,
+      text: mode === "bilingual" && sourceText
+        ? `${translation}\n${sourceText}`
+        : translation,
+    };
+  });
+  for (const segment of sortedSourceSegments()) {
+    if (cueSourceIds.has(segment.id)) continue;
     const translation = translatedSegments.get(segment.id)?.translatedText
       || segment.sourceText;
-    let text = segment.sourceText;
-    if (mode === "translated") text = translation;
-    if (mode === "bilingual") text = `${translation}\n${segment.sourceText}`;
-    return `${index + 1}\n${formatSrtTimestamp(segment.start)} --> ${formatSrtTimestamp(segment.end)}\n${text}`;
-  }).join("\n\n") + (sourceSegments.size ? "\n" : "");
+    entries.push({
+      start: segment.start,
+      end: segment.end,
+      text: mode === "bilingual"
+        ? `${translation}\n${segment.sourceText}`
+        : translation,
+    });
+  }
+  entries.sort((left, right) => left.start - right.start || left.end - right.end);
+  return entries.map((entry, index) => (
+    `${index + 1}\n${formatSrtTimestamp(entry.start)} --> ${formatSrtTimestamp(entry.end)}\n${entry.text}`
+  )).join("\n\n") + (entries.length ? "\n" : "");
 }
 
 function buildSegmentsJson() {
   return JSON.stringify({
-    schema_version: 3,
+    schema_version: 4,
     source_language: requestedSourceLanguage || detectedSourceLanguage || null,
     target_language: selectedTargetLanguage,
+    translation_groups: [...translatedGroups.values()].map(group => ({
+      group_id: group.groupId,
+      source_ids: group.sourceIds,
+      translated_text: group.translatedText,
+      forced_boundary: group.forcedBoundary,
+    })),
+    display_cues: sortedDisplayCues().map(cue => ({
+      cue_id: cue.cueId,
+      group_id: cue.groupId,
+      source_ids: cue.sourceIds,
+      start_ms: Math.round(cue.start * 1000),
+      end_ms: Math.round(cue.end * 1000),
+      translated_text: cue.translatedText,
+      lines: cue.lines,
+    })),
     segments: sortedSourceSegments().map(segment => {
       const group = sourceTranslationGroups.get(segment.id);
       return {

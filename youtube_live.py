@@ -461,6 +461,9 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
     page_path = project_root / "pages" / "youtube_live.html"
     translate_page_path = project_root / "pages" / "youtube_live_translate.html"
     translate_script_path = project_root / "pages" / "youtube_live_translate.js"
+    subtitle_display_cues_script_path = (
+        project_root / "pages" / "subtitle_display_cues.js"
+    )
     cookies_file = project_root / "cookies.txt"
     jobs: dict[str, dict[str, Any]] = {}
 
@@ -878,6 +881,14 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
     def youtube_live_translate_script():
         return Response(
             translate_script_path.read_text(encoding="utf-8"),
+            media_type="application/javascript",
+            headers={"Cache-Control": "no-store, max-age=0"},
+        )
+
+    @router.get("/subtitle-display-cues.js", include_in_schema=False)
+    def subtitle_display_cues_script():
+        return Response(
+            subtitle_display_cues_script_path.read_text(encoding="utf-8"),
             media_type="application/javascript",
             headers={"Cache-Control": "no-store, max-age=0"},
         )
