@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import math
 import os
 import secrets
 import shutil
@@ -73,6 +74,7 @@ class YoutubeLiveRequest(BaseModel):
     language: str = ""
     captcha_token: str = ""
     ignore_subtitles: bool = False
+    include_word_timestamps: bool = False
 
 
 class YoutubeLanguageSelection(BaseModel):
@@ -94,6 +96,7 @@ def segment_payload(
     text: str,
     language: Optional[str] = None,
     low_confidence_spans: Optional[list[str]] = None,
+    words: Optional[list[dict[str, Any]]] = None,
 ) -> dict[str, Any]:
     payload = {
         "index": index,
@@ -104,6 +107,8 @@ def segment_payload(
     }
     if low_confidence_spans:
         payload["low_confidence_spans"] = low_confidence_spans
+    if words is not None:
+        payload["words"] = words
     return payload
 
 
@@ -128,6 +133,43 @@ def whisper_low_confidence_spans(
         ):
             spans.append(value)
     return spans[:20]
+
+
+def whisper_word_payloads(
+    segment: Any,
+    language: Optional[str],
+) -> list[dict[str, Any]]:
+    payloads: list[dict[str, Any]] = []
+    for word in getattr(segment, "words", None) or []:
+        raw_value = str(getattr(word, "word", "") or "")
+        value = to_traditional_chinese(
+            raw_value,
+            language,
+        )
+        if not value.strip():
+            continue
+        try:
+            start = float(getattr(word, "start", None))
+            end = float(getattr(word, "end", None))
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(start) or not math.isfinite(end) or end < start:
+            continue
+        payload: dict[str, Any] = {
+            "word": value,
+            "start": round(start, 3),
+            "end": round(end, 3),
+        }
+        probability = getattr(word, "probability", None)
+        if probability is not None:
+            try:
+                probability_value = float(probability)
+            except (TypeError, ValueError):
+                probability_value = None
+            if probability_value is not None and math.isfinite(probability_value):
+                payload["probability"] = round(probability_value, 6)
+        payloads.append(payload)
+    return payloads
 
 
 def transcription_progress_payload(
@@ -251,6 +293,7 @@ def transcribe_audio_stream(
     queue: asyncio.Queue[dict[str, Any]],
     job_id: Optional[str] = None,
     cancel_check: Optional[Callable[[], bool]] = None,
+    include_word_timestamps: bool = False,
 ) -> dict[str, Any]:
     started_at = time.perf_counter()
     audio_duration = 0.0
@@ -304,6 +347,11 @@ def transcribe_audio_stream(
                 text,
                 detected_language,
                 whisper_low_confidence_spans(segment, text, detected_language),
+                (
+                    whisper_word_payloads(segment, detected_language)
+                    if include_word_timestamps
+                    else None
+                ),
             )
             payload.update(
                 transcription_progress_payload(
@@ -504,6 +552,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             queue_wait_ms=queue_wait_ms,
             source_language=job.get("language_hint") or "auto",
             ignore_subtitles=job.get("ignore_subtitles"),
+            include_word_timestamps=job.get("include_word_timestamps"),
         )
         try:
             ensure_job_not_cancelled(job)
@@ -526,6 +575,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                         queue,
                         job_id,
                         lambda: job_is_cancelled(job),
+                        bool(job.get("include_word_timestamps")),
                     )
                 ensure_job_not_cancelled(job)
                 job["status"] = "done"
@@ -850,6 +900,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             "url": url,
             "language_hint": payload.language.strip() or None,
             "ignore_subtitles": payload.ignore_subtitles,
+            "include_word_timestamps": payload.include_word_timestamps,
             "translation_token": secrets.token_urlsafe(32),
             "translation_tasks": set(),
             "cancel_token": secrets.token_urlsafe(32),
@@ -869,6 +920,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             job_status="queued",
             source_language=jobs[job_id]["language_hint"] or "auto",
             ignore_subtitles=payload.ignore_subtitles,
+            include_word_timestamps=payload.include_word_timestamps,
         )
         try:
             enqueue_transcribe_task({"kind": "youtube_live", "id": job_id})
@@ -898,6 +950,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             job_status="queued",
             source_language=jobs[job_id]["language_hint"] or "auto",
             ignore_subtitles=payload.ignore_subtitles,
+            include_word_timestamps=payload.include_word_timestamps,
             waiting_count=queue_counts["waiting_count"],
             transcribing_count=queue_counts["transcribing_count"],
         )
@@ -1372,6 +1425,178 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                 authorized_job.get("translation_tasks", set()).discard(
                     translation_task
                 )
+
+    @router.post(
+        "/api/youtube-live/translation-workflow/{operation}",
+        tags=["YouTube Live Translation"],
+        summary="代理來源語分組或群組翻譯請求",
+        responses={
+            400: {"description": "操作、JSON 或 Content-Length 無效"},
+            401: {"description": "翻譯權杖無效或過期"},
+            403: {"description": "request_id 與 YouTube job 不相符"},
+            413: {"description": "請求超過 128 KiB"},
+            415: {"description": "Content-Type 不是 application/json"},
+            502: {"description": "無法連線至翻譯服務"},
+            504: {"description": "翻譯服務逾時"},
+        },
+    )
+    async def translation_workflow_proxy(
+        operation: str,
+        request: Request,
+        translation_token: str = Header(
+            ...,
+            alias="X-Translation-Token",
+            description="建立 YouTube job 時取得的短效翻譯權杖",
+        ),
+    ):
+        upstream_paths = {
+            "group": "/api/v1/subtitles/group",
+            "translate-groups": "/api/v1/subtitles/translate-groups",
+        }
+        upstream_path = upstream_paths.get(operation)
+        if upstream_path is None:
+            raise HTTPException(status_code=400, detail="不支援的翻譯工作流程操作")
+
+        cleanup_youtube_live_jobs(jobs)
+        content_type = request.headers.get("content-type", "")
+        if content_type.split(";", 1)[0].strip().lower() != "application/json":
+            raise HTTPException(status_code=415, detail="只接受 application/json")
+
+        content_length = request.headers.get("content-length")
+        if content_length:
+            try:
+                if int(content_length) > TRANSLATE_PROXY_MAX_BODY_BYTES:
+                    raise HTTPException(status_code=413, detail="翻譯請求不可超過 128 KiB")
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Content-Length 無效")
+
+        body = await request.body()
+        if len(body) > TRANSLATE_PROXY_MAX_BODY_BYTES:
+            raise HTTPException(status_code=413, detail="翻譯請求不可超過 128 KiB")
+        try:
+            payload = json.loads(body)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise HTTPException(status_code=400, detail="JSON 格式無效") from exc
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail="JSON 根節點必須是物件")
+
+        authorized_job_id = None
+        for candidate_id, job in jobs.items():
+            expected_token = str(job.get("translation_token") or "")
+            if expected_token and secrets.compare_digest(translation_token, expected_token):
+                authorized_job_id = candidate_id
+                break
+        if authorized_job_id is None:
+            raise HTTPException(status_code=401, detail="翻譯權杖無效或已過期")
+
+        request_id = str(payload.get("request_id") or "")
+        if not request_id.startswith(f"youtube-{authorized_job_id}-"):
+            raise HTTPException(status_code=403, detail="request_id 與 YouTube job 不相符")
+
+        segments = payload.get("segments")
+        groups = payload.get("groups")
+        segments = segments if isinstance(segments, list) else []
+        groups = groups if isinstance(groups, list) else []
+        source_id_count = sum(
+            len(source_ids)
+            for item in groups
+            if isinstance(item, dict)
+            for source_ids in [item.get("source_ids")]
+            if isinstance(source_ids, list)
+        )
+        characters = sum(
+            len(str(item.get("text") or ""))
+            for item in segments
+            if isinstance(item, dict)
+        ) + sum(
+            len(str(item.get("source_text") or ""))
+            for item in groups
+            if isinstance(item, dict)
+        )
+        set_request_log_metadata(
+            request,
+            request_id=request_id,
+            job_id=authorized_job_id,
+            operation=f"video_translation_{operation}",
+            source_language=payload.get("source_language"),
+            target_language=payload.get("target_language"),
+            segments=len(segments),
+            groups=len(groups),
+            source_ids=source_id_count,
+            characters=characters,
+            final=payload.get("final"),
+        )
+
+        upstream_url = f"{TRANSLATE_API_BASE}{upstream_path}"
+        timeout = aiohttp.ClientTimeout(total=TRANSLATE_API_TIMEOUT_SECONDS)
+        started_at = time.perf_counter()
+        authorized_job = jobs[authorized_job_id]
+        workflow_task = asyncio.current_task()
+        if workflow_task is not None:
+            authorized_job.setdefault("translation_tasks", set()).add(workflow_task)
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(
+                    upstream_url,
+                    data=body,
+                    headers={
+                        "Accept": "application/json",
+                        "Content-Type": "application/json",
+                    },
+                ) as upstream_response:
+                    response_body = await upstream_response.read()
+                    response_content_type = upstream_response.headers.get(
+                        "Content-Type",
+                        "application/json",
+                    )
+                    logger.info(
+                        "Translation workflow proxy completed: operation=%s "
+                        "job_id=%s status=%d request_id=%s segments=%d groups=%d "
+                        "source_ids=%d characters=%d request_bytes=%d "
+                        "response_bytes=%d elapsed=%.3fs",
+                        operation,
+                        authorized_job_id,
+                        upstream_response.status,
+                        request_id,
+                        len(segments),
+                        len(groups),
+                        source_id_count,
+                        characters,
+                        len(body),
+                        len(response_body),
+                        time.perf_counter() - started_at,
+                    )
+                    return Response(
+                        content=response_body,
+                        status_code=upstream_response.status,
+                        headers={"Content-Type": response_content_type},
+                    )
+        except asyncio.CancelledError:
+            return JSONResponse(
+                status_code=499,
+                content={"detail": "翻譯已取消", "retryable": False},
+            )
+        except asyncio.TimeoutError:
+            return JSONResponse(
+                status_code=504,
+                content={"detail": "翻譯服務逾時", "retryable": True},
+            )
+        except aiohttp.ClientError:
+            logger.exception(
+                "Translation workflow proxy failed: operation=%s job_id=%s "
+                "request_id=%s elapsed=%.3fs",
+                operation,
+                authorized_job_id,
+                request_id,
+                time.perf_counter() - started_at,
+            )
+            return JSONResponse(
+                status_code=502,
+                content={"detail": "無法連線至翻譯服務", "retryable": True},
+            )
+        finally:
+            if workflow_task is not None:
+                authorized_job.get("translation_tasks", set()).discard(workflow_task)
 
     @router.get("/api/youtube-live/jobs/{job_id}/events", tags=["YouTube Live"])
     async def youtube_live_events(job_id: str, request: Request):

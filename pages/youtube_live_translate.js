@@ -3,6 +3,7 @@
 const form = document.getElementById("translateForm");
 const youtubeUrl = document.getElementById("youtubeUrl");
 const ignoreSubtitles = document.getElementById("ignoreSubtitles");
+const includeWordTimestamps = document.getElementById("includeWordTimestamps");
 const sourceLanguage = document.getElementById("sourceLanguage");
 const targetLanguage = document.getElementById("targetLanguage");
 const startBtn = document.getElementById("startBtn");
@@ -50,21 +51,27 @@ const captchaStatus = document.getElementById("captchaStatus");
 
 const BATCH_DELAY_MS = 2000;
 const BATCH_SEGMENT_TRIGGER = 8;
-const BATCH_CHARACTER_TRIGGER = 2000;
+const BATCH_CHARACTER_TRIGGER = 1200;
 const BATCH_MAX_SEGMENTS = 40;
 const BATCH_MAX_CHARACTERS = 2000;
-const REQUEST_MAX_CHARACTERS = 6000;
-const CONTEXT_MAX_SEGMENTS = 5;
+const GROUPING_MAX_CHARACTERS = 6000;
+const SOURCE_GROUP_DURATION_TRIGGER_SECONDS = 30;
+const SOURCE_BOUNDARY_HINT_RE = /[.!?。！？…]+["'”’»）)\]】」』]*\s*$/;
 const TRANSLATION_WAVE_SIZE = 2;
 const RETRY_DELAYS_MS = [2000, 5000];
 const RETRYABLE_HTTP_STATUSES = new Set([429, 502, 503, 504]);
-const PROMPT_VERSION = "subtitle-v1";
+const GROUPING_VERSION = "source-groups-v1";
+const GROUP_TRANSLATION_PROMPT_VERSION = "subtitle-groups-v1";
+const NON_RETRYABLE_OUTPUT_CODES = new Set([
+  "INVALID_RESPONSE",
+  "INVALID_TRANSLATION_OUTPUT",
+]);
 
 const params = new URLSearchParams(window.location.search);
 const languageStorageKey = "audioTranscribeLanguage";
 const translations = {
   "zh-Hant": {
-    pageTitle: "Video Translate", transcribeOnly: "僅轉譯", urlLabel: "YouTube 網址", ignoreSubtitles: "忽略內建字幕",
+    pageTitle: "Video Translate", transcribeOnly: "僅轉譯", urlLabel: "YouTube 網址", ignoreSubtitles: "忽略內建字幕", includeWordTimestamps: "逐字顯示原文",
     videoPreview: "影片預覽", subtitleWaiting: "字幕完成後會顯示在這裡",
     sourceLanguage: "原文語言", targetLanguage: "翻譯目標語言", autoDetect: "自動偵測", languageEnglish: "英文", languageJapanese: "日文", languageKorean: "韓文", languageThai: "泰文", languageTraditionalChinese: "繁體中文",
     start: "開始轉譯並翻譯", detectLanguage: "偵測語言", waiting: "等待輸入網址", creating: "建立任務中", processing: "處理中", cancelJob: "取消轉譯", cancelled: "已取消轉譯與翻譯", transcriptionDone: "轉譯完成，翻譯繼續處理中", done: "轉譯與翻譯完成", partialDone: "處理完成，部分翻譯失敗", failed: "處理失敗", disconnected: "連線中斷", requestFailed: "請求失敗",
@@ -77,7 +84,7 @@ const translations = {
     translationServiceFailed: "翻譯服務暫時無法使用", invalidTranslation: "翻譯回應格式不正確", videoTitle: "YouTube 影片", about: "關於我們", privacy: "隱私權政策", terms: "使用條款", contact: "聯絡我們", leaveWarning: "轉譯或翻譯仍在進行中，離開頁面將取消這次工作。"
   },
   en: {
-    pageTitle: "Video Translate", transcribeOnly: "Transcribe only", urlLabel: "YouTube URL", ignoreSubtitles: "Ignore built-in subtitles",
+    pageTitle: "Video Translate", transcribeOnly: "Transcribe only", urlLabel: "YouTube URL", ignoreSubtitles: "Ignore built-in subtitles", includeWordTimestamps: "Reveal source word by word",
     videoPreview: "Video preview", subtitleWaiting: "Subtitles will appear here when ready",
     sourceLanguage: "Source language", targetLanguage: "Target language", autoDetect: "Auto detect", languageEnglish: "English", languageJapanese: "Japanese", languageKorean: "Korean", languageThai: "Thai", languageTraditionalChinese: "Traditional Chinese",
     start: "Transcribe and translate", detectLanguage: "Detect language", waiting: "Waiting for a URL", creating: "Creating job", processing: "Processing", cancelJob: "Cancel", cancelled: "Transcription and translation cancelled", transcriptionDone: "Transcription complete; translation is still running", done: "Transcription and translation complete", partialDone: "Complete with some translation failures", failed: "Processing failed", disconnected: "Connection interrupted", requestFailed: "Request failed",
@@ -90,7 +97,7 @@ const translations = {
     translationServiceFailed: "Translation service is temporarily unavailable", invalidTranslation: "The translation response is invalid", videoTitle: "YouTube video", about: "About", privacy: "Privacy", terms: "Terms", contact: "Contact", leaveWarning: "Transcription or translation is still running. Leaving this page will cancel the job."
   },
   ja: {
-    pageTitle: "Video Translate", transcribeOnly: "文字起こしのみ", urlLabel: "YouTube URL", ignoreSubtitles: "内蔵字幕を無視",
+    pageTitle: "Video Translate", transcribeOnly: "文字起こしのみ", urlLabel: "YouTube URL", ignoreSubtitles: "内蔵字幕を無視", includeWordTimestamps: "原文を単語ごとに表示",
     videoPreview: "動画プレビュー", subtitleWaiting: "字幕の準備ができるとここに表示されます",
     sourceLanguage: "原文の言語", targetLanguage: "翻訳先の言語", autoDetect: "自動検出", languageEnglish: "英語", languageJapanese: "日本語", languageKorean: "韓国語", languageThai: "タイ語", languageTraditionalChinese: "繁体字中国語",
     start: "文字起こしと翻訳を開始", detectLanguage: "言語を検出", waiting: "URL を入力してください", creating: "ジョブを作成中", processing: "処理中", cancelJob: "キャンセル", cancelled: "文字起こしと翻訳をキャンセルしました", transcriptionDone: "文字起こしが完了し、翻訳を続行しています", done: "文字起こしと翻訳が完了しました", partialDone: "一部の翻訳に失敗しました", failed: "処理に失敗しました", disconnected: "接続が切断されました", requestFailed: "リクエストに失敗しました",
@@ -103,7 +110,7 @@ const translations = {
     translationServiceFailed: "翻訳サービスを利用できません", invalidTranslation: "翻訳レスポンスが不正です", videoTitle: "YouTube 動画", about: "私たちについて", privacy: "プライバシー", terms: "利用規約", contact: "お問い合わせ", leaveWarning: "文字起こしまたは翻訳が進行中です。ページを離れると、この処理はキャンセルされます。"
   },
   ko: {
-    pageTitle: "Video Translate", transcribeOnly: "전사만", urlLabel: "YouTube URL", ignoreSubtitles: "내장 자막 무시",
+    pageTitle: "Video Translate", transcribeOnly: "전사만", urlLabel: "YouTube URL", ignoreSubtitles: "내장 자막 무시", includeWordTimestamps: "원문을 단어별로 표시",
     videoPreview: "동영상 미리보기", subtitleWaiting: "자막이 준비되면 여기에 표시됩니다",
     sourceLanguage: "원문 언어", targetLanguage: "번역 언어", autoDetect: "자동 감지", languageEnglish: "영어", languageJapanese: "일본어", languageKorean: "한국어", languageThai: "태국어", languageTraditionalChinese: "번체 중국어",
     start: "전사 및 번역 시작", detectLanguage: "언어 감지", waiting: "URL 입력 대기 중", creating: "작업 생성 중", processing: "처리 중", cancelJob: "전사 취소", cancelled: "전사와 번역이 취소되었습니다", transcriptionDone: "전사가 완료되어 번역을 계속 처리하고 있습니다", done: "전사 및 번역 완료", partialDone: "일부 번역 실패와 함께 완료", failed: "처리 실패", disconnected: "연결이 끊겼습니다", requestFailed: "요청 실패",
@@ -124,7 +131,9 @@ if (!translations[currentLanguage]) currentLanguage = "zh-Hant";
 if (params.get("embedded") === "1") document.body.classList.add("embedded");
 
 const sourceSegments = new Map();
+const playbackSegments = [];
 const translatedSegments = new Map();
+const sourceTranslationGroups = new Map();
 const segmentNodes = new Map();
 const failedSegmentIds = new Set();
 const translationFailureCodes = new Map();
@@ -136,6 +145,12 @@ let translationWaveRunning = false;
 let batchTimer = null;
 let queuedBatchCount = 0;
 let batchCounter = 0;
+let groupingCounter = 0;
+let groupingRunning = false;
+let groupingPromise = Promise.resolve();
+let pendingRevision = 0;
+let lastGroupedRevision = -1;
+let finalGroupingRequested = false;
 let currentJobId = "";
 let currentTranslationToken = "";
 let currentCancelRequest = null;
@@ -274,7 +289,23 @@ function clearVideoSubtitleOverlay(showWaiting = true) {
   videoSubtitleOverlay.classList.remove("error");
 }
 
-function updateVideoSubtitleOverlay(segment) {
+function progressiveSourceText(segment, currentTime) {
+  if (
+    !includeWordTimestamps.checked
+    || !Array.isArray(segment?.words)
+    || segment.words.length === 0
+    || !Number.isFinite(currentTime)
+  ) {
+    return segment?.sourceText || "";
+  }
+  return segment.words
+    .filter(word => word.start <= currentTime + 0.03)
+    .map(word => word.word)
+    .join("")
+    .trimStart();
+}
+
+function updateVideoSubtitleOverlay(segment, currentTime = null) {
   const failureCode = segment
     ? translationFailureCodes.get(segment.id)
     : "";
@@ -302,11 +333,15 @@ function updateVideoSubtitleOverlay(segment) {
     return;
   }
 
-  videoSubtitleSource.textContent = segment.sourceText;
+  const sourceText = progressiveSourceText(segment, currentTime);
+  const wordRevealActive = includeWordTimestamps.checked
+    && segment.words.length > 0
+    && Number.isFinite(currentTime);
+  videoSubtitleSource.textContent = sourceText;
   videoSubtitleTranslation.textContent = translatedText;
   videoSubtitleSource.classList.toggle(
     "d-none",
-    segment.sourceText.trim() === translatedText.trim(),
+    !wordRevealActive && segment.sourceText.trim() === translatedText.trim(),
   );
   videoSubtitleOverlay.classList.remove("waiting");
   videoSubtitleOverlay.classList.remove("error");
@@ -329,21 +364,31 @@ function resetVideoPlayerMount() {
 }
 
 function playbackSegmentAt(seconds) {
-  for (const segment of sortedSourceSegments()) {
-    if (segment.start > seconds) break;
-    if (
-      (translatedSegments.has(segment.id) || failedSegmentIds.has(segment.id))
-      && seconds >= segment.start
-      && seconds < segment.end
-    ) {
-      return segment;
+  let lower = 0;
+  let upper = playbackSegments.length - 1;
+  let candidate = null;
+  while (lower <= upper) {
+    const middle = Math.floor((lower + upper) / 2);
+    const segment = playbackSegments[middle];
+    if (segment.start <= seconds) {
+      candidate = segment;
+      lower = middle + 1;
+    } else {
+      upper = middle - 1;
     }
+  }
+  if (
+    candidate
+    && (translatedSegments.has(candidate.id) || failedSegmentIds.has(candidate.id))
+    && seconds < candidate.end
+  ) {
+    return candidate;
   }
   return null;
 }
 
-function focusPlaybackSegment(segment) {
-  updateVideoSubtitleOverlay(segment);
+function focusPlaybackSegment(segment, currentTime = null) {
+  updateVideoSubtitleOverlay(segment, currentTime);
   const nextId = segment?.id || null;
   if (nextId === activePlaybackSegmentId) return;
   if (activePlaybackSegmentId) {
@@ -367,13 +412,17 @@ function focusPlaybackSegment(segment) {
 function syncPlaybackToSubtitles() {
   if (!playbackSyncEnabled || !youtubePlayerController?.getCurrentTime) return;
   try {
-    focusPlaybackSegment(playbackSegmentAt(youtubePlayerController.getCurrentTime()));
+    const currentTime = youtubePlayerController.getCurrentTime();
+    focusPlaybackSegment(playbackSegmentAt(currentTime), currentTime);
   } catch (_) {}
 }
 
 function startPlaybackSync() {
   if (playbackSyncTimer) clearInterval(playbackSyncTimer);
-  playbackSyncTimer = setInterval(syncPlaybackToSubtitles, 400);
+  playbackSyncTimer = setInterval(
+    syncPlaybackToSubtitles,
+    includeWordTimestamps.checked ? 100 : 400,
+  );
 }
 
 async function renderYouTubePlayer(parsed, previewKey) {
@@ -594,7 +643,9 @@ function resetView() {
     batchTimer = null;
   }
   sourceSegments.clear();
+  playbackSegments.length = 0;
   translatedSegments.clear();
+  sourceTranslationGroups.clear();
   segmentNodes.clear();
   failedSegmentIds.clear();
   translationFailureCodes.clear();
@@ -604,6 +655,12 @@ function resetView() {
   translationWaveRunning = false;
   queuedBatchCount = 0;
   batchCounter = 0;
+  groupingCounter = 0;
+  groupingRunning = false;
+  groupingPromise = Promise.resolve();
+  pendingRevision = 0;
+  lastGroupedRevision = -1;
+  finalGroupingRequested = false;
   currentJobId = "";
   currentTranslationToken = "";
   currentCancelRequest = null;
@@ -741,7 +798,9 @@ function renderSegment(segment) {
   time.textContent = `${formatDisplayTime(segment.start)} → ${formatDisplayTime(segment.end)}`;
   const number = document.createElement("span");
   number.textContent = `#${segment.id}`;
-  meta.append(time, number);
+  const groupBadge = document.createElement("span");
+  groupBadge.className = "badge text-bg-secondary d-none";
+  meta.append(time, number, groupBadge);
 
   const copy = document.createElement("div");
   copy.className = "segment-copy";
@@ -775,6 +834,7 @@ function renderSegment(segment) {
   segmentList.append(card);
   segmentNodes.set(segment.id, {
     card,
+    groupBadge,
     translationTextNode,
     retryButton,
   });
@@ -802,32 +862,239 @@ function showSegmentTranslation(segmentId, state, message = "") {
   notifyParentHeight();
 }
 
+function showSegmentTranslationGroup(segmentId, group) {
+  const nodes = segmentNodes.get(segmentId);
+  if (!nodes) return;
+  const firstId = group.sourceIds[0];
+  const lastId = group.sourceIds[group.sourceIds.length - 1];
+  nodes.groupBadge.textContent = firstId === lastId
+    ? `G ${firstId}${group.forcedBoundary ? " · forced" : ""}`
+    : `G ${firstId}–${lastId}${group.forcedBoundary ? " · forced" : ""}`;
+  nodes.groupBadge.classList.remove("d-none");
+}
+
 function pendingCharacterCount() {
   return pendingSegments.reduce((total, segment) => total + segment.sourceText.length, 0);
 }
 
+function pendingSegmentsLikelyReady() {
+  if (pendingSegments.length === 0) return false;
+  const first = pendingSegments[0];
+  const last = pendingSegments[pendingSegments.length - 1];
+  return pendingSegments.some(segment => SOURCE_BOUNDARY_HINT_RE.test(segment.sourceText))
+    || pendingSegments.length >= BATCH_SEGMENT_TRIGGER
+    || pendingCharacterCount() >= BATCH_CHARACTER_TRIGGER
+    || last.end - first.start >= SOURCE_GROUP_DURATION_TRIGGER_SECONDS;
+}
+
 function scheduleBatch() {
-  if (batchTimer || pendingSegments.length === 0) return;
+  if (batchTimer || pendingSegments.length === 0 || groupingRunning) return;
   batchTimer = window.setTimeout(() => {
     batchTimer = null;
-    flushPendingSegments();
+    if (pendingSegmentsLikelyReady()) void flushPendingSegments();
   }, BATCH_DELAY_MS);
 }
 
-function takeNextBatch() {
+function takeGroupingSnapshot() {
   if (pendingSegments.length === 0) return [];
   const language = pendingSegments[0].language;
-  const batch = [];
+  const snapshot = [];
   let characters = 0;
-  while (pendingSegments.length > 0 && batch.length < BATCH_MAX_SEGMENTS) {
-    const candidate = pendingSegments[0];
+  for (const candidate of pendingSegments) {
+    if (snapshot.length >= BATCH_MAX_SEGMENTS) break;
     if (candidate.language !== language) break;
     const nextCharacters = characters + candidate.sourceText.length;
-    if (batch.length > 0 && nextCharacters > BATCH_MAX_CHARACTERS) break;
-    batch.push(pendingSegments.shift());
+    if (snapshot.length > 0 && nextCharacters > GROUPING_MAX_CHARACTERS) break;
+    snapshot.push(candidate);
     characters = nextCharacters;
   }
-  return batch;
+  return snapshot;
+}
+
+function groupingPayload(snapshot, final) {
+  const groupNumber = ++groupingCounter;
+  return {
+    request_id: `youtube-${currentJobId}-group-${groupNumber}-${GROUPING_VERSION}`,
+    source_language: snapshot[0].language,
+    prompt_version: GROUPING_VERSION,
+    final,
+    segments: snapshot.map(segment => ({
+      id: segment.id,
+      text: segment.sourceText,
+      start_ms: Math.round(segment.start * 1000),
+      end_ms: Math.round(segment.end * 1000),
+    })),
+  };
+}
+
+function validateGroupingResponse(payload, data, snapshot) {
+  if (
+    !data
+    || typeof data !== "object"
+    || data.request_id !== payload.request_id
+    || data.grouping_version !== GROUPING_VERSION
+    || !Array.isArray(data.groups)
+    || !Array.isArray(data.pending_tail_ids)
+  ) {
+    throw invalidTranslationResponseError();
+  }
+
+  const expectedIds = snapshot.map(segment => segment.id);
+  const completeIds = [];
+  const seenGroupIds = new Set();
+  const segmentById = new Map(snapshot.map(segment => [segment.id, segment]));
+  const groups = data.groups.map(group => {
+    const sourceIds = Array.isArray(group?.source_ids)
+      ? group.source_ids.map(Number)
+      : [];
+    if (
+      typeof group?.group_id !== "string"
+      || !group.group_id
+      || seenGroupIds.has(group.group_id)
+      || sourceIds.length === 0
+      || sourceIds.some(id => !Number.isInteger(id) || !segmentById.has(id))
+    ) {
+      throw invalidTranslationResponseError();
+    }
+    seenGroupIds.add(group.group_id);
+    completeIds.push(...sourceIds);
+    const segments = sourceIds.map(id => segmentById.get(id));
+    return {
+      groupId: group.group_id,
+      sourceIds,
+      sourceText: segments.map(segment => segment.sourceText).join(" "),
+      language: snapshot[0].language,
+      forcedBoundary: group.forced_boundary === true,
+      segments,
+    };
+  });
+  const pendingTailIds = data.pending_tail_ids.map(Number);
+  const returnedIds = [...completeIds, ...pendingTailIds];
+  if (
+    returnedIds.length !== expectedIds.length
+    || returnedIds.some((id, index) => id !== expectedIds[index])
+  ) {
+    throw invalidTranslationResponseError();
+  }
+  return { groups, completedCount: completeIds.length };
+}
+
+function enqueueTranslationGroups(groups, { deferStart = false } = {}) {
+  let batch = [];
+  let characters = 0;
+  let sourceIdCount = 0;
+  const flushBatch = () => {
+    if (batch.length === 0) return;
+    enqueueTranslation(batch, { deferStart });
+    batch = [];
+    characters = 0;
+    sourceIdCount = 0;
+  };
+
+  for (const group of groups) {
+    for (const sourceId of group.sourceIds) {
+      sourceTranslationGroups.set(sourceId, group);
+      showSegmentTranslationGroup(sourceId, group);
+    }
+    const nextCharacters = characters + group.sourceText.length;
+    const nextSourceIdCount = sourceIdCount + group.sourceIds.length;
+    if (
+      batch.length > 0
+      && (
+        nextCharacters > BATCH_MAX_CHARACTERS
+        || nextSourceIdCount > BATCH_MAX_SEGMENTS
+      )
+    ) {
+      flushBatch();
+    }
+    batch.push(group);
+    characters += group.sourceText.length;
+    sourceIdCount += group.sourceIds.length;
+  }
+  flushBatch();
+}
+
+function markGroupingFailure(snapshot, error) {
+  const failureCode = translationErrorCode(error);
+  for (const segment of snapshot) {
+    failedSegmentIds.add(segment.id);
+    translationFailureCodes.set(segment.id, failureCode);
+    showSegmentTranslation(
+      segment.id,
+      "failed",
+      error?.message || t("translationFailed"),
+    );
+  }
+}
+
+async function requestWorkflowWithRetries(operation, payload) {
+  let lastError = null;
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
+    if (jobCancellationRequested) return null;
+    try {
+      return await requestTranslationWorkflow(operation, payload);
+    } catch (error) {
+      lastError = error;
+      if (jobCancellationRequested) return null;
+      if (!error.retryable || attempt >= RETRY_DELAYS_MS.length) break;
+      await new Promise(resolve => setTimeout(resolve, RETRY_DELAYS_MS[attempt]));
+    }
+  }
+  throw lastError;
+}
+
+async function processPendingGroups() {
+  while (pendingSegments.length > 0 && !jobCancellationRequested) {
+    const final = finalGroupingRequested;
+    const revision = pendingRevision;
+    if (!final && revision === lastGroupedRevision) break;
+    const snapshot = takeGroupingSnapshot();
+    if (snapshot.length === 0) break;
+    const hadMoreSegments = pendingSegments.length > snapshot.length;
+    const payload = groupingPayload(snapshot, final);
+    let data;
+    try {
+      data = await requestWorkflowWithRetries("group", payload);
+      if (!data || jobCancellationRequested) return;
+    } catch (error) {
+      lastGroupedRevision = revision;
+      if (!finalGroupingRequested) break;
+      markGroupingFailure(snapshot, error);
+      pendingSegments.splice(0, snapshot.length);
+      pendingRevision += 1;
+      continue;
+    }
+
+    const revisionChangedDuringRequest = pendingRevision !== revision;
+    let result;
+    try {
+      result = validateGroupingResponse(payload, data, snapshot);
+    } catch (error) {
+      lastGroupedRevision = revision;
+      if (!finalGroupingRequested) break;
+      markGroupingFailure(snapshot, error);
+      pendingSegments.splice(0, snapshot.length);
+      pendingRevision += 1;
+      continue;
+    }
+    if (result.completedCount > 0) {
+      pendingSegments.splice(0, result.completedCount);
+      pendingRevision += 1;
+      enqueueTranslationGroups(result.groups, {
+        deferStart: finalGroupingRequested,
+      });
+    }
+
+    if (pendingSegments.length === 0) break;
+    if (finalGroupingRequested && !final) continue;
+    if (
+      finalGroupingRequested
+      || revisionChangedDuringRequest
+      || (hadMoreSegments && result.completedCount > 0)
+    ) continue;
+    lastGroupedRevision = pendingRevision;
+    break;
+  }
 }
 
 function flushPendingSegments({ final = false } = {}) {
@@ -835,158 +1102,78 @@ function flushPendingSegments({ final = false } = {}) {
     clearTimeout(batchTimer);
     batchTimer = null;
   }
-  const remainingLookahead = final ? 0 : 1;
-  while (pendingSegments.length > remainingLookahead) {
-    const lookahead = final ? null : pendingSegments.pop();
-    const batch = takeNextBatch();
-    if (lookahead) pendingSegments.push(lookahead);
-    if (batch.length === 0) break;
-    enqueueTranslation(batch, { deferStart: final });
+  if (final) finalGroupingRequested = true;
+  if (groupingRunning) return groupingPromise;
+  if (pendingSegments.length === 0) {
+    if (finalGroupingRequested) {
+      finalGroupingRequested = false;
+      startNextTranslationWave({ allowPartial: true });
+    }
+    updateTranslationProgress();
+    return groupingPromise;
   }
-  if (final) startNextTranslationWave({ allowPartial: true });
-  updateTranslationProgress();
+
+  groupingRunning = true;
+  groupingPromise = processPendingGroups()
+    .catch(error => {
+      if (!jobCancellationRequested) console.error("Source grouping failed", error);
+    })
+    .finally(() => {
+      groupingRunning = false;
+      if (finalGroupingRequested && pendingSegments.length === 0) {
+        finalGroupingRequested = false;
+        startNextTranslationWave({ allowPartial: true });
+      } else if (
+        !finalGroupingRequested
+        && pendingSegments.length > 0
+        && pendingRevision !== lastGroupedRevision
+      ) {
+        scheduleBatch();
+      }
+      updateTranslationProgress();
+      maybeFinalize();
+    });
+  return groupingPromise;
 }
 
 function addPendingSegment(segment) {
   pendingSegments.push(segment);
+  pendingRevision += 1;
   setTranslationActive(true);
   updateTranslationProgress();
   if (
     pendingSegments.length >= BATCH_SEGMENT_TRIGGER
     || pendingCharacterCount() >= BATCH_CHARACTER_TRIGGER
   ) {
-    flushPendingSegments();
+    void flushPendingSegments();
   } else {
     scheduleBatch();
   }
 }
 
-function buildContextSegments(batch) {
-  const batchIds = new Set(batch.map(segment => segment.id));
-  const firstBatchId = Math.min(...batchIds);
-  const candidates = sortedSourceSegments()
-    .filter(segment => segment.id < firstBatchId && !batchIds.has(segment.id))
-    .slice(-CONTEXT_MAX_SEGMENTS)
-    .filter(segment => translatedSegments.has(segment.id))
-    .map(segment => ({
-      id: segment.id,
-      source_text: segment.sourceText,
-      translated_text: translatedSegments.get(segment.id).translatedText,
-    }));
-
-  const batchCharacters = batch.reduce(
-    (total, segment) => total + segment.sourceText.length
-      + (segment.lowConfidenceSpans || []).reduce(
-        (spanTotal, span) => spanTotal + span.length,
-        0,
-      ),
-    0,
-  );
-  while (
-    candidates.length > 0
-    && batchCharacters + candidates.reduce(
-      (total, segment) => total + segment.source_text.length + segment.translated_text.length,
-      0,
-    ) > REQUEST_MAX_CHARACTERS
-  ) {
-    candidates.shift();
-  }
-  return candidates;
-}
-
-function buildPrecedingContextSegments(batch, contextSegments) {
-  const batchIds = new Set(batch.map(segment => segment.id));
-  const contextIds = new Set(contextSegments.map(segment => segment.id));
-  const firstBatchId = Math.min(...batchIds);
-  const candidates = sortedSourceSegments()
-    .filter(segment => segment.id < firstBatchId)
-    .slice(-CONTEXT_MAX_SEGMENTS)
-    .filter(segment => !batchIds.has(segment.id) && !contextIds.has(segment.id))
-    .map(segment => ({
-      id: segment.id,
-      text: segment.sourceText,
-    }));
-
-  const fixedCharacters = batch.reduce(
-    (total, segment) => total + segment.sourceText.length
-      + (segment.lowConfidenceSpans || []).reduce(
-        (spanTotal, span) => spanTotal + span.length,
-        0,
-      ),
-    0,
-  ) + contextSegments.reduce(
-    (total, segment) => total + segment.source_text.length + segment.translated_text.length,
-    0,
-  );
-  while (
-    candidates.length > 0
-    && fixedCharacters + candidates.reduce(
-      (total, segment) => total + segment.text.length,
-      0,
-    ) > REQUEST_MAX_CHARACTERS
-  ) {
-    candidates.shift();
-  }
-  return candidates;
-}
-
-function buildFollowingContextSegments(batch, contextSegments, precedingContextSegments) {
-  const batchIds = new Set(batch.map(segment => segment.id));
-  const lastBatchId = Math.max(...batchIds);
-  const candidates = sortedSourceSegments()
-    .filter(segment => segment.id > lastBatchId && !batchIds.has(segment.id))
-    .slice(0, CONTEXT_MAX_SEGMENTS)
-    .map(segment => ({
-      id: segment.id,
-      text: segment.sourceText,
-    }));
-
-  const fixedCharacters = batch.reduce(
-    (total, segment) => total + segment.sourceText.length
-      + (segment.lowConfidenceSpans || []).reduce(
-        (spanTotal, span) => spanTotal + span.length,
-        0,
-      ),
-    0,
-  ) + contextSegments.reduce(
-    (total, segment) => total + segment.source_text.length + segment.translated_text.length,
-    0,
-  ) + precedingContextSegments.reduce(
-    (total, segment) => total + segment.text.length,
-    0,
-  );
-  while (
-    candidates.length > 0
-    && fixedCharacters + candidates.reduce(
-      (total, segment) => total + segment.text.length,
-      0,
-    ) > REQUEST_MAX_CHARACTERS
-  ) {
-    candidates.pop();
-  }
-  return candidates;
-}
-
 function translationErrorMessage(data, fallback) {
   if (!data || typeof data !== "object") return fallback;
+  if (data.error && typeof data.error.message === "string") return data.error.message;
   if (typeof data.detail === "string") return data.detail;
   if (data.detail && typeof data.detail.message === "string") return data.detail.message;
   if (typeof data.message === "string") return data.message;
   return fallback;
 }
 
-function responseIsRetryable(response, data) {
+function responseIsRetryable(response, data, upstreamCode) {
+  if (upstreamCode && NON_RETRYABLE_OUTPUT_CODES.has(String(upstreamCode))) return false;
   return RETRYABLE_HTTP_STATUSES.has(response.status)
+    || data?.error?.retryable === true
     || data?.retryable === true
     || data?.detail?.retryable === true;
 }
 
-async function requestTranslation(payload) {
+async function requestTranslationWorkflow(operation, payload) {
   let response;
   const controller = new AbortController();
   translationAbortControllers.add(controller);
   try {
-    response = await fetch("/api/youtube-live/translate-batch", {
+    response = await fetch(`/api/youtube-live/translation-workflow/${operation}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1012,15 +1199,16 @@ async function requestTranslation(payload) {
 
   if (!response.ok) {
     const error = new Error(translationErrorMessage(data, t("translationServiceFailed")));
-    error.retryable = responseIsRetryable(response, data);
     error.status = response.status;
     const upstreamCode = data?.code
       ?? data?.error_code
+      ?? data?.error?.code
       ?? data?.detail?.code
       ?? data?.detail?.error_code;
     if (upstreamCode !== undefined && upstreamCode !== null) {
       error.code = String(upstreamCode);
     }
+    error.retryable = responseIsRetryable(response, data, upstreamCode);
     throw error;
   }
   return data;
@@ -1039,13 +1227,19 @@ function validateTranslationResponse(payload, data, batch) {
   if (!Array.isArray(data.translations) || data.translations.length !== batch.length) {
     throw invalidTranslationResponseError();
   }
-  const expectedIds = batch.map(segment => segment.id);
-  const actualIds = data.translations.map(result => Number(result?.id));
-  if (expectedIds.some((id, index) => id !== actualIds[index])) {
-    throw invalidTranslationResponseError();
-  }
-  for (const result of data.translations) {
-    if (typeof result.translated_text !== "string" || !result.translated_text.trim()) {
+  for (let index = 0; index < batch.length; index += 1) {
+    const group = batch[index];
+    const result = data.translations[index];
+    const sourceIds = Array.isArray(result?.source_ids)
+      ? result.source_ids.map(Number)
+      : [];
+    if (
+      result?.group_id !== group.groupId
+      || sourceIds.length !== group.sourceIds.length
+      || sourceIds.some((id, sourceIndex) => id !== group.sourceIds[sourceIndex])
+      || typeof result.translated_text !== "string"
+      || !result.translated_text.trim()
+    ) {
       throw invalidTranslationResponseError();
     }
   }
@@ -1054,29 +1248,19 @@ function validateTranslationResponse(payload, data, batch) {
 
 async function translateBatch(batch) {
   const batchNumber = ++batchCounter;
-  const requestId = `youtube-${currentJobId}-${selectedTargetLanguage}-batch-${batchNumber}-${PROMPT_VERSION}`;
-  const contextSegments = buildContextSegments(batch);
-  const precedingContextSegments = buildPrecedingContextSegments(batch, contextSegments);
+  const requestId = `youtube-${currentJobId}-${selectedTargetLanguage}-group-batch-${batchNumber}-${GROUP_TRANSLATION_PROMPT_VERSION}`;
   const payload = {
     request_id: requestId,
     source_language: batch[0].language,
     target_language: selectedTargetLanguage,
-    prompt_version: PROMPT_VERSION,
-    context_segments: contextSegments,
-    preceding_context_segments: precedingContextSegments,
-    following_context_segments: buildFollowingContextSegments(
-      batch,
-      contextSegments,
-      precedingContextSegments,
-    ),
-    segments: batch.map(segment => ({
-      id: segment.id,
-      text: segment.sourceText,
-      ...(
-        segment.lowConfidenceSpans.length > 0
-          ? { low_confidence_spans: segment.lowConfidenceSpans }
-          : {}
-      ),
+    prompt_version: GROUP_TRANSLATION_PROMPT_VERSION,
+    groups: batch.map(group => ({
+      group_id: group.groupId,
+      source_ids: group.sourceIds,
+      source_text: group.sourceText,
+      low_confidence_spans: [...new Set(
+        group.segments.flatMap(segment => segment.lowConfidenceSpans || []),
+      )],
     })),
   };
 
@@ -1084,17 +1268,18 @@ async function translateBatch(batch) {
   for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
     if (jobCancellationRequested) return;
     try {
-      const data = await requestTranslation(payload);
+      const data = await requestTranslationWorkflow("translate-groups", payload);
       const results = validateTranslationResponse(payload, data, batch);
-      for (const result of results) {
+      for (let index = 0; index < results.length; index += 1) {
+        const result = results[index];
+        const group = batch[index];
         const translatedText = result.translated_text.trim();
-        translatedSegments.set(Number(result.id), {
-          id: Number(result.id),
-          translatedText,
-        });
-        failedSegmentIds.delete(Number(result.id));
-        translationFailureCodes.delete(Number(result.id));
-        showSegmentTranslation(Number(result.id), "ready", translatedText);
+        for (const sourceId of group.sourceIds) {
+          translatedSegments.set(sourceId, { id: sourceId, translatedText });
+          failedSegmentIds.delete(sourceId);
+          translationFailureCodes.delete(sourceId);
+          showSegmentTranslation(sourceId, "ready", translatedText);
+        }
       }
       return;
     } catch (error) {
@@ -1105,15 +1290,27 @@ async function translateBatch(batch) {
     }
   }
 
+  if (
+    batch.length > 1
+    && NON_RETRYABLE_OUTPUT_CODES.has(String(lastError?.code || ""))
+  ) {
+    const midpoint = Math.ceil(batch.length / 2);
+    await translateBatch(batch.slice(0, midpoint));
+    await translateBatch(batch.slice(midpoint));
+    return;
+  }
+
   const failureCode = translationErrorCode(lastError);
-  for (const segment of batch) {
-    failedSegmentIds.add(segment.id);
-    translationFailureCodes.set(segment.id, failureCode);
-    showSegmentTranslation(
-      segment.id,
-      "failed",
-      lastError?.message || t("translationFailed"),
-    );
+  for (const group of batch) {
+    for (const segment of group.segments) {
+      failedSegmentIds.add(segment.id);
+      translationFailureCodes.set(segment.id, failureCode);
+      showSegmentTranslation(
+        segment.id,
+        "failed",
+        lastError?.message || t("translationFailed"),
+      );
+    }
   }
 }
 
@@ -1125,10 +1322,12 @@ async function processTranslationBatch(batch) {
     if (jobCancellationRequested) return;
     console.error("Translation queue failed", error);
     const failureCode = translationErrorCode(error);
-    for (const segment of batch) {
-      failedSegmentIds.add(segment.id);
-      translationFailureCodes.set(segment.id, failureCode);
-      showSegmentTranslation(segment.id, "failed", error.message || t("translationFailed"));
+    for (const group of batch) {
+      for (const segment of group.segments) {
+        failedSegmentIds.add(segment.id);
+        translationFailureCodes.set(segment.id, failureCode);
+        showSegmentTranslation(segment.id, "failed", error.message || t("translationFailed"));
+      }
     }
   } finally {
     queuedBatchCount = Math.max(0, queuedBatchCount - 1);
@@ -1160,7 +1359,9 @@ function enqueueTranslation(batch, { deferStart = false } = {}) {
   queuedBatchCount += 1;
   pendingTranslationBatches.push(batch);
   setTranslationActive(true);
-  for (const segment of batch) showSegmentTranslation(segment.id, "pending");
+  for (const group of batch) {
+    for (const segment of group.segments) showSegmentTranslation(segment.id, "pending");
+  }
   if (!deferStart) startNextTranslationWave({ allowPartial: transcriptionDone });
   return translationQueue;
 }
@@ -1197,8 +1398,25 @@ function addSegment(data) {
         .filter(span => typeof span === "string" && sourceText.includes(span))
         .slice(0, 20)
       : [],
+    words: Array.isArray(data.words)
+      ? data.words
+        .map(word => ({
+          word: String(word?.word || ""),
+          start: Number(word?.start),
+          end: Number(word?.end),
+          probability: Number(word?.probability),
+        }))
+        .filter(word => word.word.trim() && Number.isFinite(word.start) && Number.isFinite(word.end))
+      : [],
   };
   sourceSegments.set(id, segment);
+  playbackSegments.push(segment);
+  if (
+    playbackSegments.length > 1
+    && playbackSegments[playbackSegments.length - 2].start > segment.start
+  ) {
+    playbackSegments.sort((left, right) => left.start - right.start);
+  }
   renderSegment(segment);
   updateTranscriptionProgress(data);
 
@@ -1281,17 +1499,39 @@ function buildSrt(mode) {
 
 function buildSegmentsJson() {
   return JSON.stringify({
-    schema_version: 1,
+    schema_version: 3,
     source_language: requestedSourceLanguage || detectedSourceLanguage || null,
     target_language: selectedTargetLanguage,
-    segments: sortedSourceSegments().map(segment => ({
-      id: segment.id,
-      start_ms: Math.round(segment.start * 1000),
-      end_ms: Math.round(segment.end * 1000),
-      source_text: segment.sourceText,
-      translated_text: translatedSegments.get(segment.id)?.translatedText
-        || segment.sourceText,
-    })),
+    segments: sortedSourceSegments().map(segment => {
+      const group = sourceTranslationGroups.get(segment.id);
+      return {
+        id: segment.id,
+        start_ms: Math.round(segment.start * 1000),
+        end_ms: Math.round(segment.end * 1000),
+        source_text: segment.sourceText,
+        translated_text: translatedSegments.get(segment.id)?.translatedText
+          || segment.sourceText,
+        ...(
+          group
+            ? {
+              translation_group_id: group.groupId,
+              translation_group_source_ids: group.sourceIds,
+              translation_group_forced_boundary: group.forcedBoundary,
+            }
+            : {}
+        ),
+        words: segment.words.map(word => ({
+          word: word.word,
+          start_ms: Math.round(word.start * 1000),
+          end_ms: Math.round(word.end * 1000),
+          ...(
+            Number.isFinite(word.probability)
+              ? { probability: word.probability }
+              : {}
+          ),
+        })),
+      };
+    }),
   }, null, 2);
 }
 
@@ -1356,7 +1596,7 @@ segmentList.addEventListener("click", event => {
     if (Number.isFinite(seekTime)) {
       playbackSyncEnabled = true;
       youtubePlayerController.seekTo(seekTime, true);
-      focusPlaybackSegment(playbackSegmentAt(seekTime));
+      focusPlaybackSegment(playbackSegmentAt(seekTime), seekTime);
     }
     return;
   }
@@ -1366,13 +1606,23 @@ segmentList.addEventListener("click", event => {
   const segmentId = Number(button.dataset.retrySegment);
   const segment = sourceSegments.get(segmentId);
   if (!segment || !segment.language) return;
-  failedSegmentIds.delete(segmentId);
-  translationFailureCodes.delete(segmentId);
-  translatedSegments.delete(segmentId);
-  showSegmentTranslation(segmentId, "pending");
+  const group = sourceTranslationGroups.get(segmentId) || {
+    groupId: `retry-${segment.id}`,
+    sourceIds: [segment.id],
+    sourceText: segment.sourceText,
+    language: segment.language,
+    forcedBoundary: true,
+    segments: [segment],
+  };
+  for (const sourceId of group.sourceIds) {
+    failedSegmentIds.delete(sourceId);
+    translationFailureCodes.delete(sourceId);
+    translatedSegments.delete(sourceId);
+    showSegmentTranslation(sourceId, "pending");
+  }
   setTranslationActive(true);
   actionBar.classList.add("d-none");
-  enqueueTranslation([segment]);
+  enqueueTranslation([group]);
   updateTranslationProgress();
 });
 
@@ -1507,6 +1757,7 @@ cancelJob.addEventListener("click", async () => {
     targetLanguage.disabled = false;
     youtubeUrl.disabled = false;
     ignoreSubtitles.disabled = false;
+    includeWordTimestamps.disabled = false;
     setStatus(t("cancelled"), "idle");
     resetCaptchaState(false);
     notifyParentHeight();
@@ -1524,6 +1775,7 @@ async function beginTranscription() {
   targetLanguage.disabled = true;
   youtubeUrl.disabled = true;
   ignoreSubtitles.disabled = true;
+  includeWordTimestamps.disabled = true;
   startBtn.disabled = true;
   startBtn.classList.add("d-none");
   captchaBlock.classList.add("d-none");
@@ -1543,6 +1795,7 @@ async function beginTranscription() {
         url: youtubeUrl.value.trim(),
         language: whisperLanguage,
         ignore_subtitles: ignoreSubtitles.checked,
+        include_word_timestamps: includeWordTimestamps.checked,
         captcha_token: captchaToken.value,
       }),
     });
@@ -1674,6 +1927,7 @@ async function beginTranscription() {
     targetLanguage.disabled = false;
     youtubeUrl.disabled = false;
     ignoreSubtitles.disabled = false;
+    includeWordTimestamps.disabled = false;
     resetCaptchaState(false);
     maybeFinalize();
   }

@@ -199,7 +199,10 @@
       line-height: 1.45;
       overflow-wrap: anywhere;
     }
-    .video-subtitle-source { font-size: .84rem; }
+    .video-subtitle-source {
+      min-height: 1.25rem;
+      font-size: .84rem;
+    }
     .video-subtitle-translation {
       font-size: 1.08rem;
       font-weight: 700;
@@ -374,8 +377,12 @@
           <label class="form-label fw-semibold" for="youtubeUrl" data-i18n="urlLabel">YouTube 網址</label>
           <input id="youtubeUrl" class="form-control form-control-lg" type="url" placeholder="https://www.youtube.com/watch?v=..." required>
           <div class="form-check mt-3">
-            <input id="ignoreSubtitles" class="form-check-input" type="checkbox">
+            <input id="ignoreSubtitles" class="form-check-input" type="checkbox" checked>
             <label class="form-check-label" for="ignoreSubtitles" data-i18n="ignoreSubtitles">忽略內建字幕</label>
+          </div>
+          <div class="form-check mt-2">
+            <input id="includeWordTimestamps" class="form-check-input" type="checkbox" checked>
+            <label class="form-check-label" for="includeWordTimestamps" data-i18n="includeWordTimestamps">逐字顯示原文</label>
           </div>
         </div>
         <div class="col-12 col-md-4">
@@ -522,6 +529,6 @@
     </div>
   </footer>
 
-  <script src="/youtube-live-translate.js?v=20260802-1" defer></script>
+  <script src="/youtube-live-translate.js?v=20260806-1" defer></script>
 </body>
 </html>
