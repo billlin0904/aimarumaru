@@ -1,6 +1,7 @@
 "use strict";
 
 const {
+  contentSignature,
   displayCueAt,
   translationForSourceId,
   validateDisplayCues,
@@ -349,15 +350,14 @@ function updateVideoSubtitleOverlay(segment, currentTime = null) {
     return;
   }
 
-  const sourceText = progressiveSourceText(segment, currentTime);
-  const wordRevealActive = includeWordTimestamps.checked
-    && segment.words.length > 0
-    && Number.isFinite(currentTime);
+  const sourceText = activeCue
+    ? activeCue.sourceLines.join("\n")
+    : progressiveSourceText(segment, currentTime);
   videoSubtitleSource.textContent = sourceText;
   videoSubtitleTranslation.textContent = translatedText;
   videoSubtitleSource.classList.toggle(
     "d-none",
-    !wordRevealActive && segment.sourceText.trim() === translatedText.trim(),
+    sourceText.trim() === translatedText.trim(),
   );
   videoSubtitleOverlay.classList.remove("waiting");
   videoSubtitleOverlay.classList.remove("error");
@@ -656,6 +656,9 @@ function sortedDisplayCues() {
 }
 
 function sourceTextForDisplayCue(cue) {
+  if (typeof cue.sourceText === "string" && cue.sourceText.trim()) {
+    return cue.sourceText.trim();
+  }
   const assigned = cue.sourceIds
     .map(sourceId => sourceSegments.get(sourceId)?.sourceText || "")
     .filter(Boolean);
@@ -999,16 +1002,24 @@ function validateGroupingResponse(payload, data, snapshot) {
       || seenGroupIds.has(group.group_id)
       || sourceIds.length === 0
       || sourceIds.some(id => !Number.isInteger(id) || !segmentById.has(id))
+      || typeof group.source_text !== "string"
+      || !group.source_text.trim()
     ) {
       throw invalidTranslationResponseError();
     }
     seenGroupIds.add(group.group_id);
     completeIds.push(...sourceIds);
     const segments = sourceIds.map(id => segmentById.get(id));
+    if (
+      contentSignature(group.source_text)
+      !== contentSignature(segments.map(segment => segment.sourceText).join(""))
+    ) {
+      throw invalidTranslationResponseError();
+    }
     return {
       groupId: group.group_id,
       sourceIds,
-      sourceText: segments.map(segment => segment.sourceText).join(" "),
+      sourceText: group.source_text.trim(),
       language: snapshot[0].language,
       forcedBoundary: group.forced_boundary === true,
       segments,
@@ -1624,6 +1635,8 @@ function buildSegmentsJson() {
       source_ids: cue.sourceIds,
       start_ms: Math.round(cue.start * 1000),
       end_ms: Math.round(cue.end * 1000),
+      source_text: cue.sourceText,
+      source_lines: cue.sourceLines,
       translated_text: cue.translatedText,
       lines: cue.lines,
     })),

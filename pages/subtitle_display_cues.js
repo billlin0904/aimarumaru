@@ -20,6 +20,26 @@
     const seenCueIds = new Set();
     const cues = rawCues.map((cue, index) => {
       const sourceIds = Array.isArray(cue?.source_ids) ? cue.source_ids.map(Number) : [];
+      const assignedSegments = sourceIds.length > 0
+        ? sourceIds.map(sourceId => segments.find(segment => Number(segment.id) === sourceId))
+        : segments.filter(segment => (
+          Number(segment.end) * 1000 > Number(cue?.start_ms)
+          && Number(segment.start) * 1000 < Number(cue?.end_ms)
+        ));
+      const assignedSourceText = assignedSegments
+        .map(segment => segment?.sourceText || "")
+        .filter(Boolean)
+        .join(" ")
+        .trim();
+      const sourceText = typeof cue?.source_text === "string" && cue.source_text.trim()
+        ? cue.source_text.trim()
+        : assignedSourceText;
+      const returnedSourceLines = Array.isArray(cue?.source_lines)
+        ? cue.source_lines.map(String)
+        : [];
+      const sourceLines = returnedSourceLines.length > 0
+        ? returnedSourceLines
+        : [sourceText];
       const lines = Array.isArray(cue?.lines) ? cue.lines.map(String) : [];
       if (
         typeof cue?.cue_id !== "string"
@@ -28,6 +48,10 @@
         || !Number.isInteger(cue.start_ms)
         || !Number.isInteger(cue.end_ms)
         || cue.end_ms <= cue.start_ms
+        || !sourceText
+        || sourceLines.length < 1
+        || sourceLines.length > 2
+        || sourceLines.some(line => !line.trim())
         || typeof cue.translated_text !== "string"
         || !cue.translated_text.trim()
         || lines.length < 1
@@ -44,6 +68,8 @@
         sourceIds,
         start: cue.start_ms / 1000,
         end: cue.end_ms / 1000,
+        sourceText,
+        sourceLines,
         translatedText: cue.translated_text.trim(),
         lines,
       };

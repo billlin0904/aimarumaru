@@ -13,10 +13,10 @@ const group = {
   groupId: "g-41-44",
   sourceIds: [41, 42, 43, 44],
   segments: [
-    { id: 41, start: 0, end: 2 },
-    { id: 42, start: 2, end: 4 },
-    { id: 43, start: 4, end: 6 },
-    { id: 44, start: 6, end: 8 },
+    { id: 41, start: 0, end: 2, sourceText: "それがだいたい失敗して" },
+    { id: 42, start: 2, end: 4, sourceText: "自分がひどい目に遭うという" },
+    { id: 43, start: 4, end: 6, sourceText: "役柄の設定が" },
+    { id: 44, start: 6, end: 8, sourceText: "面白いです。" },
   ],
 };
 
@@ -29,6 +29,8 @@ const result = {
       source_ids: [41, 42],
       start_ms: 0,
       end_ms: 4000,
+      source_text: "それがだいたい失敗して自分がひどい目に遭うという",
+      source_lines: ["それがだいたい失敗して自分がひどい目に遭うという"],
       translated_text: "而且，最令人驚訝的是，",
       lines: ["而且，最令人驚訝的是，"],
     },
@@ -37,6 +39,8 @@ const result = {
       source_ids: [43, 44],
       start_ms: 4000,
       end_ms: 8000,
+      source_text: "役柄の設定が面白いです。",
+      source_lines: ["役柄の設定が面白いです。"],
       translated_text: "這架新望遠鏡已經提前完成，並且在預算內。",
       lines: ["這架新望遠鏡已經提前完成，", "並且在預算內。"],
     },
@@ -52,6 +56,10 @@ test("validates lossless display cues and exact source coverage", () => {
   );
   assert.equal(translationForSourceId(cues, 41), "而且，最令人驚訝的是，");
   assert.equal(
+    cues[0].sourceText,
+    "それがだいたい失敗して自分がひどい目に遭うという",
+  );
+  assert.equal(
     translationForSourceId(cues, 44),
     "這架新望遠鏡已經提前完成，並且在預算內。",
   );
@@ -60,8 +68,28 @@ test("validates lossless display cues and exact source coverage", () => {
 test("selects the cue by its own display timeline", () => {
   const cues = validateDisplayCues(group, result);
   assert.equal(displayCueAt(cues, 1.5).cueId, "g-41-44-c1");
+  assert.deepEqual(
+    displayCueAt(cues, 1.5).sourceLines,
+    ["それがだいたい失敗して自分がひどい目に遭うという"],
+  );
   assert.equal(displayCueAt(cues, 4.0).cueId, "g-41-44-c2");
   assert.equal(displayCueAt(cues, 8.0), null);
+});
+
+test("derives source cue text while an older translation service is rolling over", () => {
+  const legacyResult = structuredClone(result);
+  for (const cue of legacyResult.display_cues) {
+    delete cue.source_text;
+    delete cue.source_lines;
+  }
+
+  const cues = validateDisplayCues(group, legacyResult);
+  assert.equal(
+    contentSignature(cues[0].sourceText),
+    contentSignature(
+      "それがだいたい失敗して自分がひどい目に遭うという",
+    ),
+  );
 });
 
 test("rejects duplicated full group translations", () => {
