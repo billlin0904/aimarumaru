@@ -32,6 +32,7 @@ from youtube_srt import (
     choose_subtitle_track,
     download_subtitle_content,
     download_youtube_audio,
+    get_youtube_playlist_preview,
     get_youtube_video_info,
     is_youtube_rate_limit_error,
     parse_subtitle_content,
@@ -69,6 +70,10 @@ YOUTUBE_WHISPER_VAD_PARAMETERS = {
 }
 VIDEO_UPLOAD_MAX_BYTES = int(
     os.getenv("VIDEO_UPLOAD_MAX_BYTES", str(2 * 1024 * 1024 * 1024))
+)
+VIDEO_UPLOAD_BATCH_MAX_FILES = max(
+    1,
+    int(os.getenv("VIDEO_UPLOAD_BATCH_MAX_FILES", "10")),
 )
 VIDEO_UPLOAD_EXTENSIONS = {
     ".avi",
@@ -979,6 +984,30 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             headers={"Cache-Control": "no-store, max-age=0"},
         )
 
+    @router.get(
+        "/api/youtube-live/playlists/preview",
+        tags=["YouTube Live"],
+        summary="讀取 YouTube 播放清單預覽",
+    )
+    async def youtube_playlist_preview(url: str):
+        try:
+            playlist = await asyncio.to_thread(
+                get_youtube_playlist_preview,
+                url,
+                cookies_file,
+            )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.warning("Could not load YouTube playlist preview: %s", exc)
+            if is_youtube_rate_limit_error(exc):
+                raise HTTPException(status_code=429, detail=YOUTUBE_RATE_LIMIT_MESSAGE) from exc
+            raise HTTPException(status_code=502, detail="無法讀取 YouTube 播放清單") from exc
+        return JSONResponse(
+            playlist,
+            headers={"Cache-Control": "private, max-age=300"},
+        )
+
     @router.post("/api/youtube-live/jobs", tags=["YouTube Live"])
     async def create_youtube_live_job(
         payload: YoutubeLiveRequest,
@@ -1061,22 +1090,12 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             "status": "queued",
         }
 
-    @router.post(
-        "/api/video-upload/jobs",
-        tags=["Video Upload"],
-        summary="上傳影片並建立即時轉譯工作",
-    )
-    async def create_video_upload_job(
+    async def create_video_upload_job_entry(
         http_request: Request,
-        file: UploadFile = File(...),
-        language: str = Form(""),
-        captcha_token: str = Form(""),
-        include_word_timestamps: bool = Form(True),
-    ):
-        cleanup_youtube_live_jobs(jobs)
-        if verify_captcha_token is not None:
-            verify_captcha_token(captcha_token)
-
+        file: UploadFile,
+        language: str,
+        include_word_timestamps: bool,
+    ) -> dict[str, Any]:
         original_filename = Path(file.filename or "video").name
         suffix = Path(original_filename).suffix.lower()
         content_type = str(file.content_type or "").lower()
@@ -1168,11 +1187,85 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         )
         return {
             "job_id": job_id,
+            "filename": original_filename,
             "events_url": f"/api/youtube-live/jobs/{job_id}/events",
             "translation_token": jobs[job_id]["translation_token"],
             "cancel_url": f"/api/youtube-live/jobs/{job_id}/cancel",
             "cancel_token": jobs[job_id]["cancel_token"],
             "status": jobs[job_id]["status"],
+        }
+
+    @router.post(
+        "/api/video-upload/jobs",
+        tags=["Video Upload"],
+        summary="上傳影片並建立即時轉譯工作",
+    )
+    async def create_video_upload_job(
+        http_request: Request,
+        file: UploadFile = File(...),
+        language: str = Form(""),
+        captcha_token: str = Form(""),
+        include_word_timestamps: bool = Form(True),
+    ):
+        cleanup_youtube_live_jobs(jobs)
+        if verify_captcha_token is not None:
+            verify_captcha_token(captcha_token)
+        return await create_video_upload_job_entry(
+            http_request,
+            file,
+            language,
+            include_word_timestamps,
+        )
+
+    @router.post(
+        "/api/video-upload/jobs/batch",
+        tags=["Video Upload"],
+        summary="上傳多個影片並建立轉譯工作",
+    )
+    async def create_video_upload_batch(
+        http_request: Request,
+        files: list[UploadFile] = File(...),
+        language: str = Form(""),
+        captcha_token: str = Form(""),
+        include_word_timestamps: bool = Form(True),
+    ):
+        cleanup_youtube_live_jobs(jobs)
+        if not files:
+            raise HTTPException(status_code=400, detail="請至少選擇一個影片檔案")
+        if len(files) > VIDEO_UPLOAD_BATCH_MAX_FILES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"一次最多上傳 {VIDEO_UPLOAD_BATCH_MAX_FILES} 個影片",
+            )
+        if verify_captcha_token is not None:
+            verify_captcha_token(captcha_token)
+
+        created_jobs: list[dict[str, Any]] = []
+        errors: list[dict[str, Any]] = []
+        for batch_index, file in enumerate(files):
+            filename = Path(file.filename or f"video-{batch_index + 1}").name
+            try:
+                job = await create_video_upload_job_entry(
+                    http_request,
+                    file,
+                    language,
+                    include_word_timestamps,
+                )
+                job["batch_index"] = batch_index
+                created_jobs.append(job)
+            except HTTPException as exc:
+                errors.append(
+                    {
+                        "batch_index": batch_index,
+                        "filename": filename,
+                        "error": str(exc.detail),
+                    }
+                )
+
+        return {
+            "total_files": len(files),
+            "jobs": created_jobs,
+            "errors": errors,
         }
 
     @router.post(

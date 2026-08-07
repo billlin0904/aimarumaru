@@ -111,6 +111,10 @@ for bin_dir in cuda_bin_dirs:
 auto2lrc = Auto2Lrc()
 TRANSCRIBE_JOB_DIR = PROJECT_ROOT / "transcribe_jobs"
 TRANSCRIBE_JOB_TTL_SECONDS = 3600
+TRANSCRIBE_BATCH_MAX_FILES = max(
+    1,
+    int(os.getenv("TRANSCRIBE_BATCH_MAX_FILES", "10")),
+)
 CAPTCHA_TTL_SECONDS = 300
 CAPTCHA_ENABLED = False # os.getenv("AUDIOIO_CAPTCHA_ENABLED", "true").strip().lower() not in {"0", "false", "no", "off"}
 TRANSCRIBE_OUTPUT_FORMATS = {"txt", "srt", "lrc", "json"}
@@ -879,27 +883,13 @@ def get_public_transcribe_request(req_id: str) -> dict[str, Any]:
     return payload
 
 
-@app.post("/api/transcribe-audio/", tags=["Audio"])
-async def transcribe_audio_download(
+async def create_transcribe_audio_job(
     http_request: Request,
-    file: UploadFile = File(...),
-    output_format: str = Form("txt"),
-    language: str = Form(""),
-    vocal_separation: bool = Form(False),
-    captcha_token: str = Form(""),
-):
-    """
-    接受上傳音訊或影片，建立轉譯請求並回傳 req_id。
-
-    影片會先在背景佇列中抽取音軌，再使用與音訊相同的轉譯流程。
-    """
-    output_format = output_format.lower().strip()
-    if output_format not in TRANSCRIBE_OUTPUT_FORMATS:
-        raise HTTPException(status_code=400, detail="output_format 只支援 txt、srt、lrc、json")
-    if not is_transcribe_queue_started():
-        raise HTTPException(status_code=503, detail="轉譯佇列尚未啟動，請稍後再試")
-    verify_captcha_token_or_raise(captcha_token)
-
+    file: UploadFile,
+    output_format: str,
+    language: str,
+    vocal_separation: bool,
+) -> dict[str, Any]:
     suffix = Path(file.filename or "audio").suffix or ".audio"
     media_kind = "video" if is_video_upload(file.filename, file.content_type) else "audio"
     safe_stem = safe_transcript_stem(file.filename)
@@ -917,6 +907,8 @@ async def transcribe_audio_download(
     except Exception as exc:
         shutil.rmtree(req_dir, ignore_errors=True)
         raise HTTPException(status_code=500, detail=f"儲存上傳檔案失敗: {exc}") from exc
+    finally:
+        await file.close()
 
     created_at = utc_now_iso()
     created_monotonic = time.perf_counter()
@@ -1021,6 +1013,89 @@ async def transcribe_audio_download(
     response["cancel_url"] = f"/api/transcribe-audio/{req_id}/cancel"
     response["cancel_token"] = cancel_token
     return response
+
+
+@app.post("/api/transcribe-audio/", tags=["Audio"])
+async def transcribe_audio_download(
+    http_request: Request,
+    file: UploadFile = File(...),
+    output_format: str = Form("txt"),
+    language: str = Form(""),
+    vocal_separation: bool = Form(False),
+    captcha_token: str = Form(""),
+):
+    """
+    接受上傳音訊或影片，建立轉譯請求並回傳 req_id。
+
+    影片會先在背景佇列中抽取音軌，再使用與音訊相同的轉譯流程。
+    """
+    output_format = output_format.lower().strip()
+    if output_format not in TRANSCRIBE_OUTPUT_FORMATS:
+        raise HTTPException(status_code=400, detail="output_format 只支援 txt、srt、lrc、json")
+    if not is_transcribe_queue_started():
+        raise HTTPException(status_code=503, detail="轉譯佇列尚未啟動，請稍後再試")
+    verify_captcha_token_or_raise(captcha_token)
+    return await create_transcribe_audio_job(
+        http_request,
+        file,
+        output_format,
+        language,
+        vocal_separation,
+    )
+
+
+@app.post("/api/transcribe-audio/batch", tags=["Audio"])
+async def transcribe_audio_batch(
+    http_request: Request,
+    files: list[UploadFile] = File(...),
+    output_format: str = Form("txt"),
+    language: str = Form(""),
+    vocal_separation: bool = Form(False),
+    captcha_token: str = Form(""),
+):
+    """Create one queued transcription job for each uploaded audio or video file."""
+    output_format = output_format.lower().strip()
+    if output_format not in TRANSCRIBE_OUTPUT_FORMATS:
+        raise HTTPException(status_code=400, detail="output_format 只支援 txt、srt、lrc、json")
+    if not files:
+        raise HTTPException(status_code=400, detail="請至少選擇一個檔案")
+    if len(files) > TRANSCRIBE_BATCH_MAX_FILES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"一次最多上傳 {TRANSCRIBE_BATCH_MAX_FILES} 個檔案",
+        )
+    if not is_transcribe_queue_started():
+        raise HTTPException(status_code=503, detail="轉譯佇列尚未啟動，請稍後再試")
+    verify_captcha_token_or_raise(captcha_token)
+
+    created_jobs: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    for batch_index, file in enumerate(files):
+        filename = file.filename or f"file-{batch_index + 1}"
+        try:
+            job = await create_transcribe_audio_job(
+                http_request,
+                file,
+                output_format,
+                language,
+                vocal_separation,
+            )
+            job["batch_index"] = batch_index
+            created_jobs.append(job)
+        except HTTPException as exc:
+            errors.append(
+                {
+                    "batch_index": batch_index,
+                    "filename": filename,
+                    "error": str(exc.detail),
+                }
+            )
+
+    return {
+        "total_files": len(files),
+        "jobs": created_jobs,
+        "errors": errors,
+    }
 
 
 @app.post("/api/transcribe-audio/{req_id}/cancel", tags=["Audio"])

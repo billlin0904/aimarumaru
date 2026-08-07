@@ -70,6 +70,55 @@
       border-color: #0d6efd;
       background: #eef5ff;
     }
+    .selected-file-list {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 14px;
+    }
+    .selected-file-chip {
+      max-width: 100%;
+      padding: 5px 9px;
+      overflow: hidden;
+      border: 1px solid #d8dee8;
+      border-radius: 6px;
+      background: #fff;
+      color: #475467;
+      font-size: .78rem;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .audio-batch-list {
+      display: grid;
+      gap: 12px;
+    }
+    .audio-batch-item {
+      padding: 14px;
+      border: 1px solid #d8dee8;
+      border-radius: 8px;
+      background: #fff;
+    }
+    .audio-batch-name {
+      min-width: 0;
+      overflow: hidden;
+      font-weight: 700;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .audio-batch-status {
+      flex: 0 0 auto;
+      color: #667085;
+      font-size: .78rem;
+      font-weight: 700;
+    }
+    .audio-batch-status.done { color: #087443; }
+    .audio-batch-status.failed { color: #b42318; }
+    .audio-batch-preview {
+      max-height: 170px;
+      overflow: auto;
+      white-space: pre-wrap;
+    }
     .form-section,
     .captcha-panel {
       background: #fff;
@@ -155,8 +204,9 @@
           <div class="card-body p-4 p-lg-5">
             <form id="transcribeForm" class="needs-validation" novalidate>
               <div id="dropZone" class="drop-zone rounded-3 p-4 p-lg-5 text-center mb-4 shadow-sm">
-                <input class="form-control form-control-lg" id="audioFile" name="file" type="file" accept="audio/*,video/mp4,video/webm" required>
-                <div class="form-text mt-3" data-i18n="fileHelp">支援常見音訊檔案。</div>
+                <input class="form-control form-control-lg" id="audioFile" name="files" type="file" accept="audio/*,video/*,.avi,.m4v,.mkv,.mov,.mp4,.mpeg,.mpg,.ts,.webm,.wmv" multiple required>
+                <div class="form-text mt-3" data-i18n="fileHelp">支援常見音訊與影片檔案，一次最多 10 個。</div>
+                <div id="selectedFileList" class="selected-file-list d-none"></div>
               </div>
 
               <div class="privacy-note p-3 p-lg-4 mb-4">
@@ -226,6 +276,14 @@
               </div>
             </div>
 
+            <div id="audioBatchResultBox" class="d-none mt-4">
+              <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+                <h2 class="h5 mb-0" data-i18n="batchResultTitle">批次轉譯</h2>
+                <span id="audioBatchCount" class="small text-secondary"></span>
+              </div>
+              <div id="audioBatchList" class="audio-batch-list"></div>
+            </div>
+
             <div id="resultBox" class="d-none mt-4">
               <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
                 <h2 class="h5 mb-0" data-i18n="resultTitle">轉譯完成</h2>
@@ -266,6 +324,7 @@
   <script>
     const form = document.getElementById("transcribeForm");
     const fileInput = document.getElementById("audioFile");
+    const selectedFileList = document.getElementById("selectedFileList");
     const languageSelect = document.getElementById("languageSelect");
     const dropZone = document.getElementById("dropZone");
     const statusBox = document.getElementById("statusBox");
@@ -279,6 +338,9 @@
     const statusDetail = document.getElementById("statusDetail");
     const statusSpinner = document.getElementById("statusSpinner");
     const cancelAudioJob = document.getElementById("cancelAudioJob");
+    const audioBatchResultBox = document.getElementById("audioBatchResultBox");
+    const audioBatchCount = document.getElementById("audioBatchCount");
+    const audioBatchList = document.getElementById("audioBatchList");
     const captchaBlock = document.getElementById("captchaBlock");
     const captchaImage = document.getElementById("captchaImage");
     const captchaId = document.getElementById("captchaId");
@@ -301,6 +363,9 @@
     let latestResultText = "";
     let audioTranscriptionActive = false;
     let audioCancelRequest = null;
+    const audioCancelRequests = new Map();
+    const audioBatchRows = new Map();
+    const audioResultUrls = [];
     let audioCancellationRequested = false;
     let uploadTranslationActive = false;
     let translationActive = false;
@@ -308,7 +373,7 @@
     const translations = {
       "zh-Hant": {
         pageTitle: "音訊轉譯工具", badge: "Audio IO", languageSwitch: "語系", tabAudio: "音訊轉文字", tabUploadVideo: "上傳影片", tabTranslate: "即時翻譯", headline: "音訊轉文字",
-        subtitle: "上傳音訊，選擇格式，完成後下載結果。", fileHelp: "支援常見音訊檔案。", outputFormat: "輸出格式",
+        subtitle: "上傳音訊，選擇格式，完成後下載結果。", fileHelp: "支援常見音訊與影片檔案，一次最多 10 個。", outputFormat: "輸出格式",
         formatTxt: "TXT 純文字", formatSrt: "SRT 字幕", formatLrc: "LRC 歌詞時間軸", formatJson: "JSON 分段資料",
         vocalSeparation: "人聲分離", vocalSeparationHelp: "進階選項，會增加處理時間與記憶體使用量；建議音訊低於 6 分鐘以下才開啟。",
         uploadPrivacyTitle: "上傳檔案資料處理說明", uploadPrivacyStore: "錄音檔與轉譯結果只用於本次轉譯與下載。",
@@ -327,12 +392,13 @@
         accuracyNotice: "轉譯結果可能包含辨識誤差，請在使用前檢查文字是否正確。",
         captchaLoadFailed: "取得驗證碼失敗", captchaVerifyFailed: "驗證失敗", statusFailed: "查詢狀態失敗",
         createRequestFailed: "建立請求失敗", downloadFailed: "下載結果失敗", transcribeFailed: "轉譯失敗", invalidState: "任務狀態異常",
-        cancelJob: "取消轉譯", statusCancelled: "已取消", statusCancelledDetail: "這次轉譯工作已停止。",
+        cancelJob: "取消全部", statusCancelled: "已取消", statusCancelledDetail: "這批轉譯工作已停止。",
+        selectedFiles: "已選擇 {count} 個檔案", batchResultTitle: "批次轉譯", batchProgress: "已完成 {done} / {total}", batchQueued: "排程中", batchRunning: "轉譯中", batchDone: "已完成", batchFailed: "失敗", batchCancelled: "已取消", batchComplete: "批次轉譯完成", batchPartial: "批次完成，部分檔案失敗", batchCompleteDetail: "結果已準備完成，請分別下載需要的檔案。",
         leaveWarning: "轉譯仍在進行中，離開頁面將取消這次工作。"
       },
       en: {
         pageTitle: "Audio Transcription Tool", badge: "Audio IO", languageSwitch: "Language", tabAudio: "Audio to Text", tabUploadVideo: "Upload Video", tabTranslate: "Live Translate", headline: "Audio to Text",
-        subtitle: "Upload audio, choose an output format, and download the result.", fileHelp: "Common audio files are supported.",
+        subtitle: "Upload audio, choose an output format, and download the result.", fileHelp: "Common audio and video files are supported, up to 10 at a time.",
         outputFormat: "Output Format", formatTxt: "TXT Plain Text", formatSrt: "SRT Subtitles", formatLrc: "LRC Timed Lyrics",
         formatJson: "JSON Segments",
         vocalSeparation: "Vocal Separation", vocalSeparationHelp: "Advanced option. It increases processing time and memory usage; recommended only for audio under 6 minutes.",
@@ -354,12 +420,13 @@
         captchaLoadFailed: "Could not load verification image", captchaVerifyFailed: "Verification failed",
         statusFailed: "Could not check request status", createRequestFailed: "Could not create request", downloadFailed: "Could not download result",
         transcribeFailed: "Transcription failed", invalidState: "Unexpected request status",
-        cancelJob: "Cancel", statusCancelled: "Cancelled", statusCancelledDetail: "This transcription job has been stopped.",
+        cancelJob: "Cancel all", statusCancelled: "Cancelled", statusCancelledDetail: "This transcription batch has been stopped.",
+        selectedFiles: "{count} files selected", batchResultTitle: "Batch transcription", batchProgress: "{done} / {total} complete", batchQueued: "Queued", batchRunning: "Transcribing", batchDone: "Complete", batchFailed: "Failed", batchCancelled: "Cancelled", batchComplete: "Batch transcription complete", batchPartial: "Batch complete with some failures", batchCompleteDetail: "Results are ready. Download each file as needed.",
         leaveWarning: "Transcription is still running. Leaving this page will cancel the job."
       },
       ja: {
         pageTitle: "音声文字起こしツール", badge: "Audio IO", languageSwitch: "言語", tabAudio: "音声をテキストへ", tabUploadVideo: "動画をアップロード", tabTranslate: "リアルタイム翻訳", headline: "音声をテキストへ",
-        subtitle: "音声をアップロードし、形式を選んで、完了後に結果をダウンロードできます。", fileHelp: "一般的な音声ファイルに対応しています。",
+        subtitle: "音声をアップロードし、形式を選んで、完了後に結果をダウンロードできます。", fileHelp: "一般的な音声・動画ファイルに対応し、一度に最大 10 個まで選択できます。",
         outputFormat: "出力形式", formatTxt: "TXT プレーンテキスト", formatSrt: "SRT 字幕", formatLrc: "LRC タイムライン歌詞",
         formatJson: "JSON セグメント",
         vocalSeparation: "ボーカル分離", vocalSeparationHelp: "高度なオプションです。処理時間とメモリ使用量が増えるため、6 分未満の音声での使用をおすすめします。",
@@ -381,12 +448,13 @@
         captchaLoadFailed: "認証画像を取得できませんでした", captchaVerifyFailed: "認証に失敗しました",
         statusFailed: "状態を確認できませんでした", createRequestFailed: "リクエストを作成できませんでした",
         downloadFailed: "結果をダウンロードできませんでした", transcribeFailed: "文字起こしに失敗しました", invalidState: "予期しないリクエスト状態です",
-        cancelJob: "キャンセル", statusCancelled: "キャンセル済み", statusCancelledDetail: "この文字起こし処理を停止しました。",
+        cancelJob: "すべてキャンセル", statusCancelled: "キャンセル済み", statusCancelledDetail: "この一括文字起こしを停止しました。",
+        selectedFiles: "{count} 個のファイルを選択", batchResultTitle: "一括文字起こし", batchProgress: "{done} / {total} 完了", batchQueued: "待機中", batchRunning: "文字起こし中", batchDone: "完了", batchFailed: "失敗", batchCancelled: "キャンセル済み", batchComplete: "一括文字起こし完了", batchPartial: "一部失敗して完了しました", batchCompleteDetail: "結果の準備ができました。必要なファイルを個別にダウンロードしてください。",
         leaveWarning: "文字起こしが進行中です。ページを離れると、この処理はキャンセルされます。"
       },
       ko: {
         pageTitle: "오디오 전사 도구", badge: "Audio IO", languageSwitch: "언어", tabAudio: "오디오를 텍스트로", tabUploadVideo: "동영상 업로드", tabTranslate: "실시간 번역", headline: "오디오를 텍스트로",
-        subtitle: "오디오를 업로드하고 형식을 선택하면 완료 후 결과를 다운로드할 수 있습니다.", fileHelp: "일반적인 오디오 파일을 지원합니다.",
+        subtitle: "오디오를 업로드하고 형식을 선택하면 완료 후 결과를 다운로드할 수 있습니다.", fileHelp: "일반적인 오디오 및 동영상 파일을 한 번에 최대 10개까지 지원합니다.",
         outputFormat: "출력 형식", formatTxt: "TXT 일반 텍스트", formatSrt: "SRT 자막", formatLrc: "LRC 타임라인 가사",
         formatJson: "JSON 세그먼트",
         vocalSeparation: "보컬 분리", vocalSeparationHelp: "고급 옵션입니다. 처리 시간과 메모리 사용량이 증가하므로 6분 미만의 오디오에서만 사용하는 것을 권장합니다.",
@@ -408,14 +476,19 @@
         captchaLoadFailed: "인증 이미지를 불러오지 못했습니다", captchaVerifyFailed: "인증에 실패했습니다",
         statusFailed: "상태를 확인하지 못했습니다", createRequestFailed: "요청을 만들지 못했습니다",
         downloadFailed: "결과를 다운로드하지 못했습니다", transcribeFailed: "전사에 실패했습니다", invalidState: "예상하지 못한 요청 상태입니다",
-        cancelJob: "전사 취소", statusCancelled: "취소됨", statusCancelledDetail: "이 전사 작업을 중지했습니다.",
+        cancelJob: "모두 취소", statusCancelled: "취소됨", statusCancelledDetail: "이 일괄 전사 작업을 중지했습니다.",
+        selectedFiles: "파일 {count}개 선택", batchResultTitle: "일괄 전사", batchProgress: "{done} / {total} 완료", batchQueued: "대기 중", batchRunning: "전사 중", batchDone: "완료", batchFailed: "실패", batchCancelled: "취소됨", batchComplete: "일괄 전사 완료", batchPartial: "일부 파일이 실패한 상태로 완료", batchCompleteDetail: "결과가 준비되었습니다. 필요한 파일을 각각 다운로드하세요.",
         leaveWarning: "전사가 진행 중입니다. 페이지를 떠나면 이 작업이 취소됩니다."
       }
     };
     let currentLanguage = localStorage.getItem(languageStorageKey) || "zh-Hant";
 
-    function t(key) {
-      return translations[currentLanguage]?.[key] || translations["zh-Hant"][key] || key;
+    function t(key, replacements = {}) {
+      let value = translations[currentLanguage]?.[key] || translations["zh-Hant"][key] || key;
+      for (const [name, replacement] of Object.entries(replacements)) {
+        value = value.replaceAll(`{${name}}`, String(replacement));
+      }
+      return value;
     }
 
     function applyLanguage(language) {
@@ -437,6 +510,18 @@
       syncTranslateFrameLanguage();
       uploadFrame.title = t("tabUploadVideo");
       translateFrame.title = t("tabTranslate");
+      renderSelectedFiles();
+      if (audioBatchCount.dataset.total) {
+        updateAudioBatchCount(
+          Number(audioBatchCount.dataset.done) || 0,
+          Number(audioBatchCount.dataset.total) || 0,
+        );
+      }
+      for (const row of audioBatchRows.values()) {
+        row.status.textContent = t(row.status.dataset.statusKey || "batchQueued");
+        row.copy.textContent = t("copyResult");
+        row.download.textContent = t("downloadResult");
+      }
     }
 
     function translateFrameUrl() {
@@ -532,10 +617,114 @@
     }
 
     window.addEventListener("pagehide", () => {
-      if (audioTranscriptionActive && audioCancelRequest) {
-        sendCancellationBeacon(audioCancelRequest);
+      if (audioTranscriptionActive) {
+        for (const cancelRequest of audioCancelRequests.values()) {
+          sendCancellationBeacon(cancelRequest);
+        }
       }
     });
+
+    function renderSelectedFiles() {
+      const files = [...fileInput.files];
+      selectedFileList.replaceChildren();
+      selectedFileList.classList.toggle("d-none", files.length === 0);
+      if (!files.length) return;
+
+      const count = document.createElement("span");
+      count.className = "selected-file-chip fw-bold";
+      count.textContent = t("selectedFiles", { count: files.length });
+      selectedFileList.append(count);
+      files.forEach(file => {
+        const chip = document.createElement("span");
+        chip.className = "selected-file-chip";
+        chip.textContent = file.name;
+        chip.title = file.name;
+        selectedFileList.append(chip);
+      });
+    }
+
+    function clearAudioResultUrls() {
+      while (audioResultUrls.length) URL.revokeObjectURL(audioResultUrls.pop());
+    }
+
+    function createAudioBatchRows(files) {
+      clearAudioResultUrls();
+      audioBatchRows.clear();
+      audioBatchList.replaceChildren();
+      audioBatchResultBox.classList.remove("d-none");
+      files.forEach((file, index) => {
+        const item = document.createElement("article");
+        item.className = "audio-batch-item";
+
+        const heading = document.createElement("div");
+        heading.className = "d-flex align-items-center justify-content-between gap-3";
+        const name = document.createElement("div");
+        name.className = "audio-batch-name";
+        name.textContent = file.name;
+        name.title = file.name;
+        const status = document.createElement("span");
+        status.className = "audio-batch-status";
+        status.dataset.statusKey = "batchQueued";
+        status.textContent = t("batchQueued");
+        heading.append(name, status);
+
+        const actions = document.createElement("div");
+        actions.className = "d-flex flex-wrap gap-2 mt-3 d-none";
+        const copy = document.createElement("button");
+        copy.type = "button";
+        copy.className = "btn btn-sm btn-outline-secondary";
+        copy.textContent = t("copyResult");
+        const download = document.createElement("a");
+        download.className = "btn btn-sm btn-success";
+        download.textContent = t("downloadResult");
+        download.setAttribute("download", "");
+        actions.append(copy, download);
+
+        const itemPreview = document.createElement("pre");
+        itemPreview.className = "audio-batch-preview bg-dark text-light rounded-3 p-3 mt-3 mb-0 d-none";
+        item.append(heading, actions, itemPreview);
+        audioBatchList.append(item);
+        audioBatchRows.set(index, { item, status, actions, copy, download, preview: itemPreview });
+      });
+      updateAudioBatchCount(0, files.length);
+    }
+
+    function updateAudioBatchCount(done, total) {
+      audioBatchCount.dataset.done = String(done);
+      audioBatchCount.dataset.total = String(total);
+      audioBatchCount.textContent = t("batchProgress", { done, total });
+    }
+
+    function setAudioBatchRowStatus(index, key, detail = "", state = "") {
+      const row = audioBatchRows.get(index);
+      if (!row) return;
+      row.status.dataset.statusKey = key;
+      row.status.textContent = detail || t(key);
+      row.status.classList.toggle("done", state === "done");
+      row.status.classList.toggle("failed", state === "failed");
+    }
+
+    function setAudioBatchRowResult(index, text, blob, filename) {
+      const row = audioBatchRows.get(index);
+      if (!row) return;
+      const url = URL.createObjectURL(blob);
+      audioResultUrls.push(url);
+      row.download.href = url;
+      row.download.download = filename;
+      row.preview.textContent = text.slice(0, 1600)
+        + (text.length > 1600 ? `\n\n...${t("previewTruncated")}...` : "");
+      row.preview.classList.remove("d-none");
+      row.actions.classList.remove("d-none");
+      row.copy.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(text);
+          row.copy.textContent = t("copyDone");
+        } catch (_) {
+          row.copy.textContent = t("copyFailed");
+        }
+        setTimeout(() => { row.copy.textContent = t("copyResult"); }, 1600);
+      }, { once: false });
+    }
 
     function setStatusText(titleKey, detailKey) {
       statusTitle.textContent = t(titleKey);
@@ -635,10 +824,12 @@
       }
     }
 
-    async function waitForResult(requestInfo) {
+    async function waitForResult(requestInfo, onStatus = null) {
       let current = requestInfo;
       while (current.status === "queued" || current.status === "running") {
-        if (current.status === "queued") {
+        if (onStatus) {
+          onStatus(current.status);
+        } else if (current.status === "queued") {
           setStatusText("statusQueued", "statusQueuedDetail");
         } else {
           setStatusText("statusRunning", "statusRunningDetail");
@@ -669,8 +860,12 @@
       });
     });
     dropZone.addEventListener("drop", event => {
-      if (event.dataTransfer.files.length) fileInput.files = event.dataTransfer.files;
+      if (event.dataTransfer.files.length) {
+        fileInput.files = event.dataTransfer.files;
+        renderSelectedFiles();
+      }
     });
+    fileInput.addEventListener("change", renderSelectedFiles);
     refreshCaptcha.addEventListener("click", async () => {
       try {
         await loadCaptcha();
@@ -701,83 +896,135 @@
       }
     });
     cancelAudioJob.addEventListener("click", async () => {
-      if (!audioCancelRequest) return;
-      const cancelRequest = audioCancelRequest;
+      if (!audioCancelRequests.size) return;
       audioCancellationRequested = true;
       cancelAudioJob.disabled = true;
-      try {
+      const requests = [...audioCancelRequests.entries()];
+      await Promise.allSettled(requests.map(async ([index, cancelRequest]) => {
         const response = await fetch(cancelRequest.url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ cancel_token: cancelRequest.token }),
         });
-        if (!response.ok) {
-          throw new Error(await readError(response, t("statusFailed")));
-        }
-        const result = await response.json();
-        if (result.status !== "cancelled") {
-          audioCancellationRequested = false;
-          return;
-        }
-        audioCancelRequest = null;
-        audioTranscriptionActive = false;
-        statusSpinner.classList.add("d-none");
-        cancelAudioJob.classList.add("d-none");
-        setStatusText("statusCancelled", "statusCancelledDetail");
-        resetCaptchaState(false);
-      } catch (error) {
-        audioCancellationRequested = false;
-        cancelAudioJob.disabled = false;
-        errorBox.textContent = error.message;
-        errorBox.classList.remove("d-none");
-      }
+        if (!response.ok) throw new Error(await readError(response, t("statusFailed")));
+        setAudioBatchRowStatus(index, "batchCancelled", "", "failed");
+      }));
+      audioCancelRequests.clear();
+      audioCancelRequest = null;
+      audioTranscriptionActive = false;
+      statusSpinner.classList.add("d-none");
+      cancelAudioJob.classList.add("d-none");
+      setStatusText("statusCancelled", "statusCancelledDetail");
+      resetCaptchaState(false);
     });
 
+    async function processAudioBatchJob(job, file, counters) {
+      const index = Number(job.batch_index);
+      try {
+        const finishedInfo = await waitForResult(job, status => {
+          setAudioBatchRowStatus(
+            index,
+            status === "running" ? "batchRunning" : "batchQueued",
+          );
+        });
+        audioCancelRequests.delete(index);
+        setAudioBatchRowStatus(index, "statusDownloading");
+        const downloadResponse = await fetch(finishedInfo.download_url, { cache: "no-store" });
+        if (!downloadResponse.ok) {
+          throw new Error(await readError(downloadResponse, t("downloadFailed")));
+        }
+        const blob = await downloadResponse.blob();
+        const text = await blob.text();
+        const ext = document.getElementById("outputFormat").value;
+        const baseName = file.name.replace(/\.[^.]+$/, "") || "transcript";
+        setAudioBatchRowResult(index, text, blob, `${baseName}.${ext}`);
+        setAudioBatchRowStatus(index, "batchDone", "", "done");
+      } catch (error) {
+        audioCancelRequests.delete(index);
+        if (audioCancellationRequested) {
+          setAudioBatchRowStatus(index, "batchCancelled", "", "failed");
+        } else {
+          counters.failed += 1;
+          setAudioBatchRowStatus(index, "batchFailed", error.message, "failed");
+        }
+      } finally {
+        counters.done += 1;
+        updateAudioBatchCount(counters.done, counters.total);
+      }
+    }
+
     async function beginAudioTranscription() {
+      const files = [...fileInput.files];
+      if (!files.length) return;
+      if (files.length > 10) {
+        errorBox.textContent = t("fileHelp");
+        errorBox.classList.remove("d-none");
+        resetCaptchaState(false);
+        return;
+      }
       audioTranscriptionActive = true;
       audioCancelRequest = null;
+      audioCancelRequests.clear();
       audioCancellationRequested = false;
       statusSpinner.classList.remove("d-none");
       cancelAudioJob.classList.add("d-none");
       cancelAudioJob.disabled = false;
       statusBox.classList.remove("d-none");
       resultBox.classList.add("d-none");
+      createAudioBatchRows(files);
       errorBox.classList.add("d-none");
       submitBtn.disabled = true;
       submitBtn.classList.add("d-none");
       submitBtn.textContent = t("processing");
       setStatusText("statusUploading", "statusUploadingDetail");
-      const formData = new FormData(form);
+      const formData = new FormData();
+      files.forEach(file => formData.append("files", file));
+      formData.append("output_format", document.getElementById("outputFormat").value);
+      formData.append("language", "");
+      formData.append("vocal_separation", String(document.getElementById("vocalSeparation").checked));
+      formData.append("captcha_token", captchaToken.value);
       try {
-        const response = await fetch("/api/transcribe-audio/", { method: "POST", body: formData });
+        const response = await fetch("/api/transcribe-audio/batch", { method: "POST", body: formData });
         if (!response.ok) throw new Error(await readError(response, t("createRequestFailed")));
-        const requestInfo = await response.json();
-        if (requestInfo.cancel_url && requestInfo.cancel_token) {
-          audioCancelRequest = {
-            url: requestInfo.cancel_url,
-            token: requestInfo.cancel_token,
-          };
-          cancelAudioJob.classList.remove("d-none");
+        const batch = await response.json();
+        const counters = {
+          done: Array.isArray(batch.errors) ? batch.errors.length : 0,
+          failed: Array.isArray(batch.errors) ? batch.errors.length : 0,
+          total: files.length,
+        };
+        for (const failure of batch.errors || []) {
+          setAudioBatchRowStatus(
+            Number(failure.batch_index),
+            "batchFailed",
+            failure.error,
+            "failed",
+          );
         }
-        const finishedInfo = await waitForResult(requestInfo);
+        for (const job of batch.jobs || []) {
+          const index = Number(job.batch_index);
+          audioCancelRequests.set(index, {
+            url: job.cancel_url,
+            token: job.cancel_token,
+          });
+        }
+        if (audioCancelRequests.size) cancelAudioJob.classList.remove("d-none");
+        updateAudioBatchCount(counters.done, counters.total);
+        await Promise.all((batch.jobs || []).map(job => (
+          processAudioBatchJob(job, files[Number(job.batch_index)], counters)
+        )));
         audioCancelRequest = null;
         cancelAudioJob.classList.add("d-none");
-        setStatusText("statusDownloading", "statusDownloadingDetail");
-        const downloadResponse = await fetch(finishedInfo.download_url, { cache: "no-store" });
-        if (!downloadResponse.ok) throw new Error(await readError(downloadResponse, t("downloadFailed")));
-        const blob = await downloadResponse.blob();
-        const text = await blob.text();
-        latestResultText = text;
-        const ext = document.getElementById("outputFormat").value;
-        const baseName = fileInput.files[0].name.replace(/\.[^.]+$/, "") || "transcript";
-        const filename = `${baseName}.${ext}`;
-        const url = URL.createObjectURL(new Blob([text], { type: blob.type || "text/plain;charset=utf-8" }));
-        downloadLink.href = url;
-        downloadLink.download = filename;
-        preview.textContent = text.slice(0, 6000) + (text.length > 6000 ? `\n\n...${t("previewTruncated")}...` : "");
-        resultBox.classList.remove("d-none");
+        statusSpinner.classList.add("d-none");
+        if (audioCancellationRequested) {
+          setStatusText("statusCancelled", "statusCancelledDetail");
+        } else {
+          setStatusText(counters.failed ? "batchPartial" : "batchComplete", "batchCompleteDetail");
+        }
       } catch (error) {
-        if (audioCancelRequest) sendCancellationBeacon(audioCancelRequest);
+        for (const cancelRequest of audioCancelRequests.values()) {
+          sendCancellationBeacon(cancelRequest);
+        }
+        audioCancelRequests.clear();
         audioCancelRequest = null;
         if (!audioCancellationRequested) {
           errorBox.textContent = error.message;
@@ -785,9 +1032,10 @@
         }
       } finally {
         audioTranscriptionActive = false;
+        audioCancelRequests.clear();
         cancelAudioJob.classList.add("d-none");
         cancelAudioJob.disabled = false;
-        if (!audioCancellationRequested) statusBox.classList.add("d-none");
+        statusSpinner.classList.add("d-none");
         resetCaptchaState(false);
       }
     }

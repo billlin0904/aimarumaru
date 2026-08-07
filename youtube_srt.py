@@ -500,6 +500,76 @@ def get_youtube_video_info(url: str, cookies_file: Path) -> dict[str, Any]:
         return ydl.extract_info(url, download=False)
 
 
+def get_youtube_playlist_preview(
+    url: str,
+    cookies_file: Path,
+    max_items: int = 50,
+) -> dict[str, Any]:
+    try:
+        import yt_dlp
+    except ImportError as exc:
+        raise HTTPException(status_code=500, detail="缺少 yt-dlp，請先安裝 requirements.txt") from exc
+
+    parsed = urlparse(url.strip())
+    host = parsed.hostname.lower().removeprefix("www.") if parsed.hostname else ""
+    if host != "youtube.com" and not host.endswith(".youtube.com"):
+        raise HTTPException(status_code=400, detail="請輸入有效的 YouTube 播放清單網址")
+
+    playlist_id = (parse_qs(parsed.query).get("list") or [""])[0].strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{2,100}", playlist_id):
+        raise HTTPException(status_code=400, detail="網址中沒有有效的 YouTube 播放清單")
+
+    item_limit = max(1, min(int(max_items), 100))
+    playlist_url = f"https://www.youtube.com/playlist?list={playlist_id}"
+    options = {
+        "skip_download": True,
+        "extract_flat": "in_playlist",
+        "playlistend": item_limit,
+        "lazy_playlist": False,
+        "quiet": True,
+        "no_warnings": True,
+        "js_runtimes": {"node": {}},
+    }
+    if cookies_file.exists():
+        options["cookiefile"] = str(cookies_file)
+
+    with yt_dlp.YoutubeDL(options) as ydl:
+        info = ydl.extract_info(playlist_url, download=False)
+
+    items: list[dict[str, Any]] = []
+    for entry in info.get("entries") or []:
+        video_id = str(entry.get("id") or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id):
+            continue
+        duration = entry.get("duration")
+        try:
+            duration = round(float(duration), 3) if duration is not None else None
+        except (TypeError, ValueError):
+            duration = None
+        items.append(
+            {
+                "id": video_id,
+                "title": str(entry.get("title") or video_id),
+                "duration": duration,
+                "thumbnail": f"https://i.ytimg.com/vi/{video_id}/mqdefault.jpg",
+            }
+        )
+
+    total_items = info.get("playlist_count")
+    try:
+        total_items = int(total_items)
+    except (TypeError, ValueError):
+        total_items = len(items)
+    total_items = max(total_items, len(items))
+    return {
+        "id": playlist_id,
+        "title": str(info.get("title") or "YouTube Playlist"),
+        "items": items,
+        "total_items": total_items,
+        "is_truncated": total_items > len(items),
+    }
+
+
 def try_get_youtube_subtitle_content(
     url: str,
     lrc_format: bool,

@@ -15,7 +15,16 @@ const transcribeOnlyLink = document.getElementById("transcribeOnlyLink");
 const youtubeSourceGroup = document.getElementById("youtubeSourceGroup");
 const uploadSourceGroup = document.getElementById("uploadSourceGroup");
 const youtubeUrl = document.getElementById("youtubeUrl");
+const playlistPanel = document.getElementById("playlistPanel");
+const playlistTitle = document.getElementById("playlistTitle");
+const playlistCount = document.getElementById("playlistCount");
+const playlistStatus = document.getElementById("playlistStatus");
+const playlistItems = document.getElementById("playlistItems");
 const videoFile = document.getElementById("videoFile");
+const videoDropZone = document.getElementById("videoDropZone");
+const uploadFilePanel = document.getElementById("uploadFilePanel");
+const uploadFileCount = document.getElementById("uploadFileCount");
+const uploadFileItems = document.getElementById("uploadFileItems");
 const ignoreSubtitles = document.getElementById("ignoreSubtitles");
 const includeWordTimestamps = document.getElementById("includeWordTimestamps");
 const sourceLanguage = document.getElementById("sourceLanguage");
@@ -56,6 +65,8 @@ const downloadTranslatedSrt = document.getElementById("downloadTranslatedSrt");
 const downloadBilingualSrt = document.getElementById("downloadBilingualSrt");
 const downloadSegmentsJson = document.getElementById("downloadSegmentsJson");
 const nextTranscription = document.getElementById("nextTranscription");
+const uploadBatchDownloads = document.getElementById("uploadBatchDownloads");
+const uploadDownloadList = document.getElementById("uploadDownloadList");
 const captchaBlock = document.getElementById("captchaBlock");
 const captchaImage = document.getElementById("captchaImage");
 const captchaId = document.getElementById("captchaId");
@@ -85,6 +96,8 @@ const NON_RETRYABLE_OUTPUT_CODES = new Set([
   "INVALID_RESPONSE",
   "INVALID_TRANSLATION_OUTPUT",
 ]);
+const MAX_UPLOAD_VIDEO_FILES = 10;
+const SUPPORTED_VIDEO_EXTENSION_RE = /\.(avi|m4v|mkv|mov|mp4|mpeg|mpg|ts|webm|wmv)$/i;
 
 const params = new URLSearchParams(window.location.search);
 const uploadMode = params.get("source") === "upload"
@@ -92,7 +105,9 @@ const uploadMode = params.get("source") === "upload"
 const languageStorageKey = "audioTranscribeLanguage";
 const translations = {
   "zh-Hant": {
-    pageTitle: "Video Translate", uploadPageTitle: "影片上傳翻譯", transcribeOnly: "僅轉譯", urlLabel: "YouTube 網址", videoFileLabel: "選擇影片", videoFileHelp: "影片只用於本次轉譯，完成、取消或逾時後會自動清除。", uploadPrivacyLink: "查看隱私權政策", ignoreSubtitles: "忽略內建字幕", includeWordTimestamps: "逐字顯示原文",
+    pageTitle: "Video Translate", uploadPageTitle: "影片上傳翻譯", transcribeOnly: "僅轉譯", urlLabel: "YouTube 網址", videoFileLabel: "選擇影片", dropVideos: "拖曳影片到這裡", dropVideosBrowse: "或點擊選擇影片", videoFileHelp: "一次最多選擇 10 支影片；檔案只用於本次轉譯，完成、取消或逾時後會自動清除。", invalidVideoFiles: "只支援影片檔案，已略過不支援的檔案。", videoFileLimit: "一次最多只能選擇 10 支影片。", videosSelected: "已選擇 {count} 支影片", uploadPrivacyLink: "查看隱私權政策", ignoreSubtitles: "忽略內建字幕", includeWordTimestamps: "逐字顯示原文",
+    selectedVideos: "已選影片", selectedVideoCount: "{count} 支", videoBatchQueued: "排程中", videoBatchProcessing: "處理中", videoBatchDone: "已完成", videoBatchFailed: "失敗", videoBatchCancelled: "已取消", batchDownloads: "批次下載",
+    playlistLabel: "播放清單", playlistCount: "{count} 支影片", playlistLoading: "正在讀取播放清單…", playlistLoadFailed: "無法讀取播放清單", selectPlaylistVideo: "選擇第 {index} 支影片：{title}",
     videoPreview: "影片預覽", enterFullscreen: "全螢幕", exitFullscreen: "結束全螢幕", subtitleWaiting: "字幕完成後會顯示在這裡",
     sourceLanguage: "原文語言", targetLanguage: "翻譯目標語言", autoDetect: "自動偵測", languageEnglish: "英文", languageJapanese: "日文", languageKorean: "韓文", languageThai: "泰文", languageTraditionalChinese: "繁體中文",
     start: "開始轉譯並翻譯", detectLanguage: "偵測語言", waiting: "等待輸入網址", waitingUpload: "等待選擇影片", creating: "建立任務中", uploading: "正在上傳影片", processing: "處理中", cancelJob: "取消轉譯", cancelled: "已取消轉譯與翻譯", transcriptionDone: "轉譯完成，翻譯繼續處理中", done: "轉譯與翻譯完成", partialDone: "處理完成，部分翻譯失敗", failed: "處理失敗", disconnected: "連線中斷", requestFailed: "請求失敗",
@@ -105,7 +120,9 @@ const translations = {
     translationServiceFailed: "翻譯服務暫時無法使用", invalidTranslation: "翻譯回應格式不正確", videoTitle: "YouTube 影片", uploadedVideoTitle: "上傳的影片", about: "關於我們", privacy: "隱私權政策", terms: "使用條款", contact: "聯絡我們", leaveWarning: "轉譯或翻譯仍在進行中，離開頁面將取消這次工作。"
   },
   en: {
-    pageTitle: "Video Translate", uploadPageTitle: "Upload Video Translate", transcribeOnly: "Transcribe only", urlLabel: "YouTube URL", videoFileLabel: "Choose a video", videoFileHelp: "The video is used only for this job and is deleted after completion, cancellation, or expiration.", uploadPrivacyLink: "View Privacy Policy", ignoreSubtitles: "Ignore built-in subtitles", includeWordTimestamps: "Reveal source word by word",
+    pageTitle: "Video Translate", uploadPageTitle: "Upload Video Translate", transcribeOnly: "Transcribe only", urlLabel: "YouTube URL", videoFileLabel: "Choose videos", dropVideos: "Drop videos here", dropVideosBrowse: "or click to choose videos", videoFileHelp: "Choose up to 10 videos. Files are used only for this batch and deleted after completion, cancellation, or expiration.", invalidVideoFiles: "Only video files are supported. Unsupported files were skipped.", videoFileLimit: "You can select up to 10 videos at a time.", videosSelected: "{count} videos selected", uploadPrivacyLink: "View Privacy Policy", ignoreSubtitles: "Ignore built-in subtitles", includeWordTimestamps: "Reveal source word by word",
+    selectedVideos: "Selected videos", selectedVideoCount: "{count} videos", videoBatchQueued: "Queued", videoBatchProcessing: "Processing", videoBatchDone: "Complete", videoBatchFailed: "Failed", videoBatchCancelled: "Cancelled", batchDownloads: "Batch downloads",
+    playlistLabel: "Playlist", playlistCount: "{count} videos", playlistLoading: "Loading playlist…", playlistLoadFailed: "Could not load playlist", selectPlaylistVideo: "Select video {index}: {title}",
     videoPreview: "Video preview", enterFullscreen: "Fullscreen", exitFullscreen: "Exit fullscreen", subtitleWaiting: "Subtitles will appear here when ready",
     sourceLanguage: "Source language", targetLanguage: "Target language", autoDetect: "Auto detect", languageEnglish: "English", languageJapanese: "Japanese", languageKorean: "Korean", languageThai: "Thai", languageTraditionalChinese: "Traditional Chinese",
     start: "Transcribe and translate", detectLanguage: "Detect language", waiting: "Waiting for a URL", waitingUpload: "Waiting for a video", creating: "Creating job", uploading: "Uploading video", processing: "Processing", cancelJob: "Cancel", cancelled: "Transcription and translation cancelled", transcriptionDone: "Transcription complete; translation is still running", done: "Transcription and translation complete", partialDone: "Complete with some translation failures", failed: "Processing failed", disconnected: "Connection interrupted", requestFailed: "Request failed",
@@ -118,7 +135,9 @@ const translations = {
     translationServiceFailed: "Translation service is temporarily unavailable", invalidTranslation: "The translation response is invalid", videoTitle: "YouTube video", uploadedVideoTitle: "Uploaded video", about: "About", privacy: "Privacy", terms: "Terms", contact: "Contact", leaveWarning: "Transcription or translation is still running. Leaving this page will cancel the job."
   },
   ja: {
-    pageTitle: "Video Translate", uploadPageTitle: "動画アップロード翻訳", transcribeOnly: "文字起こしのみ", urlLabel: "YouTube URL", videoFileLabel: "動画を選択", videoFileHelp: "動画は今回の処理にのみ使用され、完了・キャンセル・期限切れ後に自動削除されます。", uploadPrivacyLink: "プライバシーポリシーを見る", ignoreSubtitles: "内蔵字幕を無視", includeWordTimestamps: "原文を単語ごとに表示",
+    pageTitle: "Video Translate", uploadPageTitle: "動画アップロード翻訳", transcribeOnly: "文字起こしのみ", urlLabel: "YouTube URL", videoFileLabel: "動画を選択", dropVideos: "動画をここにドロップ", dropVideosBrowse: "またはクリックして選択", videoFileHelp: "一度に最大 10 本まで選択できます。完了・キャンセル・期限切れ後に自動削除されます。", invalidVideoFiles: "動画ファイルのみ対応しています。未対応のファイルは除外しました。", videoFileLimit: "一度に選択できる動画は最大 10 本です。", videosSelected: "{count} 本の動画を選択済み", uploadPrivacyLink: "プライバシーポリシーを見る", ignoreSubtitles: "内蔵字幕を無視", includeWordTimestamps: "原文を単語ごとに表示",
+    selectedVideos: "選択した動画", selectedVideoCount: "{count} 本", videoBatchQueued: "待機中", videoBatchProcessing: "処理中", videoBatchDone: "完了", videoBatchFailed: "失敗", videoBatchCancelled: "キャンセル済み", batchDownloads: "一括ダウンロード",
+    playlistLabel: "再生リスト", playlistCount: "{count} 本", playlistLoading: "再生リストを読み込み中…", playlistLoadFailed: "再生リストを読み込めません", selectPlaylistVideo: "{index} 本目を選択：{title}",
     videoPreview: "動画プレビュー", enterFullscreen: "全画面", exitFullscreen: "全画面を終了", subtitleWaiting: "字幕の準備ができるとここに表示されます",
     sourceLanguage: "原文の言語", targetLanguage: "翻訳先の言語", autoDetect: "自動検出", languageEnglish: "英語", languageJapanese: "日本語", languageKorean: "韓国語", languageThai: "タイ語", languageTraditionalChinese: "繁体字中国語",
     start: "文字起こしと翻訳を開始", detectLanguage: "言語を検出", waiting: "URL を入力してください", waitingUpload: "動画を選択してください", creating: "ジョブを作成中", uploading: "動画をアップロード中", processing: "処理中", cancelJob: "キャンセル", cancelled: "文字起こしと翻訳をキャンセルしました", transcriptionDone: "文字起こしが完了し、翻訳を続行しています", done: "文字起こしと翻訳が完了しました", partialDone: "一部の翻訳に失敗しました", failed: "処理に失敗しました", disconnected: "接続が切断されました", requestFailed: "リクエストに失敗しました",
@@ -131,7 +150,9 @@ const translations = {
     translationServiceFailed: "翻訳サービスを利用できません", invalidTranslation: "翻訳レスポンスが不正です", videoTitle: "YouTube 動画", uploadedVideoTitle: "アップロード動画", about: "私たちについて", privacy: "プライバシー", terms: "利用規約", contact: "お問い合わせ", leaveWarning: "文字起こしまたは翻訳が進行中です。ページを離れると、この処理はキャンセルされます。"
   },
   ko: {
-    pageTitle: "Video Translate", uploadPageTitle: "동영상 업로드 번역", transcribeOnly: "전사만", urlLabel: "YouTube URL", videoFileLabel: "동영상 선택", videoFileHelp: "동영상은 이번 작업에만 사용되며 완료, 취소 또는 만료 후 자동 삭제됩니다.", uploadPrivacyLink: "개인정보 처리방침 보기", ignoreSubtitles: "내장 자막 무시", includeWordTimestamps: "원문을 단어별로 표시",
+    pageTitle: "Video Translate", uploadPageTitle: "동영상 업로드 번역", transcribeOnly: "전사만", urlLabel: "YouTube URL", videoFileLabel: "동영상 선택", dropVideos: "동영상을 여기에 놓으세요", dropVideosBrowse: "또는 클릭하여 선택", videoFileHelp: "한 번에 최대 10개를 선택할 수 있으며 완료, 취소 또는 만료 후 자동 삭제됩니다.", invalidVideoFiles: "동영상 파일만 지원합니다. 지원하지 않는 파일은 제외했습니다.", videoFileLimit: "한 번에 최대 10개의 동영상만 선택할 수 있습니다.", videosSelected: "동영상 {count}개 선택됨", uploadPrivacyLink: "개인정보 처리방침 보기", ignoreSubtitles: "내장 자막 무시", includeWordTimestamps: "원문을 단어별로 표시",
+    selectedVideos: "선택한 동영상", selectedVideoCount: "동영상 {count}개", videoBatchQueued: "대기 중", videoBatchProcessing: "처리 중", videoBatchDone: "완료", videoBatchFailed: "실패", videoBatchCancelled: "취소됨", batchDownloads: "일괄 다운로드",
+    playlistLabel: "재생목록", playlistCount: "동영상 {count}개", playlistLoading: "재생목록을 불러오는 중…", playlistLoadFailed: "재생목록을 불러올 수 없습니다", selectPlaylistVideo: "{index}번 동영상 선택: {title}",
     videoPreview: "동영상 미리보기", enterFullscreen: "전체 화면", exitFullscreen: "전체 화면 종료", subtitleWaiting: "자막이 준비되면 여기에 표시됩니다",
     sourceLanguage: "원문 언어", targetLanguage: "번역 언어", autoDetect: "자동 감지", languageEnglish: "영어", languageJapanese: "일본어", languageKorean: "한국어", languageThai: "태국어", languageTraditionalChinese: "번체 중국어",
     start: "전사 및 번역 시작", detectLanguage: "언어 감지", waiting: "URL 입력 대기 중", waitingUpload: "동영상 선택 대기 중", creating: "작업 생성 중", uploading: "동영상 업로드 중", processing: "처리 중", cancelJob: "전사 취소", cancelled: "전사와 번역이 취소되었습니다", transcriptionDone: "전사가 완료되어 번역을 계속 처리하고 있습니다", done: "전사 및 번역 완료", partialDone: "일부 번역 실패와 함께 완료", failed: "처리 실패", disconnected: "연결이 끊겼습니다", requestFailed: "요청 실패",
@@ -192,9 +213,22 @@ let sameLanguageNoticeShown = false;
 let unsupportedLanguageNotice = "";
 let previewTimer = null;
 let currentPreviewKey = "";
+const playlistPreviewCache = new Map();
+let playlistPreviewController = null;
+let activePlaylistId = "";
+let activePlaylistData = null;
 let youtubePlayerApiPromise = null;
 let youtubePlayerController = null;
 let uploadPreviewUrl = "";
+let selectedUploadFileIndex = 0;
+const uploadSelectorUrls = [];
+const uploadFileStatusNodes = new Map();
+const uploadFileStates = new Map();
+let uploadBatchJobs = [];
+let uploadBatchJobIndex = -1;
+let uploadBatchAdvanceScheduled = false;
+const uploadBatchCancelRequests = new Map();
+const uploadBatchResults = new Map();
 let playbackSyncTimer = null;
 let playbackSyncEnabled = false;
 let activePlaybackSegmentId = null;
@@ -233,6 +267,19 @@ function applyLanguage(languageKey) {
   updateTranslationProgress();
   updateActionButtons();
   updateFullscreenButton();
+  if (uploadMode) {
+    videoFile.setAttribute("aria-label", t("dropVideosBrowse"));
+    uploadFileCount.textContent = videoFile.files.length
+      ? t("selectedVideoCount", { count: videoFile.files.length })
+      : "";
+    for (const [index, node] of uploadFileStatusNodes.entries()) {
+      const state = uploadFileStates.get(index);
+      if (state) node.textContent = t(state.key);
+    }
+  }
+  if (activePlaylistData) {
+    renderPlaylistPreview(activePlaylistData, parseYouTubeVideo(youtubeUrl.value)?.videoId || "");
+  }
 }
 
 function configureSourceMode() {
@@ -240,8 +287,9 @@ function configureSourceMode() {
   uploadSourceGroup.classList.toggle("d-none", !uploadMode);
   youtubeUrl.required = !uploadMode;
   youtubeUrl.disabled = uploadMode;
-  videoFile.required = uploadMode;
+  videoFile.required = false;
   videoFile.disabled = !uploadMode;
+  videoDropZone.classList.toggle("disabled", !uploadMode);
   ignoreSubtitles.disabled = uploadMode;
   transcribeOnlyLink.classList.toggle("d-none", uploadMode);
   if (uploadMode) {
@@ -252,9 +300,16 @@ function configureSourceMode() {
 function setSourceControlsDisabled(disabled) {
   if (uploadMode) {
     videoFile.disabled = disabled;
+    videoDropZone.classList.toggle("disabled", disabled);
+    uploadFileItems.querySelectorAll("button").forEach(button => {
+      button.disabled = disabled;
+    });
   } else {
     youtubeUrl.disabled = disabled;
     ignoreSubtitles.disabled = disabled;
+    playlistItems.querySelectorAll("button").forEach(button => {
+      button.disabled = disabled;
+    });
   }
   includeWordTimestamps.disabled = disabled;
 }
@@ -319,13 +374,156 @@ function parseYouTubeVideo(value) {
   }
   if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) return null;
 
+  const rawPlaylistId = url.searchParams.get("list") || "";
+  const playlistId = /^[A-Za-z0-9_-]{2,100}$/.test(rawPlaylistId)
+    ? rawPlaylistId
+    : "";
+
   const hashParams = new URLSearchParams(url.hash.replace(/^#/, ""));
   const start = parseYouTubeStartTime(
     url.searchParams.get("t")
       || url.searchParams.get("start")
       || hashParams.get("t"),
   );
-  return { videoId, start };
+  return { videoId, start, playlistId };
+}
+
+function formatPlaylistDuration(value) {
+  const seconds = Math.max(0, Math.round(Number(value) || 0));
+  if (!seconds) return "";
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainder = seconds % 60;
+  return hours
+    ? `${hours}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`
+    : `${minutes}:${String(remainder).padStart(2, "0")}`;
+}
+
+function clearPlaylistPreview() {
+  activePlaylistId = "";
+  activePlaylistData = null;
+  if (playlistPreviewController) playlistPreviewController.abort();
+  playlistPreviewController = null;
+  playlistPanel.classList.add("d-none");
+  playlistItems.replaceChildren();
+  playlistItems.classList.add("d-none");
+  playlistStatus.classList.remove("d-none");
+}
+
+function selectPlaylistVideo(item, index, playlistId) {
+  const selectedUrl = new URL("https://www.youtube.com/watch");
+  selectedUrl.searchParams.set("v", item.id);
+  selectedUrl.searchParams.set("list", playlistId);
+  selectedUrl.searchParams.set("index", String(index + 1));
+  youtubeUrl.value = selectedUrl.toString();
+  currentPreviewKey = "";
+  updateVideoPreview();
+  requestAnimationFrame(() => {
+    playlistItems.querySelector(".playlist-video.active")?.scrollIntoView({
+      behavior: "smooth",
+      block: "nearest",
+      inline: "center",
+    });
+  });
+}
+
+function renderPlaylistPreview(data, selectedVideoId) {
+  activePlaylistData = data;
+  playlistTitle.textContent = data.title || t("playlistLabel");
+  playlistCount.textContent = t("playlistCount", {
+    count: Number(data.total_items) || data.items.length,
+  });
+  playlistStatus.classList.add("d-none");
+  playlistItems.classList.remove("d-none");
+  playlistItems.replaceChildren();
+
+  data.items.forEach((item, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "playlist-video";
+    button.disabled = youtubeUrl.disabled;
+    button.classList.toggle("active", item.id === selectedVideoId);
+    button.setAttribute("aria-pressed", item.id === selectedVideoId ? "true" : "false");
+    button.setAttribute("aria-label", t("selectPlaylistVideo", {
+      index: index + 1,
+      title: item.title,
+    }));
+
+    const thumbnail = document.createElement("div");
+    thumbnail.className = "playlist-thumbnail";
+    const image = document.createElement("img");
+    image.src = item.thumbnail;
+    image.alt = "";
+    image.loading = "lazy";
+    thumbnail.append(image);
+    const duration = formatPlaylistDuration(item.duration);
+    if (duration) {
+      const durationBadge = document.createElement("span");
+      durationBadge.className = "playlist-duration";
+      durationBadge.textContent = duration;
+      thumbnail.append(durationBadge);
+    }
+
+    const copy = document.createElement("div");
+    copy.className = "playlist-video-copy";
+    const itemIndex = document.createElement("span");
+    itemIndex.className = "playlist-index";
+    itemIndex.textContent = String(index + 1);
+    const title = document.createElement("span");
+    title.className = "playlist-video-title";
+    title.textContent = item.title;
+    copy.append(itemIndex, title);
+    button.append(thumbnail, copy);
+    button.addEventListener("click", () => selectPlaylistVideo(item, index, data.id));
+    playlistItems.append(button);
+  });
+}
+
+async function loadPlaylistPreview(parsed) {
+  if (!parsed?.playlistId) {
+    clearPlaylistPreview();
+    return;
+  }
+
+  const playlistId = parsed.playlistId;
+  activePlaylistId = playlistId;
+  playlistPanel.classList.remove("d-none");
+  const cached = playlistPreviewCache.get(playlistId);
+  if (cached) {
+    renderPlaylistPreview(cached, parsed.videoId);
+    notifyParentHeight();
+    return;
+  }
+
+  if (playlistPreviewController) playlistPreviewController.abort();
+  playlistPreviewController = new AbortController();
+  playlistTitle.textContent = t("playlistLabel");
+  playlistCount.textContent = "";
+  playlistItems.classList.add("d-none");
+  playlistStatus.textContent = t("playlistLoading");
+  playlistStatus.classList.remove("d-none");
+  try {
+    const response = await fetch(
+      `/api/youtube-live/playlists/preview?url=${encodeURIComponent(youtubeUrl.value.trim())}`,
+      { signal: playlistPreviewController.signal },
+    );
+    if (!response.ok) throw new Error(await readError(response));
+    const data = await response.json();
+    if (!Array.isArray(data.items) || !data.items.length) {
+      throw new Error(t("playlistLoadFailed"));
+    }
+    playlistPreviewCache.set(playlistId, data);
+    if (activePlaylistId !== playlistId) return;
+    renderPlaylistPreview(data, parseYouTubeVideo(youtubeUrl.value)?.videoId || parsed.videoId);
+  } catch (error) {
+    if (error.name === "AbortError" || activePlaylistId !== playlistId) return;
+    playlistItems.classList.add("d-none");
+    playlistStatus.textContent = error.message || t("playlistLoadFailed");
+    playlistStatus.classList.remove("d-none");
+  } finally {
+    if (activePlaylistId === playlistId) playlistPreviewController = null;
+    notifyParentHeight();
+  }
 }
 
 function loadYouTubePlayerApi() {
@@ -542,6 +740,151 @@ async function renderYouTubePlayer(parsed, previewKey) {
   });
 }
 
+function clearUploadSelectorUrls() {
+  while (uploadSelectorUrls.length) URL.revokeObjectURL(uploadSelectorUrls.pop());
+}
+
+function isSupportedVideoFile(file) {
+  return file instanceof File && (
+    String(file.type || "").toLowerCase().startsWith("video/")
+    || SUPPORTED_VIDEO_EXTENSION_RE.test(file.name)
+  );
+}
+
+function videoFileIdentity(file) {
+  return `${file.name}:${file.size}:${file.lastModified}`;
+}
+
+function dragIncludesFiles(event) {
+  return Array.from(event.dataTransfer?.types || []).includes("Files");
+}
+
+function setSelectedVideoFiles(incomingFiles, { append = false } = {}) {
+  const incoming = [...incomingFiles];
+  const supported = incoming.filter(isSupportedVideoFile);
+  const invalidCount = incoming.length - supported.length;
+  const combined = append ? [...videoFile.files, ...supported] : supported;
+  const unique = [];
+  const identities = new Set();
+  for (const file of combined) {
+    const identity = videoFileIdentity(file);
+    if (identities.has(identity)) continue;
+    identities.add(identity);
+    unique.push(file);
+  }
+  const limitExceeded = unique.length > MAX_UPLOAD_VIDEO_FILES;
+  const selected = unique.slice(0, MAX_UPLOAD_VIDEO_FILES);
+  const transfer = new DataTransfer();
+  selected.forEach(file => transfer.items.add(file));
+  videoFile.files = transfer.files;
+
+  selectedUploadFileIndex = 0;
+  uploadFileStates.clear();
+  uploadBatchResults.clear();
+  uploadDownloadList.replaceChildren();
+  uploadBatchDownloads.classList.add("d-none");
+  renderUploadFileSelector();
+  updateVideoPreview();
+
+  if (limitExceeded) {
+    setStatus(t("videoFileLimit"), "failed");
+  } else if (invalidCount > 0) {
+    setStatus(t("invalidVideoFiles"), "failed");
+  } else if (selected.length > 0) {
+    setStatus(t("videosSelected", { count: selected.length }), "idle");
+  } else {
+    setStatus(t("waitingUpload"), "idle");
+  }
+}
+
+function setUploadFileStatus(index, key, state = "") {
+  uploadFileStates.set(index, { key, state });
+  const node = uploadFileStatusNodes.get(index);
+  if (!node) return;
+  node.textContent = t(key);
+  node.classList.remove("d-none");
+  node.dataset.state = state;
+}
+
+function selectUploadFile(index) {
+  const files = [...videoFile.files];
+  if (!files[index]) return;
+  selectedUploadFileIndex = index;
+  uploadFileItems.querySelectorAll(".playlist-video").forEach((button, buttonIndex) => {
+    const active = buttonIndex === index;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+  currentPreviewKey = "";
+  updateVideoPreview();
+}
+
+function renderUploadFileSelector() {
+  if (!uploadMode) return;
+  const files = [...videoFile.files];
+  clearUploadSelectorUrls();
+  uploadFileStatusNodes.clear();
+  uploadFileItems.replaceChildren();
+  uploadFilePanel.classList.toggle("d-none", files.length === 0);
+  uploadFileCount.textContent = files.length
+    ? t("selectedVideoCount", { count: files.length })
+    : "";
+  if (!files.length) return;
+  if (selectedUploadFileIndex >= files.length) selectedUploadFileIndex = 0;
+
+  files.forEach((file, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "playlist-video";
+    button.disabled = videoFile.disabled;
+    const active = index === selectedUploadFileIndex;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+    button.setAttribute("aria-label", file.name);
+
+    const thumbnail = document.createElement("div");
+    thumbnail.className = "upload-file-thumbnail";
+    const previewVideo = document.createElement("video");
+    previewVideo.muted = true;
+    previewVideo.playsInline = true;
+    previewVideo.preload = "metadata";
+    const objectUrl = URL.createObjectURL(file);
+    uploadSelectorUrls.push(objectUrl);
+    previewVideo.src = objectUrl;
+    previewVideo.addEventListener("loadedmetadata", () => {
+      if (Number.isFinite(previewVideo.duration) && previewVideo.duration > 0.2) {
+        previewVideo.currentTime = Math.min(0.2, previewVideo.duration / 4);
+      }
+    }, { once: true });
+    thumbnail.append(previewVideo);
+
+    const status = document.createElement("span");
+    status.className = "upload-file-status d-none";
+    uploadFileStatusNodes.set(index, status);
+    const savedState = uploadFileStates.get(index);
+    if (savedState) {
+      status.textContent = t(savedState.key);
+      status.classList.remove("d-none");
+      status.dataset.state = savedState.state;
+    }
+    thumbnail.append(status);
+
+    const copy = document.createElement("div");
+    copy.className = "playlist-video-copy";
+    const itemIndex = document.createElement("span");
+    itemIndex.className = "playlist-index";
+    itemIndex.textContent = String(index + 1);
+    const title = document.createElement("span");
+    title.className = "playlist-video-title";
+    title.textContent = file.name;
+    copy.append(itemIndex, title);
+    button.append(thumbnail, copy);
+    button.addEventListener("click", () => selectUploadFile(index));
+    uploadFileItems.append(button);
+  });
+  notifyParentHeight();
+}
+
 function renderUploadedVideo(file, previewKey) {
   const mount = resetVideoPlayerMount();
   if (previewKey !== currentPreviewKey || !mount.isConnected) return;
@@ -591,7 +934,8 @@ function renderUploadedVideo(file, previewKey) {
 
 function updateVideoPreview() {
   if (uploadMode) {
-    const file = videoFile.files?.[0];
+    clearPlaylistPreview();
+    const file = videoFile.files?.[selectedUploadFileIndex];
     if (!file) {
       currentPreviewKey = "";
       resetVideoPlayerMount();
@@ -611,12 +955,15 @@ function updateVideoPreview() {
 
   const parsed = parseYouTubeVideo(youtubeUrl.value);
   if (!parsed) {
+    clearPlaylistPreview();
     currentPreviewKey = "";
     resetVideoPlayerMount();
     videoPreview.classList.add("d-none");
     notifyParentHeight();
     return false;
   }
+
+  void loadPlaylistPreview(parsed);
 
   const previewKey = `${parsed.videoId}:${parsed.start}`;
   if (previewKey !== currentPreviewKey) {
@@ -768,7 +1115,14 @@ function cancelCurrentJob() {
 }
 
 window.addEventListener("pagehide", () => {
-  if (transcriptionActive || translationActive) cancelCurrentJob();
+  if (!transcriptionActive && !translationActive) return;
+  if (uploadMode && uploadBatchCancelRequests.size) {
+    for (const cancelRequest of uploadBatchCancelRequests.values()) {
+      sendCancellationBeacon(cancelRequest);
+    }
+  } else {
+    cancelCurrentJob();
+  }
 });
 
 function formatDisplayTime(seconds) {
@@ -1724,9 +2078,32 @@ function maybeFinalize() {
   setTranscriptionActive(false);
   currentCancelRequest = null;
   cancelJob.classList.add("d-none");
+  if (uploadMode && uploadBatchJobs.length && uploadBatchJobIndex >= 0) {
+    const batchJob = uploadBatchJobs[uploadBatchJobIndex];
+    const fileIndex = Number(batchJob.batch_index);
+    uploadBatchCancelRequests.delete(batchJob.job_id);
+    if (transcriptionFailed) {
+      setUploadFileStatus(fileIndex, "videoBatchFailed", "failed");
+    } else {
+      addUploadBatchDownload(fileIndex, batchJob.filename);
+      setUploadFileStatus(fileIndex, "videoBatchDone", "done");
+    }
+    const nextIndex = uploadBatchJobIndex + 1;
+    if (nextIndex < uploadBatchJobs.length && !uploadBatchAdvanceScheduled) {
+      uploadBatchAdvanceScheduled = true;
+      setTimeout(() => {
+        uploadBatchAdvanceScheduled = false;
+        activateUploadBatchJob(nextIndex);
+      }, 0);
+      return;
+    }
+  }
   updateTranslationProgress();
   updateActionButtons();
-  actionBar.classList.remove("d-none");
+  actionBar.classList.toggle(
+    "d-none",
+    uploadMode && uploadBatchJobs.length > 1,
+  );
   const hasFailures = failedSegmentIds.size > 0;
   if (transcriptionFailed) {
     setStatus(t("failed"), "failed");
@@ -1860,6 +2237,47 @@ function downloadTextFile(content, filename, type) {
   link.click();
   link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function addUploadBatchDownload(index, filename) {
+  if (uploadBatchResults.has(index) || transcriptionFailed) return;
+  const safeBase = filename.replace(/\.[^.]+$/, "").replace(/[\\/:*?"<>|]+/g, "_") || "video";
+  const result = {
+    filename,
+    source: buildSrt("source"),
+    translated: buildSrt("translated"),
+    bilingual: buildSrt("bilingual"),
+    json: buildSegmentsJson(),
+  };
+  uploadBatchResults.set(index, result);
+
+  const item = document.createElement("div");
+  item.className = "upload-download-item";
+  const name = document.createElement("div");
+  name.className = "upload-download-name";
+  name.textContent = filename;
+  name.title = filename;
+  const actions = document.createElement("div");
+  actions.className = "d-flex flex-wrap gap-2";
+  [
+    ["downloadSourceSrt", result.source, `${safeBase}_source.srt`, "application/x-subrip;charset=utf-8"],
+    ["downloadTranslatedSrt", result.translated, `${safeBase}_translated.srt`, "application/x-subrip;charset=utf-8"],
+    ["downloadBilingualSrt", result.bilingual, `${safeBase}_bilingual.srt`, "application/x-subrip;charset=utf-8"],
+    ["downloadJson", result.json, `${safeBase}_segments.json`, "application/json;charset=utf-8"],
+  ].forEach(([labelKey, content, downloadName, type]) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = labelKey === "downloadBilingualSrt"
+      ? "btn btn-sm btn-primary"
+      : "btn btn-sm btn-outline-secondary";
+    button.dataset.i18n = labelKey;
+    button.textContent = t(labelKey);
+    button.addEventListener("click", () => downloadTextFile(content, downloadName, type));
+    actions.append(button);
+  });
+  item.append(name, actions);
+  uploadDownloadList.append(item);
+  uploadBatchDownloads.classList.remove("d-none");
 }
 
 function confirmPartialDownload() {
@@ -2039,6 +2457,46 @@ refreshCaptcha.addEventListener("click", async () => {
 });
 verifyCaptcha.addEventListener("click", verifyCaptchaAnswer);
 cancelJob.addEventListener("click", async () => {
+  if (uploadMode && uploadBatchCancelRequests.size) {
+    cancelJob.disabled = true;
+    const requests = [...uploadBatchCancelRequests.entries()];
+    await Promise.allSettled(requests.map(async ([jobId, cancelRequest]) => {
+      const response = await fetch(cancelRequest.url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cancel_token: cancelRequest.token }),
+      });
+      if (!response.ok) throw new Error(await readError(response));
+      const job = uploadBatchJobs.find(item => item.job_id === jobId);
+      if (job) setUploadFileStatus(Number(job.batch_index), "videoBatchCancelled", "failed");
+    }));
+    uploadBatchCancelRequests.clear();
+    jobCancellationRequested = true;
+    currentCancelRequest = null;
+    currentTranslationToken = "";
+    pendingSegments = [];
+    pendingTranslationBatches = [];
+    queuedBatchCount = 0;
+    if (batchTimer) clearTimeout(batchTimer);
+    batchTimer = null;
+    abortTranslationRequests();
+    if (eventSource) eventSource.close();
+    eventSource = null;
+    transcriptionDone = true;
+    setTranscriptionActive(false);
+    setTranslationActive(false);
+    cancelJob.classList.add("d-none");
+    transcriptionBar.classList.remove("progress-bar-animated");
+    translationBar.classList.remove("progress-bar-animated");
+    languageConfirmation.classList.add("d-none");
+    sourceLanguage.disabled = false;
+    targetLanguage.disabled = false;
+    setSourceControlsDisabled(false);
+    setStatus(t("cancelled"), "idle");
+    resetCaptchaState(false);
+    notifyParentHeight();
+    return;
+  }
   if (!currentCancelRequest) return;
   const cancelRequest = currentCancelRequest;
   cancelJob.disabled = true;
@@ -2080,10 +2538,169 @@ cancelJob.addEventListener("click", async () => {
   }
 });
 
+function connectTranscriptionJob(job, uploadFilename = "") {
+  if (!job.job_id || !job.events_url || !job.translation_token
+    || !job.cancel_url || !job.cancel_token) {
+    throw new Error(t("requestFailed"));
+  }
+  currentJobId = job.job_id;
+  currentTranslationToken = job.translation_token;
+  currentCancelRequest = {
+    url: job.cancel_url,
+    token: job.cancel_token,
+  };
+  cancelJob.classList.remove("d-none");
+
+  eventSource = new EventSource(job.events_url);
+  eventSource.addEventListener("status", event => {
+    const data = JSON.parse(event.data);
+    setStatus(uploadMode ? t("processing") : (data.message || t("processing")), "running");
+  });
+  eventSource.addEventListener("metadata", event => {
+    const data = JSON.parse(event.data);
+    const playerDuration = Number(youtubePlayerController?.getDuration?.()) || 0;
+    totalDuration = Number(data.duration) || playerDuration;
+    videoTitle.textContent = data.title
+      || uploadFilename
+      || t(uploadMode ? "uploadedVideoTitle" : "videoTitle");
+    videoDetail.textContent = totalDuration
+      ? `${t("durationPrefix")} ${Math.round(totalDuration)} ${t("seconds")}`
+      : "";
+    transcriptionDetail.textContent = totalDuration
+      ? `${t("durationPrefix")} ${Math.round(totalDuration)} ${t("seconds")}`
+      : t("progressDetail");
+    videoMeta.classList.remove("d-none");
+    progressGrid.classList.remove("d-none");
+    notifyParentHeight();
+  });
+  eventSource.addEventListener("language_detected", event => {
+    try {
+      showLanguageConfirmation(JSON.parse(event.data || "{}"));
+    } catch (error) {
+      console.error("Could not process language detection", error);
+    }
+  });
+  eventSource.addEventListener("segment", event => {
+    try {
+      addSegment(JSON.parse(event.data));
+    } catch (error) {
+      console.error("Could not process segment", error);
+    }
+  });
+  eventSource.addEventListener("done", event => {
+    transcriptionDone = true;
+    setTranscriptionActive(false);
+    setTranscriptionProgress(100, t("transcriptionDone"));
+    try {
+      const data = JSON.parse(event.data || "{}");
+      const normalized = normalizeTranslationLanguage(data.language);
+      if (!detectedSourceLanguage && normalized) detectedSourceLanguage = normalized;
+    } catch (_) {}
+    flushPendingSegments({ final: true });
+    if (eventSource) eventSource.close();
+    eventSource = null;
+    maybeFinalize();
+  });
+  eventSource.addEventListener("failed", event => {
+    transcriptionDone = true;
+    transcriptionFailed = true;
+    setTranscriptionActive(false);
+    let message = t("failed");
+    try {
+      message = JSON.parse(event.data || "{}").message || message;
+    } catch (_) {}
+    setStatus(message, "failed");
+    flushPendingSegments({ final: true });
+    if (eventSource) eventSource.close();
+    eventSource = null;
+    maybeFinalize();
+  });
+  eventSource.addEventListener("cancelled", () => {
+    transcriptionDone = true;
+    transcriptionFailed = false;
+    currentCancelRequest = null;
+    currentTranslationToken = "";
+    jobCancellationRequested = true;
+    pendingSegments = [];
+    pendingTranslationBatches = [];
+    queuedBatchCount = 0;
+    if (batchTimer) clearTimeout(batchTimer);
+    batchTimer = null;
+    cancelJob.classList.add("d-none");
+    abortTranslationRequests();
+    setTranscriptionActive(false);
+    setTranslationActive(false);
+    transcriptionBar.classList.remove("progress-bar-animated");
+    translationBar.classList.remove("progress-bar-animated");
+    setStatus(t("cancelled"), "idle");
+    if (eventSource) eventSource.close();
+    eventSource = null;
+    maybeFinalize();
+  });
+  eventSource.onerror = () => {
+    if (!eventSource) return;
+    cancelCurrentJob();
+    jobCancellationRequested = !(uploadMode && uploadBatchJobs.length);
+    pendingSegments = [];
+    pendingTranslationBatches = [];
+    queuedBatchCount = 0;
+    if (batchTimer) clearTimeout(batchTimer);
+    batchTimer = null;
+    cancelJob.classList.add("d-none");
+    abortTranslationRequests();
+    transcriptionDone = true;
+    transcriptionFailed = true;
+    setTranscriptionActive(false);
+    setStatus(t("disconnected"), "failed");
+    eventSource.close();
+    eventSource = null;
+    flushPendingSegments({ final: true });
+    maybeFinalize();
+  };
+}
+
+function activateUploadBatchJob(position) {
+  const job = uploadBatchJobs[position];
+  if (!job) return;
+  if (position > 0) resetView();
+  uploadBatchJobIndex = position;
+  selectedUploadFileIndex = Number(job.batch_index);
+  selectUploadFile(selectedUploadFileIndex);
+  setUploadFileStatus(selectedUploadFileIndex, "videoBatchProcessing", "running");
+  setTranscriptionActive(true);
+  setStatus(t("processing"), "running");
+  if (requestedSourceLanguage) revealResults();
+  try {
+    connectTranscriptionJob(job, job.filename);
+  } catch (error) {
+    transcriptionDone = true;
+    transcriptionFailed = true;
+    setTranscriptionActive(false);
+    setStatus(error.message || t("requestFailed"), "failed");
+    maybeFinalize();
+  }
+}
+
 async function beginTranscription() {
   requestedSourceLanguage = sourceLanguage.value;
   selectedTargetLanguage = targetLanguage.value;
+  if (uploadMode && videoFile.files.length > MAX_UPLOAD_VIDEO_FILES) {
+    setStatus(t("videoFileLimit"), "failed");
+    resetCaptchaState(false);
+    return;
+  }
   resetView();
+  if (uploadMode) {
+    uploadBatchJobs = [];
+    uploadBatchJobIndex = -1;
+    uploadBatchAdvanceScheduled = false;
+    uploadBatchCancelRequests.clear();
+    uploadBatchResults.clear();
+    uploadDownloadList.replaceChildren();
+    uploadBatchDownloads.classList.add("d-none");
+    uploadFileStates.clear();
+    renderUploadFileSelector();
+  }
   sourceLanguage.disabled = true;
   targetLanguage.disabled = true;
   setSourceControlsDisabled(true);
@@ -2102,11 +2719,11 @@ async function beginTranscription() {
     let response;
     if (uploadMode) {
       const uploadBody = new FormData();
-      uploadBody.append("file", videoFile.files[0]);
+      [...videoFile.files].forEach(file => uploadBody.append("files", file));
       uploadBody.append("language", whisperLanguage);
       uploadBody.append("include_word_timestamps", String(includeWordTimestamps.checked));
       uploadBody.append("captcha_token", captchaToken.value);
-      response = await fetch("/api/video-upload/jobs", {
+      response = await fetch("/api/video-upload/jobs/batch", {
         method: "POST",
         body: uploadBody,
       });
@@ -2124,6 +2741,27 @@ async function beginTranscription() {
       });
     }
     if (!response.ok) throw new Error(await readError(response));
+    if (uploadMode) {
+      const batch = await response.json();
+      for (const failure of batch.errors || []) {
+        setUploadFileStatus(Number(failure.batch_index), "videoBatchFailed", "failed");
+      }
+      uploadBatchJobs = [...(batch.jobs || [])].sort(
+        (left, right) => Number(left.batch_index) - Number(right.batch_index),
+      );
+      for (const job of uploadBatchJobs) {
+        setUploadFileStatus(Number(job.batch_index), "videoBatchQueued", "queued");
+        uploadBatchCancelRequests.set(job.job_id, {
+          url: job.cancel_url,
+          token: job.cancel_token,
+        });
+      }
+      if (!uploadBatchJobs.length) {
+        throw new Error(batch.errors?.[0]?.error || t("requestFailed"));
+      }
+      activateUploadBatchJob(0);
+      return;
+    }
     const job = await response.json();
     if (!job.job_id || !job.events_url || !job.translation_token
       || !job.cancel_url || !job.cancel_token) {
@@ -2289,7 +2927,35 @@ confirmLanguageBtn.addEventListener("click", async () => {
 });
 
 if (uploadMode) {
-  videoFile.addEventListener("change", updateVideoPreview);
+  let dragDepth = 0;
+  videoFile.addEventListener("change", () => {
+    setSelectedVideoFiles(videoFile.files);
+  });
+  videoDropZone.addEventListener("dragenter", event => {
+    if (!dragIncludesFiles(event)) return;
+    event.preventDefault();
+    if (videoFile.disabled) return;
+    dragDepth += 1;
+    videoDropZone.classList.add("dragging");
+  });
+  videoDropZone.addEventListener("dragover", event => {
+    if (!dragIncludesFiles(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = videoFile.disabled ? "none" : "copy";
+  });
+  videoDropZone.addEventListener("dragleave", event => {
+    if (!dragIncludesFiles(event)) return;
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) videoDropZone.classList.remove("dragging");
+  });
+  videoDropZone.addEventListener("drop", event => {
+    if (!dragIncludesFiles(event)) return;
+    event.preventDefault();
+    dragDepth = 0;
+    videoDropZone.classList.remove("dragging");
+    if (videoFile.disabled) return;
+    setSelectedVideoFiles(event.dataTransfer?.files || [], { append: true });
+  });
 } else {
   youtubeUrl.addEventListener("input", scheduleVideoPreview);
   youtubeUrl.addEventListener("change", updateVideoPreview);
@@ -2301,6 +2967,11 @@ document.addEventListener("webkitfullscreenchange", updateFullscreenButton);
 
 form.addEventListener("submit", async event => {
   event.preventDefault();
+  if (uploadMode && !videoFile.files.length) {
+    setStatus(t("waitingUpload"), "failed");
+    videoFile.focus();
+    return;
+  }
   if (!form.checkValidity()) {
     form.reportValidity();
     return;
