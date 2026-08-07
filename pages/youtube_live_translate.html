@@ -160,9 +160,26 @@
       border-top: 1px solid var(--line);
     }
     .video-preview-frame {
+      position: relative;
       overflow: hidden;
       border-radius: 8px;
       background: #000;
+    }
+    .video-fullscreen-button {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      z-index: 20;
+      border-color: rgba(255, 255, 255, .42);
+      background: rgba(5, 5, 5, .78);
+      color: #fff;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, .24);
+    }
+    .video-fullscreen-button:hover,
+    .video-fullscreen-button:focus-visible {
+      border-color: rgba(255, 255, 255, .8);
+      background: #111;
+      color: #fff;
     }
     .video-player-viewport {
       position: relative;
@@ -175,10 +192,16 @@
       inset: 0;
     }
     .video-player-layer > div,
-    .video-player-layer iframe {
+    .video-player-layer iframe,
+    .video-player-layer video {
       width: 100%;
       height: 100%;
       border: 0;
+    }
+    .video-player-layer video {
+      display: block;
+      object-fit: contain;
+      background: #000;
     }
     .video-subtitle-overlay {
       min-height: 104px;
@@ -217,6 +240,42 @@
       color: #fda29b;
       font-size: .94rem;
       font-weight: 700;
+    }
+    .video-preview-frame:fullscreen,
+    .video-preview-frame:-webkit-full-screen {
+      width: 100vw;
+      height: 100vh;
+      border-radius: 0;
+      background: #000;
+    }
+    .video-preview-frame:fullscreen .video-player-viewport,
+    .video-preview-frame:-webkit-full-screen .video-player-viewport {
+      width: 100%;
+      height: 100%;
+      aspect-ratio: auto;
+    }
+    .video-preview-frame:fullscreen .video-subtitle-overlay,
+    .video-preview-frame:-webkit-full-screen .video-subtitle-overlay {
+      position: absolute;
+      right: 5%;
+      bottom: 7%;
+      left: 5%;
+      z-index: 10;
+      width: auto;
+      min-height: 0;
+      padding: 12px 20px;
+      border: 0;
+      border-radius: 6px;
+      background: rgba(0, 0, 0, .78);
+      pointer-events: none;
+    }
+    .video-preview-frame:fullscreen .video-subtitle-source,
+    .video-preview-frame:-webkit-full-screen .video-subtitle-source {
+      font-size: 1rem;
+    }
+    .video-preview-frame:fullscreen .video-subtitle-translation,
+    .video-preview-frame:-webkit-full-screen .video-subtitle-translation {
+      font-size: 1.25rem;
     }
     .captcha-img {
       width: min(220px, 100%);
@@ -364,24 +423,32 @@
 <body>
   <main class="shell">
     <div class="topbar">
-      <a class="brand" href="/youtube-live-translate">
+      <a id="topBrand" class="brand" href="/youtube-live-translate">
         <span class="brand-mark"><img src="/favicon.svg" alt=""></span>
         <span data-i18n="pageTitle">Video Translate</span>
       </a>
-      <a class="btn btn-outline-secondary btn-sm" href="/youtube-live" data-i18n="transcribeOnly">僅轉譯</a>
+      <a id="transcribeOnlyLink" class="btn btn-outline-secondary btn-sm" href="/youtube-live" data-i18n="transcribeOnly">僅轉譯</a>
     </div>
 
     <section class="panel workspace-panel">
       <div class="input-panel">
       <form id="translateForm" class="row g-3 align-items-end">
-        <div class="col-12">
+        <div id="youtubeSourceGroup" class="col-12">
           <label class="form-label fw-semibold" for="youtubeUrl" data-i18n="urlLabel">YouTube 網址</label>
           <input id="youtubeUrl" class="form-control form-control-lg" type="url" placeholder="https://www.youtube.com/watch?v=..." required>
           <div class="form-check mt-3">
             <input id="ignoreSubtitles" class="form-check-input" type="checkbox" checked>
             <label class="form-check-label" for="ignoreSubtitles" data-i18n="ignoreSubtitles">忽略內建字幕</label>
           </div>
-          <div class="form-check mt-2">
+        </div>
+        <div id="uploadSourceGroup" class="col-12 d-none">
+          <label class="form-label fw-semibold" for="videoFile" data-i18n="videoFileLabel">選擇影片</label>
+          <input id="videoFile" class="form-control form-control-lg" type="file" accept="video/*,.avi,.m4v,.mkv,.mov,.mpeg,.mpg,.ts,.webm,.wmv" disabled>
+          <div class="form-text mt-2" data-i18n="videoFileHelp">影片只用於本次轉譯，完成、取消或逾時後會自動清除。</div>
+          <a class="small fw-semibold d-inline-block mt-2" href="/privacy" data-i18n="uploadPrivacyLink">查看隱私權政策</a>
+        </div>
+        <div class="col-12">
+          <div class="form-check">
             <input id="includeWordTimestamps" class="form-check-input" type="checkbox" checked>
             <label class="form-check-label" for="includeWordTimestamps" data-i18n="includeWordTimestamps">逐字顯示原文</label>
           </div>
@@ -461,7 +528,8 @@
 
       <div id="videoPreview" class="video-preview d-none">
         <div class="fw-bold mb-3" data-i18n="videoPreview">影片預覽</div>
-        <div class="video-preview-frame">
+        <div id="videoPreviewFrame" class="video-preview-frame">
+          <button id="videoFullscreenButton" class="video-fullscreen-button btn btn-sm" type="button" data-i18n="enterFullscreen">全螢幕</button>
           <div class="video-player-viewport">
             <div id="videoPlayerLayer" class="video-player-layer">
               <div id="youtubePlayer"></div>
@@ -531,6 +599,6 @@
   </footer>
 
   <script src="/subtitle-display-cues.js?v=20260806-1" defer></script>
-  <script src="/youtube-live-translate.js?v=20260806-2" defer></script>
+  <script src="/youtube-live-translate.js?v=20260807-2" defer></script>
 </body>
 </html>

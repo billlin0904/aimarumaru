@@ -10,7 +10,12 @@ const {
 } = window.SubtitleDisplayCues;
 
 const form = document.getElementById("translateForm");
+const topBrand = document.getElementById("topBrand");
+const transcribeOnlyLink = document.getElementById("transcribeOnlyLink");
+const youtubeSourceGroup = document.getElementById("youtubeSourceGroup");
+const uploadSourceGroup = document.getElementById("uploadSourceGroup");
 const youtubeUrl = document.getElementById("youtubeUrl");
+const videoFile = document.getElementById("videoFile");
 const ignoreSubtitles = document.getElementById("ignoreSubtitles");
 const includeWordTimestamps = document.getElementById("includeWordTimestamps");
 const sourceLanguage = document.getElementById("sourceLanguage");
@@ -22,6 +27,8 @@ const languageConfidence = document.getElementById("languageConfidence");
 const confirmedSourceLanguage = document.getElementById("confirmedSourceLanguage");
 const confirmLanguageBtn = document.getElementById("confirmLanguageBtn");
 const videoPreview = document.getElementById("videoPreview");
+const videoPreviewFrame = document.getElementById("videoPreviewFrame");
+const videoFullscreenButton = document.getElementById("videoFullscreenButton");
 const videoPlayerLayer = document.getElementById("videoPlayerLayer");
 const videoSubtitleOverlay = document.getElementById("videoSubtitleOverlay");
 const videoSubtitleSource = document.getElementById("videoSubtitleSource");
@@ -80,59 +87,61 @@ const NON_RETRYABLE_OUTPUT_CODES = new Set([
 ]);
 
 const params = new URLSearchParams(window.location.search);
+const uploadMode = params.get("source") === "upload"
+  || window.location.pathname === "/video-upload-translate";
 const languageStorageKey = "audioTranscribeLanguage";
 const translations = {
   "zh-Hant": {
-    pageTitle: "Video Translate", transcribeOnly: "僅轉譯", urlLabel: "YouTube 網址", ignoreSubtitles: "忽略內建字幕", includeWordTimestamps: "逐字顯示原文",
-    videoPreview: "影片預覽", subtitleWaiting: "字幕完成後會顯示在這裡",
+    pageTitle: "Video Translate", uploadPageTitle: "影片上傳翻譯", transcribeOnly: "僅轉譯", urlLabel: "YouTube 網址", videoFileLabel: "選擇影片", videoFileHelp: "影片只用於本次轉譯，完成、取消或逾時後會自動清除。", uploadPrivacyLink: "查看隱私權政策", ignoreSubtitles: "忽略內建字幕", includeWordTimestamps: "逐字顯示原文",
+    videoPreview: "影片預覽", enterFullscreen: "全螢幕", exitFullscreen: "結束全螢幕", subtitleWaiting: "字幕完成後會顯示在這裡",
     sourceLanguage: "原文語言", targetLanguage: "翻譯目標語言", autoDetect: "自動偵測", languageEnglish: "英文", languageJapanese: "日文", languageKorean: "韓文", languageThai: "泰文", languageTraditionalChinese: "繁體中文",
-    start: "開始轉譯並翻譯", detectLanguage: "偵測語言", waiting: "等待輸入網址", creating: "建立任務中", processing: "處理中", cancelJob: "取消轉譯", cancelled: "已取消轉譯與翻譯", transcriptionDone: "轉譯完成，翻譯繼續處理中", done: "轉譯與翻譯完成", partialDone: "處理完成，部分翻譯失敗", failed: "處理失敗", disconnected: "連線中斷", requestFailed: "請求失敗",
+    start: "開始轉譯並翻譯", detectLanguage: "偵測語言", waiting: "等待輸入網址", waitingUpload: "等待選擇影片", creating: "建立任務中", uploading: "正在上傳影片", processing: "處理中", cancelJob: "取消轉譯", cancelled: "已取消轉譯與翻譯", transcriptionDone: "轉譯完成，翻譯繼續處理中", done: "轉譯與翻譯完成", partialDone: "處理完成，部分翻譯失敗", failed: "處理失敗", disconnected: "連線中斷", requestFailed: "請求失敗",
     detectedLanguageLabel: "偵測結果", detectedLanguageValue: "偵測為 {language}", confirmSourceLanguage: "確認原文語言", confirmAndStart: "確認並開始", confirmDetectedLanguage: "請確認原文語言後再開始轉譯", confirmingLanguage: "正在送出語言選擇", confidence: "偵測信心 {percent}%", subtitleLanguageSource: "來自 YouTube 字幕語言", unknownLanguage: "未知語言",
     resultTitle: "即時字幕", emptyState: "原文與譯文會一段一段顯示在這裡。", segmentUnit: "段", sourceText: "原文", translatedText: "翻譯", translationPending: "正在等待翻譯…", translationFailed: "翻譯失敗", retryTranslation: "重新翻譯",
-    transcriptionProgress: "轉譯進度", translationProgress: "翻譯進度", progressDetail: "取得影片長度後會顯示轉譯進度。", translationWaiting: "等待轉譯內容。", estimatingCompletion: "正在估算完成時間…", estimatedCompletion: "預計完成時間 {time}", durationPrefix: "長度", seconds: "秒",
+    transcriptionProgress: "轉譯進度", translationProgress: "翻譯進度", translationSkipped: "已略過", progressDetail: "取得影片長度後會顯示轉譯進度。", translationWaiting: "等待轉譯內容。", estimatingCompletion: "正在估算完成時間…", estimatedCompletion: "預計完成時間 {time}", durationPrefix: "長度", seconds: "秒",
     translationCounts: "已翻譯 {translated} / 已收到 {received} 段 · 等待翻譯 {waiting} 段", translationPercentDone: "翻譯完成 {percent}% · 失敗 {failed} 段", translationErrorCodes: "錯誤碼 {codes}", sameLanguage: "原文與目標語言相同，已略過翻譯。", unsupportedLanguage: "目前翻譯服務不支援偵測到的語言：{language}",
     downloadSourceSrt: "下載原始 SRT", downloadTranslatedSrt: "下載翻譯 SRT", downloadBilingualSrt: "下載雙語 SRT", downloadJson: "下載 segments JSON", partialSuffix: "（部分完成）", partialDownloadWarning: "部分段落尚未翻譯，下載檔將以原文補位。是否繼續？", nextTranscription: "下一個轉譯內容",
     captchaLabel: "驗證碼", captchaPlaceholder: "輸入圖片中的文字", refreshCaptcha: "重新選擇", verifyCaptcha: "驗證", captchaVerified: "驗證完成", captchaLoadFailed: "取得驗證碼失敗", captchaVerifyFailed: "驗證失敗", captchaRequired: "請先完成驗證碼",
-    translationServiceFailed: "翻譯服務暫時無法使用", invalidTranslation: "翻譯回應格式不正確", videoTitle: "YouTube 影片", about: "關於我們", privacy: "隱私權政策", terms: "使用條款", contact: "聯絡我們", leaveWarning: "轉譯或翻譯仍在進行中，離開頁面將取消這次工作。"
+    translationServiceFailed: "翻譯服務暫時無法使用", invalidTranslation: "翻譯回應格式不正確", videoTitle: "YouTube 影片", uploadedVideoTitle: "上傳的影片", about: "關於我們", privacy: "隱私權政策", terms: "使用條款", contact: "聯絡我們", leaveWarning: "轉譯或翻譯仍在進行中，離開頁面將取消這次工作。"
   },
   en: {
-    pageTitle: "Video Translate", transcribeOnly: "Transcribe only", urlLabel: "YouTube URL", ignoreSubtitles: "Ignore built-in subtitles", includeWordTimestamps: "Reveal source word by word",
-    videoPreview: "Video preview", subtitleWaiting: "Subtitles will appear here when ready",
+    pageTitle: "Video Translate", uploadPageTitle: "Upload Video Translate", transcribeOnly: "Transcribe only", urlLabel: "YouTube URL", videoFileLabel: "Choose a video", videoFileHelp: "The video is used only for this job and is deleted after completion, cancellation, or expiration.", uploadPrivacyLink: "View Privacy Policy", ignoreSubtitles: "Ignore built-in subtitles", includeWordTimestamps: "Reveal source word by word",
+    videoPreview: "Video preview", enterFullscreen: "Fullscreen", exitFullscreen: "Exit fullscreen", subtitleWaiting: "Subtitles will appear here when ready",
     sourceLanguage: "Source language", targetLanguage: "Target language", autoDetect: "Auto detect", languageEnglish: "English", languageJapanese: "Japanese", languageKorean: "Korean", languageThai: "Thai", languageTraditionalChinese: "Traditional Chinese",
-    start: "Transcribe and translate", detectLanguage: "Detect language", waiting: "Waiting for a URL", creating: "Creating job", processing: "Processing", cancelJob: "Cancel", cancelled: "Transcription and translation cancelled", transcriptionDone: "Transcription complete; translation is still running", done: "Transcription and translation complete", partialDone: "Complete with some translation failures", failed: "Processing failed", disconnected: "Connection interrupted", requestFailed: "Request failed",
+    start: "Transcribe and translate", detectLanguage: "Detect language", waiting: "Waiting for a URL", waitingUpload: "Waiting for a video", creating: "Creating job", uploading: "Uploading video", processing: "Processing", cancelJob: "Cancel", cancelled: "Transcription and translation cancelled", transcriptionDone: "Transcription complete; translation is still running", done: "Transcription and translation complete", partialDone: "Complete with some translation failures", failed: "Processing failed", disconnected: "Connection interrupted", requestFailed: "Request failed",
     detectedLanguageLabel: "Detection result", detectedLanguageValue: "Detected as {language}", confirmSourceLanguage: "Confirm source language", confirmAndStart: "Confirm and start", confirmDetectedLanguage: "Confirm the source language to begin transcription", confirmingLanguage: "Submitting language selection", confidence: "Detection confidence {percent}%", subtitleLanguageSource: "From YouTube subtitle language", unknownLanguage: "Unknown language",
     resultTitle: "Live subtitles", emptyState: "Source text and translation will appear here segment by segment.", segmentUnit: "segments", sourceText: "Source", translatedText: "Translation", translationPending: "Waiting for translation…", translationFailed: "Translation failed", retryTranslation: "Retry",
-    transcriptionProgress: "Transcription", translationProgress: "Translation", progressDetail: "Progress appears after the video duration is available.", translationWaiting: "Waiting for transcription.", estimatingCompletion: "Estimating completion time…", estimatedCompletion: "Estimated completion {time}", durationPrefix: "Duration", seconds: "sec",
+    transcriptionProgress: "Transcription", translationProgress: "Translation", translationSkipped: "Skipped", progressDetail: "Progress appears after the video duration is available.", translationWaiting: "Waiting for transcription.", estimatingCompletion: "Estimating completion time…", estimatedCompletion: "Estimated completion {time}", durationPrefix: "Duration", seconds: "sec",
     translationCounts: "Translated {translated} / {received} received · {waiting} waiting", translationPercentDone: "Translation {percent}% · {failed} failed", translationErrorCodes: "Error code {codes}", sameLanguage: "Source and target languages match. Translation was skipped.", unsupportedLanguage: "The translation service does not support the detected language: {language}",
     downloadSourceSrt: "Download source SRT", downloadTranslatedSrt: "Download translated SRT", downloadBilingualSrt: "Download bilingual SRT", downloadJson: "Download segments JSON", partialSuffix: " (partial)", partialDownloadWarning: "Some segments are not translated. Source text will be used as fallback. Continue?", nextTranscription: "Next transcription",
     captchaLabel: "Verification", captchaPlaceholder: "Enter the text in the image", refreshCaptcha: "Choose again", verifyCaptcha: "Verify", captchaVerified: "Verified", captchaLoadFailed: "Could not load verification image", captchaVerifyFailed: "Verification failed", captchaRequired: "Please complete verification first",
-    translationServiceFailed: "Translation service is temporarily unavailable", invalidTranslation: "The translation response is invalid", videoTitle: "YouTube video", about: "About", privacy: "Privacy", terms: "Terms", contact: "Contact", leaveWarning: "Transcription or translation is still running. Leaving this page will cancel the job."
+    translationServiceFailed: "Translation service is temporarily unavailable", invalidTranslation: "The translation response is invalid", videoTitle: "YouTube video", uploadedVideoTitle: "Uploaded video", about: "About", privacy: "Privacy", terms: "Terms", contact: "Contact", leaveWarning: "Transcription or translation is still running. Leaving this page will cancel the job."
   },
   ja: {
-    pageTitle: "Video Translate", transcribeOnly: "文字起こしのみ", urlLabel: "YouTube URL", ignoreSubtitles: "内蔵字幕を無視", includeWordTimestamps: "原文を単語ごとに表示",
-    videoPreview: "動画プレビュー", subtitleWaiting: "字幕の準備ができるとここに表示されます",
+    pageTitle: "Video Translate", uploadPageTitle: "動画アップロード翻訳", transcribeOnly: "文字起こしのみ", urlLabel: "YouTube URL", videoFileLabel: "動画を選択", videoFileHelp: "動画は今回の処理にのみ使用され、完了・キャンセル・期限切れ後に自動削除されます。", uploadPrivacyLink: "プライバシーポリシーを見る", ignoreSubtitles: "内蔵字幕を無視", includeWordTimestamps: "原文を単語ごとに表示",
+    videoPreview: "動画プレビュー", enterFullscreen: "全画面", exitFullscreen: "全画面を終了", subtitleWaiting: "字幕の準備ができるとここに表示されます",
     sourceLanguage: "原文の言語", targetLanguage: "翻訳先の言語", autoDetect: "自動検出", languageEnglish: "英語", languageJapanese: "日本語", languageKorean: "韓国語", languageThai: "タイ語", languageTraditionalChinese: "繁体字中国語",
-    start: "文字起こしと翻訳を開始", detectLanguage: "言語を検出", waiting: "URL を入力してください", creating: "ジョブを作成中", processing: "処理中", cancelJob: "キャンセル", cancelled: "文字起こしと翻訳をキャンセルしました", transcriptionDone: "文字起こしが完了し、翻訳を続行しています", done: "文字起こしと翻訳が完了しました", partialDone: "一部の翻訳に失敗しました", failed: "処理に失敗しました", disconnected: "接続が切断されました", requestFailed: "リクエストに失敗しました",
+    start: "文字起こしと翻訳を開始", detectLanguage: "言語を検出", waiting: "URL を入力してください", waitingUpload: "動画を選択してください", creating: "ジョブを作成中", uploading: "動画をアップロード中", processing: "処理中", cancelJob: "キャンセル", cancelled: "文字起こしと翻訳をキャンセルしました", transcriptionDone: "文字起こしが完了し、翻訳を続行しています", done: "文字起こしと翻訳が完了しました", partialDone: "一部の翻訳に失敗しました", failed: "処理に失敗しました", disconnected: "接続が切断されました", requestFailed: "リクエストに失敗しました",
     detectedLanguageLabel: "検出結果", detectedLanguageValue: "{language} として検出", confirmSourceLanguage: "原文の言語を確認", confirmAndStart: "確認して開始", confirmDetectedLanguage: "原文の言語を確認してから開始してください", confirmingLanguage: "言語設定を送信中", confidence: "検出の信頼度 {percent}%", subtitleLanguageSource: "YouTube 字幕の言語", unknownLanguage: "不明な言語",
     resultTitle: "リアルタイム字幕", emptyState: "原文と翻訳が順番に表示されます。", segmentUnit: "件", sourceText: "原文", translatedText: "翻訳", translationPending: "翻訳待ち…", translationFailed: "翻訳に失敗しました", retryTranslation: "再翻訳",
-    transcriptionProgress: "文字起こしの進捗", translationProgress: "翻訳の進捗", progressDetail: "動画の長さを取得後、進捗が表示されます。", translationWaiting: "文字起こしを待っています。", estimatingCompletion: "完了時刻を計算中…", estimatedCompletion: "完了予定 {time}", durationPrefix: "長さ", seconds: "秒",
+    transcriptionProgress: "文字起こしの進捗", translationProgress: "翻訳の進捗", translationSkipped: "省略", progressDetail: "動画の長さを取得後、進捗が表示されます。", translationWaiting: "文字起こしを待っています。", estimatingCompletion: "完了時刻を計算中…", estimatedCompletion: "完了予定 {time}", durationPrefix: "長さ", seconds: "秒",
     translationCounts: "翻訳済み {translated} / 受信 {received} 件・待機 {waiting} 件", translationPercentDone: "翻訳 {percent}%・失敗 {failed} 件", translationErrorCodes: "エラーコード {codes}", sameLanguage: "原文と翻訳先が同じため、翻訳を省略しました。", unsupportedLanguage: "検出された言語は現在サポートされていません：{language}",
     downloadSourceSrt: "原文 SRT をダウンロード", downloadTranslatedSrt: "翻訳 SRT をダウンロード", downloadBilingualSrt: "二言語 SRT をダウンロード", downloadJson: "segments JSON をダウンロード", partialSuffix: "（一部完了）", partialDownloadWarning: "未翻訳の区間は原文で補完されます。続行しますか？", nextTranscription: "次の文字起こし",
     captchaLabel: "認証コード", captchaPlaceholder: "画像内の文字を入力", refreshCaptcha: "選び直す", verifyCaptcha: "認証", captchaVerified: "認証完了", captchaLoadFailed: "認証画像を取得できませんでした", captchaVerifyFailed: "認証に失敗しました", captchaRequired: "先に認証を完了してください",
-    translationServiceFailed: "翻訳サービスを利用できません", invalidTranslation: "翻訳レスポンスが不正です", videoTitle: "YouTube 動画", about: "私たちについて", privacy: "プライバシー", terms: "利用規約", contact: "お問い合わせ", leaveWarning: "文字起こしまたは翻訳が進行中です。ページを離れると、この処理はキャンセルされます。"
+    translationServiceFailed: "翻訳サービスを利用できません", invalidTranslation: "翻訳レスポンスが不正です", videoTitle: "YouTube 動画", uploadedVideoTitle: "アップロード動画", about: "私たちについて", privacy: "プライバシー", terms: "利用規約", contact: "お問い合わせ", leaveWarning: "文字起こしまたは翻訳が進行中です。ページを離れると、この処理はキャンセルされます。"
   },
   ko: {
-    pageTitle: "Video Translate", transcribeOnly: "전사만", urlLabel: "YouTube URL", ignoreSubtitles: "내장 자막 무시", includeWordTimestamps: "원문을 단어별로 표시",
-    videoPreview: "동영상 미리보기", subtitleWaiting: "자막이 준비되면 여기에 표시됩니다",
+    pageTitle: "Video Translate", uploadPageTitle: "동영상 업로드 번역", transcribeOnly: "전사만", urlLabel: "YouTube URL", videoFileLabel: "동영상 선택", videoFileHelp: "동영상은 이번 작업에만 사용되며 완료, 취소 또는 만료 후 자동 삭제됩니다.", uploadPrivacyLink: "개인정보 처리방침 보기", ignoreSubtitles: "내장 자막 무시", includeWordTimestamps: "원문을 단어별로 표시",
+    videoPreview: "동영상 미리보기", enterFullscreen: "전체 화면", exitFullscreen: "전체 화면 종료", subtitleWaiting: "자막이 준비되면 여기에 표시됩니다",
     sourceLanguage: "원문 언어", targetLanguage: "번역 언어", autoDetect: "자동 감지", languageEnglish: "영어", languageJapanese: "일본어", languageKorean: "한국어", languageThai: "태국어", languageTraditionalChinese: "번체 중국어",
-    start: "전사 및 번역 시작", detectLanguage: "언어 감지", waiting: "URL 입력 대기 중", creating: "작업 생성 중", processing: "처리 중", cancelJob: "전사 취소", cancelled: "전사와 번역이 취소되었습니다", transcriptionDone: "전사가 완료되어 번역을 계속 처리하고 있습니다", done: "전사 및 번역 완료", partialDone: "일부 번역 실패와 함께 완료", failed: "처리 실패", disconnected: "연결이 끊겼습니다", requestFailed: "요청 실패",
+    start: "전사 및 번역 시작", detectLanguage: "언어 감지", waiting: "URL 입력 대기 중", waitingUpload: "동영상 선택 대기 중", creating: "작업 생성 중", uploading: "동영상 업로드 중", processing: "처리 중", cancelJob: "전사 취소", cancelled: "전사와 번역이 취소되었습니다", transcriptionDone: "전사가 완료되어 번역을 계속 처리하고 있습니다", done: "전사 및 번역 완료", partialDone: "일부 번역 실패와 함께 완료", failed: "처리 실패", disconnected: "연결이 끊겼습니다", requestFailed: "요청 실패",
     detectedLanguageLabel: "감지 결과", detectedLanguageValue: "{language}(으)로 감지", confirmSourceLanguage: "원문 언어 확인", confirmAndStart: "확인 후 시작", confirmDetectedLanguage: "원문 언어를 확인한 뒤 전사를 시작하세요", confirmingLanguage: "언어 선택을 전송하는 중", confidence: "감지 신뢰도 {percent}%", subtitleLanguageSource: "YouTube 자막 언어", unknownLanguage: "알 수 없는 언어",
     resultTitle: "실시간 자막", emptyState: "원문과 번역이 구간별로 표시됩니다.", segmentUnit: "개", sourceText: "원문", translatedText: "번역", translationPending: "번역 대기 중…", translationFailed: "번역 실패", retryTranslation: "다시 번역",
-    transcriptionProgress: "전사 진행률", translationProgress: "번역 진행률", progressDetail: "영상 길이를 가져오면 진행률이 표시됩니다.", translationWaiting: "전사 내용을 기다리는 중입니다.", estimatingCompletion: "완료 시간을 계산하는 중…", estimatedCompletion: "예상 완료 시간 {time}", durationPrefix: "길이", seconds: "초",
+    transcriptionProgress: "전사 진행률", translationProgress: "번역 진행률", translationSkipped: "건너뜀", progressDetail: "영상 길이를 가져오면 진행률이 표시됩니다.", translationWaiting: "전사 내용을 기다리는 중입니다.", estimatingCompletion: "완료 시간을 계산하는 중…", estimatedCompletion: "예상 완료 시간 {time}", durationPrefix: "길이", seconds: "초",
     translationCounts: "번역 {translated} / 수신 {received}개 · 대기 {waiting}개", translationPercentDone: "번역 {percent}% · 실패 {failed}개", translationErrorCodes: "오류 코드 {codes}", sameLanguage: "원문과 대상 언어가 같아 번역을 건너뛰었습니다.", unsupportedLanguage: "감지된 언어는 현재 지원되지 않습니다: {language}",
     downloadSourceSrt: "원문 SRT 다운로드", downloadTranslatedSrt: "번역 SRT 다운로드", downloadBilingualSrt: "이중 언어 SRT 다운로드", downloadJson: "segments JSON 다운로드", partialSuffix: " (일부 완료)", partialDownloadWarning: "번역되지 않은 구간은 원문으로 대체됩니다. 계속하시겠습니까?", nextTranscription: "다음 전사",
     captchaLabel: "인증 코드", captchaPlaceholder: "이미지의 문자를 입력하세요", refreshCaptcha: "다시 선택", verifyCaptcha: "인증", captchaVerified: "인증 완료", captchaLoadFailed: "인증 이미지를 불러오지 못했습니다", captchaVerifyFailed: "인증에 실패했습니다", captchaRequired: "먼저 인증을 완료해 주세요",
-    translationServiceFailed: "번역 서비스를 일시적으로 사용할 수 없습니다", invalidTranslation: "번역 응답이 올바르지 않습니다", videoTitle: "YouTube 영상", about: "소개", privacy: "개인정보 처리방침", terms: "이용약관", contact: "문의", leaveWarning: "전사 또는 번역이 진행 중입니다. 페이지를 떠나면 이 작업이 취소됩니다."
+    translationServiceFailed: "번역 서비스를 일시적으로 사용할 수 없습니다", invalidTranslation: "번역 응답이 올바르지 않습니다", videoTitle: "YouTube 영상", uploadedVideoTitle: "업로드한 동영상", about: "소개", privacy: "개인정보 처리방침", terms: "이용약관", contact: "문의", leaveWarning: "전사 또는 번역이 진행 중입니다. 페이지를 떠나면 이 작업이 취소됩니다."
   }
 };
 
@@ -185,6 +194,7 @@ let previewTimer = null;
 let currentPreviewKey = "";
 let youtubePlayerApiPromise = null;
 let youtubePlayerController = null;
+let uploadPreviewUrl = "";
 let playbackSyncTimer = null;
 let playbackSyncEnabled = false;
 let activePlaybackSegmentId = null;
@@ -204,10 +214,12 @@ function applyLanguage(languageKey) {
   currentLanguage = translations[languageKey] ? languageKey : "zh-Hant";
   localStorage.setItem(languageStorageKey, currentLanguage);
   document.documentElement.lang = currentLanguage;
-  document.title = t("pageTitle");
+  const pageTitle = uploadMode ? t("uploadPageTitle") : t("pageTitle");
+  document.title = pageTitle;
   document.querySelectorAll("[data-i18n]").forEach(element => {
     element.textContent = t(element.dataset.i18n);
   });
+  topBrand.querySelector("[data-i18n='pageTitle']").textContent = pageTitle;
   document.querySelectorAll("[data-i18n-placeholder]").forEach(element => {
     element.setAttribute("placeholder", t(element.dataset.i18nPlaceholder));
   });
@@ -220,6 +232,58 @@ function applyLanguage(languageKey) {
   if (detectedLanguageData) showLanguageConfirmation(detectedLanguageData);
   updateTranslationProgress();
   updateActionButtons();
+  updateFullscreenButton();
+}
+
+function configureSourceMode() {
+  youtubeSourceGroup.classList.toggle("d-none", uploadMode);
+  uploadSourceGroup.classList.toggle("d-none", !uploadMode);
+  youtubeUrl.required = !uploadMode;
+  youtubeUrl.disabled = uploadMode;
+  videoFile.required = uploadMode;
+  videoFile.disabled = !uploadMode;
+  ignoreSubtitles.disabled = uploadMode;
+  transcribeOnlyLink.classList.toggle("d-none", uploadMode);
+  if (uploadMode) {
+    topBrand.href = "/video-upload-translate?source=upload";
+  }
+}
+
+function setSourceControlsDisabled(disabled) {
+  if (uploadMode) {
+    videoFile.disabled = disabled;
+  } else {
+    youtubeUrl.disabled = disabled;
+    ignoreSubtitles.disabled = disabled;
+  }
+  includeWordTimestamps.disabled = disabled;
+}
+
+function fullscreenElement() {
+  return document.fullscreenElement || document.webkitFullscreenElement || null;
+}
+
+function updateFullscreenButton() {
+  const active = fullscreenElement() === videoPreviewFrame;
+  const label = t(active ? "exitFullscreen" : "enterFullscreen");
+  videoFullscreenButton.textContent = label;
+  videoFullscreenButton.setAttribute("aria-label", label);
+  videoFullscreenButton.title = label;
+}
+
+async function toggleVideoFullscreen() {
+  try {
+    if (fullscreenElement() === videoPreviewFrame) {
+      const exitFullscreen = document.exitFullscreen || document.webkitExitFullscreen;
+      if (exitFullscreen) await exitFullscreen.call(document);
+    } else {
+      const requestFullscreen = videoPreviewFrame.requestFullscreen
+        || videoPreviewFrame.webkitRequestFullscreen;
+      if (requestFullscreen) await requestFullscreen.call(videoPreviewFrame);
+    }
+  } catch (error) {
+    console.error("Could not toggle video fullscreen", error);
+  }
 }
 
 function parseYouTubeStartTime(value) {
@@ -342,6 +406,14 @@ function updateVideoSubtitleOverlay(segment, currentTime = null) {
     currentTime,
     revealWords: includeWordTimestamps.checked,
   });
+  if (translationLanguagesMatch(segment.language, selectedTargetLanguage)) {
+    videoSubtitleSource.textContent = "";
+    videoSubtitleSource.classList.add("d-none");
+    videoSubtitleTranslation.textContent = sourceText;
+    videoSubtitleOverlay.classList.remove("waiting");
+    videoSubtitleOverlay.classList.remove("error");
+    return;
+  }
   videoSubtitleSource.textContent = sourceText;
   videoSubtitleTranslation.textContent = translatedText;
   videoSubtitleSource.classList.toggle(
@@ -360,6 +432,10 @@ function resetVideoPlayerMount() {
     } catch (_) {}
   }
   youtubePlayerController = null;
+  if (uploadPreviewUrl) {
+    URL.revokeObjectURL(uploadPreviewUrl);
+    uploadPreviewUrl = "";
+  }
   videoPlayerLayer.replaceChildren();
   const mount = document.createElement("div");
   mount.id = "youtubePlayer";
@@ -446,6 +522,7 @@ async function renderYouTubePlayer(parsed, previewKey) {
     playerVars: {
       start: parsed.start,
       rel: 0,
+      fs: 0,
       playsinline: 1,
       origin: window.location.origin,
     },
@@ -465,7 +542,73 @@ async function renderYouTubePlayer(parsed, previewKey) {
   });
 }
 
+function renderUploadedVideo(file, previewKey) {
+  const mount = resetVideoPlayerMount();
+  if (previewKey !== currentPreviewKey || !mount.isConnected) return;
+
+  uploadPreviewUrl = URL.createObjectURL(file);
+  const video = document.createElement("video");
+  video.controls = true;
+  if (video.controlsList) video.controlsList.add("nofullscreen");
+  else video.setAttribute("controlslist", "nofullscreen");
+  video.playsInline = true;
+  video.preload = "metadata";
+  video.src = uploadPreviewUrl;
+  video.setAttribute("title", t("videoPreview"));
+  mount.append(video);
+  youtubePlayerController = {
+    getCurrentTime: () => video.currentTime,
+    getDuration: () => video.duration,
+    seekTo: seconds => {
+      video.currentTime = Math.max(0, Number(seconds) || 0);
+      playbackSyncEnabled = true;
+      syncPlaybackToSubtitles();
+    },
+    destroy: () => {
+      video.pause();
+      video.removeAttribute("src");
+      video.load();
+    },
+  };
+  video.addEventListener("loadedmetadata", () => {
+    if (previewKey !== currentPreviewKey) return;
+    startPlaybackSync();
+    notifyParentHeight();
+  });
+  video.addEventListener("play", () => {
+    playbackSyncEnabled = true;
+    syncPlaybackToSubtitles();
+  });
+  video.addEventListener("seeking", () => {
+    playbackSyncEnabled = true;
+    syncPlaybackToSubtitles();
+  });
+  video.addEventListener("dblclick", event => {
+    event.preventDefault();
+    void toggleVideoFullscreen();
+  });
+}
+
 function updateVideoPreview() {
+  if (uploadMode) {
+    const file = videoFile.files?.[0];
+    if (!file) {
+      currentPreviewKey = "";
+      resetVideoPlayerMount();
+      videoPreview.classList.add("d-none");
+      notifyParentHeight();
+      return false;
+    }
+    const previewKey = `${file.name}:${file.size}:${file.lastModified}`;
+    if (previewKey !== currentPreviewKey) {
+      currentPreviewKey = previewKey;
+      renderUploadedVideo(file, previewKey);
+    }
+    videoPreview.classList.remove("d-none");
+    notifyParentHeight();
+    return true;
+  }
+
   const parsed = parseYouTubeVideo(youtubeUrl.value);
   if (!parsed) {
     currentPreviewKey = "";
@@ -498,6 +641,19 @@ function normalizeTranslationLanguage(language) {
   if (value.startsWith("th")) return "th";
   if (value.startsWith("zh")) return "zh-TW";
   return null;
+}
+
+function translationLanguagesMatch(source, target) {
+  const normalizedSource = normalizeTranslationLanguage(source);
+  const normalizedTarget = normalizeTranslationLanguage(target);
+  return Boolean(normalizedSource && normalizedTarget && normalizedSource === normalizedTarget);
+}
+
+function currentTranslationIsSkipped() {
+  return translationLanguagesMatch(
+    requestedSourceLanguage || detectedSourceLanguage,
+    selectedTargetLanguage,
+  );
 }
 
 function languageName(language) {
@@ -784,6 +940,20 @@ function updateTranslationProgress() {
   const failed = failedSegmentIds.size;
   const waiting = unresolvedCount();
   let percent = received > 0 ? translated / received * 100 : 0;
+  const translationProgressElement = translationBar.parentElement;
+
+  if (currentTranslationIsSkipped()) {
+    translationPercent.textContent = t("translationSkipped");
+    translationDetail.textContent = t("sameLanguage");
+    translationProgressElement.classList.add("d-none");
+    translationProgressElement.setAttribute("aria-valuenow", "0");
+    translationBar.style.width = "0%";
+    translationBar.classList.remove("progress-bar-animated");
+    segmentCount.textContent = `${received} ${t("segmentUnit")}`;
+    return;
+  }
+
+  translationProgressElement.classList.remove("d-none");
 
   if (transcriptionDone) {
     const rounded = Math.max(0, Math.min(100, Math.round(percent)));
@@ -1439,6 +1609,23 @@ function startNextTranslationWave({ allowPartial = false } = {}) {
 
 function enqueueTranslation(batch, { deferStart = false } = {}) {
   if (!batch.length || jobCancellationRequested) return translationQueue;
+  if (translationLanguagesMatch(batch[0]?.language, selectedTargetLanguage)) {
+    for (const group of batch) {
+      for (const segment of group.segments) {
+        translatedSegments.set(segment.id, {
+          id: segment.id,
+          translatedText: segment.sourceText,
+        });
+        showSegmentTranslation(segment.id, "ready", segment.sourceText);
+      }
+    }
+    if (!sameLanguageNoticeShown) {
+      sameLanguageNoticeShown = true;
+      setStatus(t("sameLanguage"), "running");
+    }
+    updateTranslationProgress();
+    return translationQueue;
+  }
   queuedBatchCount += 1;
   pendingTranslationBatches.push(batch);
   setTranslationActive(true);
@@ -1510,7 +1697,7 @@ function addSegment(data) {
     translationFailureCodes.set(id, "UNSUPPORTED_LANGUAGE");
     showSegmentTranslation(id, "failed", unsupportedLanguageNotice);
     setStatus(appendTranslationErrorCodes(unsupportedLanguageNotice), "failed");
-  } else if (normalizedLanguage === selectedTargetLanguage) {
+  } else if (translationLanguagesMatch(normalizedLanguage, selectedTargetLanguage)) {
     translatedSegments.set(id, { id, translatedText: sourceText });
     showSegmentTranslation(id, "ready", sourceText);
     if (!sameLanguageNoticeShown) {
@@ -1845,7 +2032,7 @@ async function verifyCaptchaAnswer() {
 refreshCaptcha.addEventListener("click", async () => {
   try {
     await loadCaptcha();
-    setStatus(t("waiting"), "idle");
+    setStatus(t(uploadMode ? "waitingUpload" : "waiting"), "idle");
   } catch (error) {
     setStatus(error.message || t("captchaLoadFailed"), "failed");
   }
@@ -1883,9 +2070,7 @@ cancelJob.addEventListener("click", async () => {
     languageConfirmation.classList.add("d-none");
     sourceLanguage.disabled = false;
     targetLanguage.disabled = false;
-    youtubeUrl.disabled = false;
-    ignoreSubtitles.disabled = false;
-    includeWordTimestamps.disabled = false;
+    setSourceControlsDisabled(false);
     setStatus(t("cancelled"), "idle");
     resetCaptchaState(false);
     notifyParentHeight();
@@ -1896,19 +2081,17 @@ cancelJob.addEventListener("click", async () => {
 });
 
 async function beginTranscription() {
-  resetView();
   requestedSourceLanguage = sourceLanguage.value;
   selectedTargetLanguage = targetLanguage.value;
+  resetView();
   sourceLanguage.disabled = true;
   targetLanguage.disabled = true;
-  youtubeUrl.disabled = true;
-  ignoreSubtitles.disabled = true;
-  includeWordTimestamps.disabled = true;
+  setSourceControlsDisabled(true);
   startBtn.disabled = true;
   startBtn.classList.add("d-none");
   captchaBlock.classList.add("d-none");
   setTranscriptionActive(true);
-  setStatus(t("creating"), "running");
+  setStatus(t(uploadMode ? "uploading" : "creating"), "running");
   if (requestedSourceLanguage) revealResults();
 
   const whisperLanguage = requestedSourceLanguage === "zh-TW"
@@ -1916,17 +2099,30 @@ async function beginTranscription() {
     : requestedSourceLanguage;
 
   try {
-    const response = await fetch("/api/youtube-live/jobs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        url: youtubeUrl.value.trim(),
-        language: whisperLanguage,
-        ignore_subtitles: ignoreSubtitles.checked,
-        include_word_timestamps: includeWordTimestamps.checked,
-        captcha_token: captchaToken.value,
-      }),
-    });
+    let response;
+    if (uploadMode) {
+      const uploadBody = new FormData();
+      uploadBody.append("file", videoFile.files[0]);
+      uploadBody.append("language", whisperLanguage);
+      uploadBody.append("include_word_timestamps", String(includeWordTimestamps.checked));
+      uploadBody.append("captcha_token", captchaToken.value);
+      response = await fetch("/api/video-upload/jobs", {
+        method: "POST",
+        body: uploadBody,
+      });
+    } else {
+      response = await fetch("/api/youtube-live/jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: youtubeUrl.value.trim(),
+          language: whisperLanguage,
+          ignore_subtitles: ignoreSubtitles.checked,
+          include_word_timestamps: includeWordTimestamps.checked,
+          captcha_token: captchaToken.value,
+        }),
+      });
+    }
     if (!response.ok) throw new Error(await readError(response));
     const job = await response.json();
     if (!job.job_id || !job.events_url || !job.translation_token
@@ -1944,12 +2140,15 @@ async function beginTranscription() {
     eventSource = new EventSource(job.events_url);
     eventSource.addEventListener("status", event => {
       const data = JSON.parse(event.data);
-      setStatus(data.message || t("processing"), "running");
+      setStatus(uploadMode ? t("processing") : (data.message || t("processing")), "running");
     });
     eventSource.addEventListener("metadata", event => {
       const data = JSON.parse(event.data);
-      totalDuration = Number(data.duration) || 0;
-      videoTitle.textContent = data.title || t("videoTitle");
+      const playerDuration = Number(youtubePlayerController?.getDuration?.()) || 0;
+      totalDuration = Number(data.duration) || playerDuration;
+      videoTitle.textContent = data.title
+        || (uploadMode ? videoFile.files?.[0]?.name : "")
+        || t(uploadMode ? "uploadedVideoTitle" : "videoTitle");
       videoDetail.textContent = totalDuration
         ? `${t("durationPrefix")} ${Math.round(totalDuration)} ${t("seconds")}`
         : "";
@@ -2053,9 +2252,7 @@ async function beginTranscription() {
     setStatus(error.message || t("requestFailed"), "failed");
     sourceLanguage.disabled = false;
     targetLanguage.disabled = false;
-    youtubeUrl.disabled = false;
-    ignoreSubtitles.disabled = false;
-    includeWordTimestamps.disabled = false;
+    setSourceControlsDisabled(false);
     resetCaptchaState(false);
     maybeFinalize();
   }
@@ -2084,16 +2281,23 @@ confirmLanguageBtn.addEventListener("click", async () => {
     detectedSourceLanguage = language;
     languageConfirmation.classList.add("d-none");
     revealResults();
-    setStatus(t("creating"), "running");
+    setStatus(t(uploadMode ? "processing" : "creating"), "running");
   } catch (error) {
     setStatus(error.message || t("requestFailed"), "failed");
     confirmLanguageBtn.disabled = false;
   }
 });
 
-youtubeUrl.addEventListener("input", scheduleVideoPreview);
-youtubeUrl.addEventListener("change", updateVideoPreview);
+if (uploadMode) {
+  videoFile.addEventListener("change", updateVideoPreview);
+} else {
+  youtubeUrl.addEventListener("input", scheduleVideoPreview);
+  youtubeUrl.addEventListener("change", updateVideoPreview);
+}
 sourceLanguage.addEventListener("change", updateStartButton);
+videoFullscreenButton.addEventListener("click", toggleVideoFullscreen);
+document.addEventListener("fullscreenchange", updateFullscreenButton);
+document.addEventListener("webkitfullscreenchange", updateFullscreenButton);
 
 form.addEventListener("submit", async event => {
   event.preventDefault();
@@ -2120,10 +2324,11 @@ form.addEventListener("submit", async event => {
   await beginTranscription();
 });
 
+configureSourceMode();
 applyLanguage(currentLanguage);
 resetView();
 resetCaptchaState(false);
-setStatus(t("waiting"), "idle");
+setStatus(t(uploadMode ? "waitingUpload" : "waiting"), "idle");
 loadPublicConfig();
 notifyParentHeight();
 window.addEventListener("load", notifyParentHeight);

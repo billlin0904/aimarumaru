@@ -14,7 +14,7 @@ from collections.abc import Callable
 from typing import Any, Optional
 
 import aiohttp
-from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi import APIRouter, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
@@ -66,6 +66,21 @@ YOUTUBE_WHISPER_LOW_CONFIDENCE_THRESHOLD = float(
 YOUTUBE_WHISPER_VAD_PARAMETERS = {
     "min_silence_duration_ms": 2000,
     "speech_pad_ms": 400,
+}
+VIDEO_UPLOAD_MAX_BYTES = int(
+    os.getenv("VIDEO_UPLOAD_MAX_BYTES", str(2 * 1024 * 1024 * 1024))
+)
+VIDEO_UPLOAD_EXTENSIONS = {
+    ".avi",
+    ".m4v",
+    ".mkv",
+    ".mov",
+    ".mp4",
+    ".mpeg",
+    ".mpg",
+    ".ts",
+    ".webm",
+    ".wmv",
 }
 
 
@@ -553,12 +568,25 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                 else "preparation"
             ),
             queue_wait_ms=queue_wait_ms,
+            source_kind=job.get("source_kind", "youtube"),
             source_language=job.get("language_hint") or "auto",
             ignore_subtitles=job.get("ignore_subtitles"),
             include_word_timestamps=job.get("include_word_timestamps"),
         )
         try:
             ensure_job_not_cancelled(job)
+            if job.get("source_kind") == "upload" and not job.get("metadata_emitted"):
+                job["metadata_emitted"] = True
+                await push_event(
+                    job,
+                    "metadata",
+                    {
+                        "title": job.get("filename") or "Uploaded video",
+                        "duration": None,
+                        "webpage_url": None,
+                        "chapters": [],
+                    },
+                )
             if job.get("status") == "queued_for_transcription":
                 phase = "transcription"
                 job["status"] = "running"
@@ -588,6 +616,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                     "video_job_completed",
                     job_id=job_id,
                     job_status="done",
+                    source_kind=job.get("source_kind", "youtube"),
                     subtitle_source=info.get("source") or job.get("prepared_source"),
                     source_language=info.get("language") or job.get("language_hint"),
                     segments=info.get("segments_count"),
@@ -610,6 +639,53 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
 
             job["status"] = "running"
             ensure_job_not_cancelled(job)
+            if job.get("source_kind") == "upload":
+                phase = "language_detection"
+                audio_path = Path(str(job.get("audio_path") or ""))
+                if not audio_path.is_file():
+                    raise RuntimeError("暫存影片已失效，請重新上傳")
+                await push_event(
+                    job,
+                    "status",
+                    {"message": "影片上傳完成，正在偵測原文語言"},
+                )
+                detection = await asyncio.to_thread(
+                    detect_audio_language,
+                    auto2lrc,
+                    audio_path,
+                    job_id,
+                    lambda: job_is_cancelled(job),
+                )
+                ensure_job_not_cancelled(job)
+                job["detected_language"] = detection["language"]
+                job["detection_source"] = "whisper"
+                job["language_probability"] = detection["language_probability"]
+                job["status"] = "awaiting_language_confirmation"
+                job["language_detected_monotonic"] = time.perf_counter()
+                job["expires_at"] = time.time() + YOUTUBE_LIVE_JOB_TTL_SECONDS
+                await push_event(
+                    job,
+                    "language_detected",
+                    {
+                        "language": detection["language"],
+                        "language_probability": detection["language_probability"],
+                        "source": "whisper",
+                    },
+                )
+                log_structured_event(
+                    "video_job_awaiting_language",
+                    job_id=job_id,
+                    job_status="awaiting_language_confirmation",
+                    source_kind="upload",
+                    detected_language=detection["language"],
+                    language_probability=detection["language_probability"],
+                    subtitle_source="whisper",
+                    detection_elapsed_ms=round(
+                        detection["detection_elapsed_seconds"] * 1000
+                    ),
+                )
+                return
+
             if job["ignore_subtitles"]:
                 await push_event(job, "status", {"message": "已略過內建字幕，準備下載音訊"})
             else:
@@ -806,6 +882,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                 queue,
                 job_id,
                 lambda: job_is_cancelled(job),
+                bool(job.get("include_word_timestamps")),
             )
             ensure_job_not_cancelled(job)
 
@@ -831,6 +908,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                 "video_job_cancelled",
                 job_id=job_id,
                 job_status="cancelled",
+                source_kind=job.get("source_kind", "youtube"),
                 phase=phase,
                 run_elapsed_ms=round((time.perf_counter() - run_started) * 1000),
             )
@@ -844,12 +922,13 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                 "video_job_failed",
                 job_id=job_id,
                 job_status="failed",
+                source_kind=job.get("source_kind", "youtube"),
                 phase=phase,
                 exception_type=type(exc).__name__,
                 run_elapsed_ms=round((time.perf_counter() - run_started) * 1000),
             )
             logger.exception(
-                "YouTube live job failed: job_id=%s phase=%s",
+                "Video transcription job failed: job_id=%s phase=%s",
                 job_id,
                 phase,
             )
@@ -872,6 +951,13 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
 
     @router.get("/youtube-live-translate", include_in_schema=False)
     def youtube_live_translate_page():
+        return HTMLResponse(
+            translate_page_path.read_text(encoding="utf-8"),
+            headers={"Cache-Control": "no-store, max-age=0"},
+        )
+
+    @router.get("/video-upload-translate", include_in_schema=False)
+    def video_upload_translate_page():
         return HTMLResponse(
             translate_page_path.read_text(encoding="utf-8"),
             headers={"Cache-Control": "no-store, max-age=0"},
@@ -976,6 +1062,120 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         }
 
     @router.post(
+        "/api/video-upload/jobs",
+        tags=["Video Upload"],
+        summary="上傳影片並建立即時轉譯工作",
+    )
+    async def create_video_upload_job(
+        http_request: Request,
+        file: UploadFile = File(...),
+        language: str = Form(""),
+        captcha_token: str = Form(""),
+        include_word_timestamps: bool = Form(True),
+    ):
+        cleanup_youtube_live_jobs(jobs)
+        if verify_captcha_token is not None:
+            verify_captcha_token(captcha_token)
+
+        original_filename = Path(file.filename or "video").name
+        suffix = Path(original_filename).suffix.lower()
+        content_type = str(file.content_type or "").lower()
+        if not content_type.startswith("video/") and suffix not in VIDEO_UPLOAD_EXTENSIONS:
+            raise HTTPException(status_code=400, detail="請選擇支援的影片檔案")
+
+        job_id = secrets.token_urlsafe(18)
+        work_dir = Path(tempfile.mkdtemp(prefix="video_upload_"))
+        upload_path = work_dir / f"input{suffix or '.video'}"
+        upload_bytes = 0
+        try:
+            with upload_path.open("wb") as output:
+                while chunk := await file.read(1024 * 1024):
+                    upload_bytes += len(chunk)
+                    if upload_bytes > VIDEO_UPLOAD_MAX_BYTES:
+                        raise HTTPException(
+                            status_code=413,
+                            detail="上傳影片超過伺服器允許的大小",
+                        )
+                    output.write(chunk)
+        except asyncio.CancelledError:
+            shutil.rmtree(work_dir, ignore_errors=True)
+            raise
+        except HTTPException:
+            shutil.rmtree(work_dir, ignore_errors=True)
+            raise
+        except Exception as exc:
+            shutil.rmtree(work_dir, ignore_errors=True)
+            raise HTTPException(status_code=500, detail=f"儲存上傳影片失敗: {exc}") from exc
+        finally:
+            await file.close()
+
+        if upload_bytes == 0:
+            shutil.rmtree(work_dir, ignore_errors=True)
+            raise HTTPException(status_code=400, detail="上傳影片不可為空")
+
+        language_hint = language.strip() or None
+        created_monotonic = time.perf_counter()
+        jobs[job_id] = {
+            "source_kind": "upload",
+            "filename": original_filename,
+            "language_hint": language_hint,
+            "ignore_subtitles": True,
+            "include_word_timestamps": include_word_timestamps,
+            "prepared_source": "whisper",
+            "audio_path": str(upload_path),
+            "work_dir": str(work_dir),
+            "translation_token": secrets.token_urlsafe(32),
+            "translation_tasks": set(),
+            "cancel_token": secrets.token_urlsafe(32),
+            "cancel_event": threading.Event(),
+            "status": "queued_for_transcription" if language_hint else "queued",
+            "queue": asyncio.Queue(),
+            "created_at": time.time(),
+            "created_monotonic": created_monotonic,
+            "queued_monotonic": created_monotonic,
+            "expires_at": time.time() + YOUTUBE_LIVE_JOB_TTL_SECONDS,
+        }
+        set_request_log_metadata(
+            http_request,
+            request_id=job_id,
+            job_id=job_id,
+            operation="video_upload_job_create",
+            job_status=jobs[job_id]["status"],
+            source_kind="upload",
+            source_language=language_hint or "auto",
+            include_word_timestamps=include_word_timestamps,
+        )
+        try:
+            enqueue_transcribe_task({"kind": "youtube_live", "id": job_id})
+        except asyncio.QueueFull:
+            cleanup_youtube_live_job_artifacts(jobs.pop(job_id))
+            raise HTTPException(status_code=503, detail="轉譯佇列已滿，請稍後再試")
+        except RuntimeError as exc:
+            cleanup_youtube_live_job_artifacts(jobs.pop(job_id))
+            raise HTTPException(status_code=503, detail="轉譯佇列尚未啟動，請稍後再試") from exc
+
+        queue_counts = get_transcribe_queue_counts()
+        log_structured_event(
+            "video_job_created",
+            job_id=job_id,
+            job_status=jobs[job_id]["status"],
+            source_kind="upload",
+            source_language=language_hint or "auto",
+            include_word_timestamps=include_word_timestamps,
+            input_bytes=upload_bytes,
+            waiting_count=queue_counts["waiting_count"],
+            transcribing_count=queue_counts["transcribing_count"],
+        )
+        return {
+            "job_id": job_id,
+            "events_url": f"/api/youtube-live/jobs/{job_id}/events",
+            "translation_token": jobs[job_id]["translation_token"],
+            "cancel_url": f"/api/youtube-live/jobs/{job_id}/cancel",
+            "cancel_token": jobs[job_id]["cancel_token"],
+            "status": jobs[job_id]["status"],
+        }
+
+    @router.post(
         "/api/youtube-live/jobs/{job_id}/cancel",
         tags=["YouTube Live"],
         summary="取消 Video 轉譯工作",
@@ -988,7 +1188,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         cleanup_youtube_live_jobs(jobs)
         job = jobs.get(job_id)
         if not job:
-            raise HTTPException(status_code=404, detail="找不到這個 YouTube 轉譯請求")
+            raise HTTPException(status_code=404, detail="找不到這個影片轉譯請求")
         expected_token = str(job.get("cancel_token") or "")
         if not payload.cancel_token or not secrets.compare_digest(
             payload.cancel_token,
@@ -1053,7 +1253,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         cleanup_youtube_live_jobs(jobs)
         job = jobs.get(job_id)
         if not job:
-            raise HTTPException(status_code=404, detail="找不到這個 YouTube 轉譯請求")
+            raise HTTPException(status_code=404, detail="找不到這個影片轉譯請求")
         if not x_translation_token or not secrets.compare_digest(
             x_translation_token,
             str(job.get("translation_token") or ""),
@@ -1132,13 +1332,13 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         tags=["YouTube Live Translation"],
         summary="代理字幕批次翻譯請求",
         description=(
-            "供即時翻譯驗證頁面使用。需要建立 YouTube job 時取得的短效 "
+            "供即時翻譯驗證頁面使用。需要建立影片 job 時取得的短效 "
             "X-Translation-Token，JSON 內容會原樣轉送至翻譯服務。"
         ),
         responses={
             400: {"description": "JSON 或 Content-Length 無效"},
             401: {"description": "翻譯權杖無效或過期"},
-            403: {"description": "request_id 與 YouTube job 不相符"},
+            403: {"description": "request_id 與影片 job 不相符"},
             413: {"description": "請求超過 128 KiB"},
             415: {"description": "Content-Type 不是 application/json"},
             502: {"description": "無法連線至翻譯服務"},
@@ -1235,7 +1435,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         translation_token: str = Header(
             ...,
             alias="X-Translation-Token",
-            description="建立 YouTube job 時取得的短效翻譯權杖",
+            description="建立影片 job 時取得的短效翻譯權杖",
         ),
     ):
         cleanup_youtube_live_jobs(jobs)
@@ -1272,7 +1472,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
 
         request_id = str(payload.get("request_id") or "")
         if not request_id.startswith(f"youtube-{authorized_job_id}-"):
-            raise HTTPException(status_code=403, detail="request_id 與 YouTube job 不相符")
+            raise HTTPException(status_code=403, detail="request_id 與影片 job 不相符")
 
         segments = payload.get("segments")
         context_segments = payload.get("context_segments")
@@ -1444,7 +1644,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         responses={
             400: {"description": "操作、JSON 或 Content-Length 無效"},
             401: {"description": "翻譯權杖無效或過期"},
-            403: {"description": "request_id 與 YouTube job 不相符"},
+            403: {"description": "request_id 與影片 job 不相符"},
             413: {"description": "請求超過 128 KiB"},
             415: {"description": "Content-Type 不是 application/json"},
             502: {"description": "無法連線至翻譯服務"},
@@ -1457,7 +1657,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         translation_token: str = Header(
             ...,
             alias="X-Translation-Token",
-            description="建立 YouTube job 時取得的短效翻譯權杖",
+            description="建立影片 job 時取得的短效翻譯權杖",
         ),
     ):
         upstream_paths = {
@@ -1502,7 +1702,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
 
         request_id = str(payload.get("request_id") or "")
         if not request_id.startswith(f"youtube-{authorized_job_id}-"):
-            raise HTTPException(status_code=403, detail="request_id 與 YouTube job 不相符")
+            raise HTTPException(status_code=403, detail="request_id 與影片 job 不相符")
 
         segments = payload.get("segments")
         groups = payload.get("groups")
@@ -1614,7 +1814,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         cleanup_youtube_live_jobs(jobs)
         job = jobs.get(job_id)
         if not job:
-            raise HTTPException(status_code=404, detail="找不到這個 YouTube 轉譯請求")
+            raise HTTPException(status_code=404, detail="找不到這個影片轉譯請求")
         set_request_log_metadata(
             request,
             request_id=job_id,

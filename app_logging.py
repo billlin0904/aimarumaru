@@ -220,7 +220,9 @@ def configure_access_logging(app: FastAPI) -> None:
                 on_screen_terms=meta.get("on_screen_terms"),
                 low_confidence_spans=meta.get("low_confidence_spans"),
                 characters=meta.get("characters"),
+                source_kind=meta.get("source_kind"),
                 ignore_subtitles=meta.get("ignore_subtitles"),
+                include_word_timestamps=meta.get("include_word_timestamps"),
                 vocal_separation=meta.get("vocal_separation"),
             )
 
