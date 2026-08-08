@@ -10,7 +10,7 @@
                 "main:app",
                 "--port",
                 "9090",
-                "--reload"
+                "--reload"                
             ],
             "jinja": true,
             "justMyCode": false

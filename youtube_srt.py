@@ -13,6 +13,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app_logging import log_structured_event, set_request_log_metadata
+from media_audio_stream import MediaAudioSource
 from text_converter import to_traditional_chinese
 
 
@@ -652,12 +653,6 @@ def download_youtube_audio(url: str, output_dir: str, cookies_file: Path):
             "concurrent_fragment_downloads": 5,
             "js_runtimes": {"node": {}},
             "logger": yt_dlp_logger,
-            "postprocessors": [
-                {
-                    "key": "FFmpegExtractAudio",
-                    "preferredcodec": "wav",
-                }
-            ],
         }
         if player_clients:
             options["extractor_args"] = {"youtube": {"player_client": player_clients}}
@@ -678,10 +673,41 @@ def download_youtube_audio(url: str, output_dir: str, cookies_file: Path):
             try:
                 with yt_dlp.YoutubeDL(options) as ydl:
                     info = ydl.extract_info(attempt_url, download=True)
-                audio_files = list(attempt_dir.glob("*.wav"))
+                    candidate_paths: list[Path] = []
+                    for download in info.get("requested_downloads") or []:
+                        filepath = download.get("filepath")
+                        if filepath:
+                            candidate_paths.append(Path(filepath))
+                    prepared_filename = ydl.prepare_filename(info)
+                    if prepared_filename:
+                        candidate_paths.append(Path(prepared_filename))
+
+                ignored_suffixes = {
+                    ".description",
+                    ".json",
+                    ".jpg",
+                    ".jpeg",
+                    ".part",
+                    ".png",
+                    ".srt",
+                    ".vtt",
+                    ".webp",
+                    ".ytdl",
+                }
+                candidate_paths.extend(
+                    path
+                    for path in attempt_dir.iterdir()
+                    if path.is_file() and path.suffix.lower() not in ignored_suffixes
+                )
+                audio_files = {
+                    path.resolve()
+                    for path in candidate_paths
+                    if path.is_file() and path.stat().st_size > 0
+                }
                 if not audio_files:
-                    raise RuntimeError("音軌轉換完成後找不到 WAV 檔案")
-                return audio_files[0], info
+                    raise RuntimeError("音軌下載完成後找不到媒體檔案")
+                audio_path = max(audio_files, key=lambda path: path.stat().st_size)
+                return audio_path, info
             except Exception as exc:
                 errors.append(f"{attempt_url} / {player_clients or 'default'}: {str(exc)}")
 
@@ -700,6 +726,75 @@ def download_youtube_audio(url: str, output_dir: str, cookies_file: Path):
             "若仍是 403，請確認 cookies.txt 是否有效，或該影片在同一台機器的瀏覽器可播放。"
             f"最後錯誤: {last_error}"
         ),
+    )
+
+
+def get_youtube_audio_stream_source(
+    url: str,
+    cookies_file: Path,
+) -> tuple[MediaAudioSource, dict[str, Any]]:
+    try:
+        import yt_dlp
+    except ImportError as exc:
+        raise HTTPException(status_code=500, detail="缺少 yt-dlp，請先安裝 requirements.txt") from exc
+
+    errors: list[str] = []
+    for attempt_url in youtube_url_attempts(url, True):
+        for player_clients in YOUTUBE_PLAYER_CLIENT_ATTEMPTS:
+            options: dict[str, Any] = {
+                "format": "bestaudio[ext=m4a]/bestaudio/best",
+                "noplaylist": True,
+                "quiet": True,
+                "no_warnings": True,
+                "retries": 3,
+                "fragment_retries": 3,
+                "js_runtimes": {"node": {}},
+                "logger": yt_dlp_logger,
+            }
+            if player_clients:
+                options["extractor_args"] = {
+                    "youtube": {"player_client": player_clients}
+                }
+            if cookies_file.exists():
+                options["cookiefile"] = str(cookies_file)
+
+            try:
+                with yt_dlp.YoutubeDL(options) as ydl:
+                    info = ydl.extract_info(attempt_url, download=False)
+                stream_url = str(info.get("url") or "").strip()
+                if not stream_url:
+                    for selected_format in info.get("requested_formats") or []:
+                        if selected_format.get("vcodec") == "none" and selected_format.get("url"):
+                            stream_url = str(selected_format["url"]).strip()
+                            break
+                if not stream_url:
+                    raise RuntimeError("yt-dlp 沒有回傳可串流的音軌網址")
+
+                headers = {
+                    str(name): str(value)
+                    for name, value in (info.get("http_headers") or {}).items()
+                    if value is not None
+                }
+                source = MediaAudioSource(
+                    location=stream_url,
+                    headers=headers,
+                    label=f"youtube-{info.get('id') or 'audio'}",
+                )
+                return source, info
+            except Exception as exc:
+                errors.append(
+                    f"{attempt_url} / {player_clients or 'default'}: {str(exc)}"
+                )
+
+    last_error = errors[-1] if errors else "未知錯誤"
+    if any("429" in error or "Too Many Requests" in error for error in errors):
+        raise HTTPException(
+            status_code=429,
+            detail=f"{YOUTUBE_RATE_LIMIT_MESSAGE} 最後錯誤: {last_error}",
+        )
+    raise HTTPException(
+        status_code=400,
+        detail=f"無法建立 YouTube 音軌串流。最後錯誤: {last_error}",
     )
 
 

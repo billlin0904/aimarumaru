@@ -35,6 +35,15 @@ CASES = {
         "condition_on_previous_text": True,
         "vad_filter": True,
     },
+    "E_no_previous_text_vad": {
+        "temperature": 0.0,
+        "condition_on_previous_text": False,
+        "vad_filter": True,
+        "vad_parameters": {
+            "min_silence_duration_ms": 2000,
+            "speech_pad_ms": 400,
+        },
+    },
 }
 
 
@@ -141,6 +150,7 @@ def run_case(
 
     segment_rows: list[dict[str, Any]] = []
     window_temperatures: dict[int, float] = {}
+    next_progress_seconds = 600.0
     for segment in segments:
         text = segment.text.strip()
         segment_rows.append(
@@ -159,6 +169,15 @@ def run_case(
             temperature,
             window_temperatures.get(segment.seek, 0),
         )
+        if segment.end >= next_progress_seconds:
+            elapsed = time.perf_counter() - started_at
+            progress = min(segment.end / float(info.duration), 1.0)
+            print(
+                f"  audio {segment.end / 60:.0f}/{float(info.duration) / 60:.0f} min "
+                f"({progress:.0%}), elapsed {elapsed / 60:.1f} min",
+                flush=True,
+            )
+            next_progress_seconds += 600.0
 
     elapsed = time.perf_counter() - started_at
     texts = [row["text"] for row in segment_rows if row["text"]]

@@ -29,6 +29,7 @@ const ignoreSubtitles = document.getElementById("ignoreSubtitles");
 const includeWordTimestamps = document.getElementById("includeWordTimestamps");
 const sourceLanguage = document.getElementById("sourceLanguage");
 const targetLanguage = document.getElementById("targetLanguage");
+const transcriptionMode = document.getElementById("transcriptionMode");
 const startBtn = document.getElementById("startBtn");
 const languageConfirmation = document.getElementById("languageConfirmation");
 const detectedLanguageTitle = document.getElementById("detectedLanguageTitle");
@@ -109,7 +110,7 @@ const translations = {
     selectedVideos: "已選影片", selectedVideoCount: "{count} 支", videoBatchQueued: "排程中", videoBatchProcessing: "處理中", videoBatchDone: "已完成", videoBatchFailed: "失敗", videoBatchCancelled: "已取消", batchDownloads: "批次下載",
     playlistLabel: "播放清單", playlistCount: "{count} 支影片", playlistLoading: "正在讀取播放清單…", playlistLoadFailed: "無法讀取播放清單", selectPlaylistVideo: "選擇第 {index} 支影片：{title}",
     videoPreview: "影片預覽", enterFullscreen: "全螢幕", exitFullscreen: "結束全螢幕", subtitleWaiting: "字幕完成後會顯示在這裡",
-    sourceLanguage: "原文語言", targetLanguage: "翻譯目標語言", autoDetect: "自動偵測", languageEnglish: "英文", languageJapanese: "日文", languageKorean: "韓文", languageThai: "泰文", languageTraditionalChinese: "繁體中文",
+    sourceLanguage: "原文語言", targetLanguage: "翻譯目標語言", transcriptionMode: "轉譯模式", modeAccurate: "高精度（較慢）", modeFast: "快速", autoDetect: "自動偵測", languageEnglish: "英文", languageJapanese: "日文", languageKorean: "韓文", languageThai: "泰文", languageTraditionalChinese: "繁體中文",
     start: "開始轉譯並翻譯", detectLanguage: "偵測語言", waiting: "等待輸入網址", waitingUpload: "等待選擇影片", creating: "建立任務中", uploading: "正在上傳影片", processing: "處理中", cancelJob: "取消轉譯", cancelled: "已取消轉譯與翻譯", transcriptionDone: "轉譯完成，翻譯繼續處理中", done: "轉譯與翻譯完成", partialDone: "處理完成，部分翻譯失敗", failed: "處理失敗", disconnected: "連線中斷", requestFailed: "請求失敗",
     detectedLanguageLabel: "偵測結果", detectedLanguageValue: "偵測為 {language}", confirmSourceLanguage: "確認原文語言", confirmAndStart: "確認並開始", confirmDetectedLanguage: "請確認原文語言後再開始轉譯", confirmingLanguage: "正在送出語言選擇", confidence: "偵測信心 {percent}%", subtitleLanguageSource: "來自 YouTube 字幕語言", unknownLanguage: "未知語言",
     resultTitle: "即時字幕", emptyState: "原文與譯文會一段一段顯示在這裡。", segmentUnit: "段", sourceText: "原文", translatedText: "翻譯", translationPending: "正在等待翻譯…", translationFailed: "翻譯失敗", retryTranslation: "重新翻譯",
@@ -124,7 +125,7 @@ const translations = {
     selectedVideos: "Selected videos", selectedVideoCount: "{count} videos", videoBatchQueued: "Queued", videoBatchProcessing: "Processing", videoBatchDone: "Complete", videoBatchFailed: "Failed", videoBatchCancelled: "Cancelled", batchDownloads: "Batch downloads",
     playlistLabel: "Playlist", playlistCount: "{count} videos", playlistLoading: "Loading playlist…", playlistLoadFailed: "Could not load playlist", selectPlaylistVideo: "Select video {index}: {title}",
     videoPreview: "Video preview", enterFullscreen: "Fullscreen", exitFullscreen: "Exit fullscreen", subtitleWaiting: "Subtitles will appear here when ready",
-    sourceLanguage: "Source language", targetLanguage: "Target language", autoDetect: "Auto detect", languageEnglish: "English", languageJapanese: "Japanese", languageKorean: "Korean", languageThai: "Thai", languageTraditionalChinese: "Traditional Chinese",
+    sourceLanguage: "Source language", targetLanguage: "Target language", transcriptionMode: "Transcription mode", modeAccurate: "High accuracy (slower)", modeFast: "Fast", autoDetect: "Auto detect", languageEnglish: "English", languageJapanese: "Japanese", languageKorean: "Korean", languageThai: "Thai", languageTraditionalChinese: "Traditional Chinese",
     start: "Transcribe and translate", detectLanguage: "Detect language", waiting: "Waiting for a URL", waitingUpload: "Waiting for a video", creating: "Creating job", uploading: "Uploading video", processing: "Processing", cancelJob: "Cancel", cancelled: "Transcription and translation cancelled", transcriptionDone: "Transcription complete; translation is still running", done: "Transcription and translation complete", partialDone: "Complete with some translation failures", failed: "Processing failed", disconnected: "Connection interrupted", requestFailed: "Request failed",
     detectedLanguageLabel: "Detection result", detectedLanguageValue: "Detected as {language}", confirmSourceLanguage: "Confirm source language", confirmAndStart: "Confirm and start", confirmDetectedLanguage: "Confirm the source language to begin transcription", confirmingLanguage: "Submitting language selection", confidence: "Detection confidence {percent}%", subtitleLanguageSource: "From YouTube subtitle language", unknownLanguage: "Unknown language",
     resultTitle: "Live subtitles", emptyState: "Source text and translation will appear here segment by segment.", segmentUnit: "segments", sourceText: "Source", translatedText: "Translation", translationPending: "Waiting for translation…", translationFailed: "Translation failed", retryTranslation: "Retry",
@@ -139,7 +140,7 @@ const translations = {
     selectedVideos: "選択した動画", selectedVideoCount: "{count} 本", videoBatchQueued: "待機中", videoBatchProcessing: "処理中", videoBatchDone: "完了", videoBatchFailed: "失敗", videoBatchCancelled: "キャンセル済み", batchDownloads: "一括ダウンロード",
     playlistLabel: "再生リスト", playlistCount: "{count} 本", playlistLoading: "再生リストを読み込み中…", playlistLoadFailed: "再生リストを読み込めません", selectPlaylistVideo: "{index} 本目を選択：{title}",
     videoPreview: "動画プレビュー", enterFullscreen: "全画面", exitFullscreen: "全画面を終了", subtitleWaiting: "字幕の準備ができるとここに表示されます",
-    sourceLanguage: "原文の言語", targetLanguage: "翻訳先の言語", autoDetect: "自動検出", languageEnglish: "英語", languageJapanese: "日本語", languageKorean: "韓国語", languageThai: "タイ語", languageTraditionalChinese: "繁体字中国語",
+    sourceLanguage: "原文の言語", targetLanguage: "翻訳先の言語", transcriptionMode: "文字起こしモード", modeAccurate: "高精度（低速）", modeFast: "高速", autoDetect: "自動検出", languageEnglish: "英語", languageJapanese: "日本語", languageKorean: "韓国語", languageThai: "タイ語", languageTraditionalChinese: "繁体字中国語",
     start: "文字起こしと翻訳を開始", detectLanguage: "言語を検出", waiting: "URL を入力してください", waitingUpload: "動画を選択してください", creating: "ジョブを作成中", uploading: "動画をアップロード中", processing: "処理中", cancelJob: "キャンセル", cancelled: "文字起こしと翻訳をキャンセルしました", transcriptionDone: "文字起こしが完了し、翻訳を続行しています", done: "文字起こしと翻訳が完了しました", partialDone: "一部の翻訳に失敗しました", failed: "処理に失敗しました", disconnected: "接続が切断されました", requestFailed: "リクエストに失敗しました",
     detectedLanguageLabel: "検出結果", detectedLanguageValue: "{language} として検出", confirmSourceLanguage: "原文の言語を確認", confirmAndStart: "確認して開始", confirmDetectedLanguage: "原文の言語を確認してから開始してください", confirmingLanguage: "言語設定を送信中", confidence: "検出の信頼度 {percent}%", subtitleLanguageSource: "YouTube 字幕の言語", unknownLanguage: "不明な言語",
     resultTitle: "リアルタイム字幕", emptyState: "原文と翻訳が順番に表示されます。", segmentUnit: "件", sourceText: "原文", translatedText: "翻訳", translationPending: "翻訳待ち…", translationFailed: "翻訳に失敗しました", retryTranslation: "再翻訳",
@@ -154,7 +155,7 @@ const translations = {
     selectedVideos: "선택한 동영상", selectedVideoCount: "동영상 {count}개", videoBatchQueued: "대기 중", videoBatchProcessing: "처리 중", videoBatchDone: "완료", videoBatchFailed: "실패", videoBatchCancelled: "취소됨", batchDownloads: "일괄 다운로드",
     playlistLabel: "재생목록", playlistCount: "동영상 {count}개", playlistLoading: "재생목록을 불러오는 중…", playlistLoadFailed: "재생목록을 불러올 수 없습니다", selectPlaylistVideo: "{index}번 동영상 선택: {title}",
     videoPreview: "동영상 미리보기", enterFullscreen: "전체 화면", exitFullscreen: "전체 화면 종료", subtitleWaiting: "자막이 준비되면 여기에 표시됩니다",
-    sourceLanguage: "원문 언어", targetLanguage: "번역 언어", autoDetect: "자동 감지", languageEnglish: "영어", languageJapanese: "일본어", languageKorean: "한국어", languageThai: "태국어", languageTraditionalChinese: "번체 중국어",
+    sourceLanguage: "원문 언어", targetLanguage: "번역 언어", transcriptionMode: "전사 모드", modeAccurate: "고정밀(느림)", modeFast: "빠름", autoDetect: "자동 감지", languageEnglish: "영어", languageJapanese: "일본어", languageKorean: "한국어", languageThai: "태국어", languageTraditionalChinese: "번체 중국어",
     start: "전사 및 번역 시작", detectLanguage: "언어 감지", waiting: "URL 입력 대기 중", waitingUpload: "동영상 선택 대기 중", creating: "작업 생성 중", uploading: "동영상 업로드 중", processing: "처리 중", cancelJob: "전사 취소", cancelled: "전사와 번역이 취소되었습니다", transcriptionDone: "전사가 완료되어 번역을 계속 처리하고 있습니다", done: "전사 및 번역 완료", partialDone: "일부 번역 실패와 함께 완료", failed: "처리 실패", disconnected: "연결이 끊겼습니다", requestFailed: "요청 실패",
     detectedLanguageLabel: "감지 결과", detectedLanguageValue: "{language}(으)로 감지", confirmSourceLanguage: "원문 언어 확인", confirmAndStart: "확인 후 시작", confirmDetectedLanguage: "원문 언어를 확인한 뒤 전사를 시작하세요", confirmingLanguage: "언어 선택을 전송하는 중", confidence: "감지 신뢰도 {percent}%", subtitleLanguageSource: "YouTube 자막 언어", unknownLanguage: "알 수 없는 언어",
     resultTitle: "실시간 자막", emptyState: "원문과 번역이 구간별로 표시됩니다.", segmentUnit: "개", sourceText: "원문", translatedText: "번역", translationPending: "번역 대기 중…", translationFailed: "번역 실패", retryTranslation: "다시 번역",
@@ -312,6 +313,7 @@ function setSourceControlsDisabled(disabled) {
     });
   }
   includeWordTimestamps.disabled = disabled;
+  transcriptionMode.disabled = disabled;
 }
 
 function fullscreenElement() {
@@ -570,8 +572,14 @@ function updateVideoSubtitleOverlay(segment, currentTime = null) {
     ? translationFailureCodes.get(segment.id)
     : "";
   if (segment && failureCode) {
-    videoSubtitleSource.textContent = "";
-    videoSubtitleSource.classList.add("d-none");
+    const sourceText = sourceTextForOverlay({
+      activeCue: null,
+      segment,
+      currentTime,
+      revealWords: includeWordTimestamps.checked,
+    });
+    videoSubtitleSource.textContent = sourceText;
+    videoSubtitleSource.classList.remove("d-none");
     videoSubtitleTranslation.textContent = `${t("translationFailed")} · ${t(
       "translationErrorCodes",
       { codes: failureCode },
@@ -594,7 +602,17 @@ function updateVideoSubtitleOverlay(segment, currentTime = null) {
     return;
   }
   if (!translatedText) {
-    clearVideoSubtitleOverlay();
+    const sourceText = sourceTextForOverlay({
+      activeCue: null,
+      segment,
+      currentTime,
+      revealWords: includeWordTimestamps.checked,
+    });
+    videoSubtitleSource.textContent = "";
+    videoSubtitleSource.classList.add("d-none");
+    videoSubtitleTranslation.textContent = sourceText;
+    videoSubtitleOverlay.classList.remove("waiting");
+    videoSubtitleOverlay.classList.remove("error");
     return;
   }
 
@@ -658,7 +676,6 @@ function playbackSegmentAt(seconds) {
   }
   if (
     candidate
-    && (translatedSegments.has(candidate.id) || failedSegmentIds.has(candidate.id))
     && seconds < candidate.end
   ) {
     return candidate;
@@ -1235,10 +1252,11 @@ function resetView() {
 }
 
 function setTranscriptionProgress(percent, detail = null) {
-  const value = Math.max(0, Math.min(100, Math.round(Number(percent) || 0)));
-  transcriptionPercent.textContent = `${value}%`;
+  const value = Math.max(0, Math.min(100, Number(percent) || 0));
+  const label = value > 0 && value < 1 ? value.toFixed(1) : String(Math.round(value));
+  transcriptionPercent.textContent = `${label}%`;
   transcriptionBar.style.width = `${value}%`;
-  transcriptionBar.parentElement.setAttribute("aria-valuenow", String(value));
+  transcriptionBar.parentElement.setAttribute("aria-valuenow", String(Math.round(value)));
   if (detail !== null) transcriptionDetail.textContent = detail;
 }
 
@@ -1326,18 +1344,12 @@ function updateTranslationProgress() {
 
   translationBar.style.width = `${Math.max(0, Math.min(100, percent))}%`;
   translationBar.parentElement.setAttribute("aria-valuenow", String(Math.round(percent)));
-  segmentCount.textContent = `${translated} ${t("segmentUnit")}`;
-}
-
-function scrollSegmentsToLatest() {
-  requestAnimationFrame(() => {
-    segmentList.scrollTop = segmentList.scrollHeight;
-  });
+  segmentCount.textContent = `${received} ${t("segmentUnit")}`;
 }
 
 function renderSegment(segment) {
   const card = document.createElement("article");
-  card.className = "segment-card d-none";
+  card.className = "segment-card";
   card.dataset.segmentId = String(segment.id);
 
   const meta = document.createElement("div");
@@ -1383,6 +1395,7 @@ function renderSegment(segment) {
   copy.append(sourceColumn, translationColumn);
   card.append(meta, copy);
   segmentList.append(card);
+  emptyState.classList.add("d-none");
   segmentNodes.set(segment.id, {
     card,
     groupBadge,
@@ -1401,13 +1414,9 @@ function showSegmentTranslation(segmentId, state, message = "") {
     state === "failed" ? t("translationFailed") : t("translationPending")
   );
   nodes.retryButton.classList.toggle("d-none", state !== "failed");
-  nodes.card.classList.toggle("d-none", state !== "ready");
   if (state === "ready") {
-    emptyState.classList.add("d-none");
     if (playbackSyncEnabled) {
       syncPlaybackToSubtitles();
-    } else {
-      scrollSegmentsToLatest();
     }
   }
   notifyParentHeight();
@@ -2177,6 +2186,7 @@ function buildSegmentsJson() {
     schema_version: 4,
     source_language: requestedSourceLanguage || detectedSourceLanguage || null,
     target_language: selectedTargetLanguage,
+    transcription_mode: transcriptionMode.value,
     translation_groups: [...translatedGroups.values()].map(group => ({
       group_id: group.groupId,
       source_ids: group.sourceIds,
@@ -2580,6 +2590,13 @@ function connectTranscriptionJob(job, uploadFilename = "") {
       console.error("Could not process language detection", error);
     }
   });
+  eventSource.addEventListener("progress", event => {
+    try {
+      updateTranscriptionProgress(JSON.parse(event.data || "{}"));
+    } catch (error) {
+      console.error("Could not process transcription progress", error);
+    }
+  });
   eventSource.addEventListener("segment", event => {
     try {
       addSegment(JSON.parse(event.data));
@@ -2722,6 +2739,7 @@ async function beginTranscription() {
       [...videoFile.files].forEach(file => uploadBody.append("files", file));
       uploadBody.append("language", whisperLanguage);
       uploadBody.append("include_word_timestamps", String(includeWordTimestamps.checked));
+      uploadBody.append("transcription_mode", transcriptionMode.value);
       uploadBody.append("captcha_token", captchaToken.value);
       response = await fetch("/api/video-upload/jobs/batch", {
         method: "POST",
@@ -2736,6 +2754,7 @@ async function beginTranscription() {
           language: whisperLanguage,
           ignore_subtitles: ignoreSubtitles.checked,
           include_word_timestamps: includeWordTimestamps.checked,
+          transcription_mode: transcriptionMode.value,
           captcha_token: captchaToken.value,
         }),
       });
@@ -2802,6 +2821,13 @@ async function beginTranscription() {
         showLanguageConfirmation(JSON.parse(event.data || "{}"));
       } catch (error) {
         console.error("Could not process language detection", error);
+      }
+    });
+    eventSource.addEventListener("progress", event => {
+      try {
+        updateTranscriptionProgress(JSON.parse(event.data || "{}"));
+      } catch (error) {
+        console.error("Could not process transcription progress", error);
       }
     });
     eventSource.addEventListener("segment", event => {

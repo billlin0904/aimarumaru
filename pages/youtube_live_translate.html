@@ -685,7 +685,7 @@
             <label class="form-check-label" for="includeWordTimestamps" data-i18n="includeWordTimestamps">逐字顯示原文</label>
           </div>
         </div>
-        <div class="col-12 col-md-4">
+        <div class="col-12 col-md-6 col-xl-3">
           <label class="form-label fw-semibold" for="sourceLanguage" data-i18n="sourceLanguage">原文語言</label>
           <select id="sourceLanguage" class="form-select form-select-lg">
             <option value="" data-i18n="autoDetect">自動偵測</option>
@@ -696,7 +696,7 @@
             <option value="zh-TW" data-i18n="languageTraditionalChinese">繁體中文</option>
           </select>
         </div>
-        <div class="col-12 col-md-4">
+        <div class="col-12 col-md-6 col-xl-3">
           <label class="form-label fw-semibold" for="targetLanguage" data-i18n="targetLanguage">翻譯目標語言</label>
           <select id="targetLanguage" class="form-select form-select-lg">
             <option value="zh-TW" data-i18n="languageTraditionalChinese">繁體中文</option>
@@ -704,7 +704,14 @@
             <option value="ja" data-i18n="languageJapanese">日文</option>
           </select>
         </div>
-        <div class="col-12 col-md-4 d-grid">
+        <div class="col-12 col-md-6 col-xl-3">
+          <label class="form-label fw-semibold" for="transcriptionMode" data-i18n="transcriptionMode">轉譯模式</label>
+          <select id="transcriptionMode" class="form-select form-select-lg">
+            <option value="accurate" data-i18n="modeAccurate">高精度（較慢）</option>
+            <option value="fast" data-i18n="modeFast">快速</option>
+          </select>
+        </div>
+        <div class="col-12 col-md-6 col-xl-3 d-grid">
           <button id="startBtn" class="btn btn-primary btn-lg start-button" type="submit" data-i18n="detectLanguage">偵測語言</button>
         </div>
       </form>
@@ -835,6 +842,6 @@
   </footer>
 
   <script src="/subtitle-display-cues.js?v=20260806-1" defer></script>
-  <script src="/youtube-live-translate.js?v=20260807-5" defer></script>
+  <script src="/youtube-live-translate.js?v=20260807-9" defer></script>
 </body>
 </html>

@@ -14,11 +14,18 @@ from collections.abc import Callable
 from typing import Any, Optional
 
 import aiohttp
+import numpy as np
 from fastapi import APIRouter, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
 from app_logging import log_structured_event, set_request_log_metadata
+from media_audio_stream import (
+    FFmpegPcmChunkStream,
+    MediaSourceInput,
+    decode_media_prefix,
+    probe_media_duration,
+)
 from text_converter import to_traditional_chinese
 from transcribe_queue import (
     TranscriptionCancelled,
@@ -31,7 +38,7 @@ from transcribe_queue import (
 from youtube_srt import (
     choose_subtitle_track,
     download_subtitle_content,
-    download_youtube_audio,
+    get_youtube_audio_stream_source,
     get_youtube_playlist_preview,
     get_youtube_video_info,
     is_youtube_rate_limit_error,
@@ -68,6 +75,26 @@ YOUTUBE_WHISPER_VAD_PARAMETERS = {
     "min_silence_duration_ms": 2000,
     "speech_pad_ms": 400,
 }
+YOUTUBE_WHISPER_STREAM_CHUNK_SECONDS = max(
+    10.0,
+    float(os.getenv("YOUTUBE_WHISPER_STREAM_CHUNK_SECONDS", "30")),
+)
+YOUTUBE_WHISPER_INITIAL_CHUNK_SECONDS = min(
+    YOUTUBE_WHISPER_STREAM_CHUNK_SECONDS,
+    max(5.0, float(os.getenv("YOUTUBE_WHISPER_INITIAL_CHUNK_SECONDS", "15"))),
+)
+YOUTUBE_WHISPER_STREAM_OVERLAP_SECONDS = min(
+    YOUTUBE_WHISPER_STREAM_CHUNK_SECONDS / 2,
+    max(0.0, float(os.getenv("YOUTUBE_WHISPER_STREAM_OVERLAP_SECONDS", "2"))),
+)
+YOUTUBE_WHISPER_STREAM_QUEUE_SIZE = max(
+    1,
+    int(os.getenv("YOUTUBE_WHISPER_STREAM_QUEUE_SIZE", "2")),
+)
+YOUTUBE_WHISPER_LANGUAGE_DETECT_SECONDS = max(
+    10.0,
+    float(os.getenv("YOUTUBE_WHISPER_LANGUAGE_DETECT_SECONDS", "30")),
+)
 VIDEO_UPLOAD_MAX_BYTES = int(
     os.getenv("VIDEO_UPLOAD_MAX_BYTES", str(2 * 1024 * 1024 * 1024))
 )
@@ -87,6 +114,17 @@ VIDEO_UPLOAD_EXTENSIONS = {
     ".webm",
     ".wmv",
 }
+TRANSCRIPTION_MODE_BEAM_SIZES = {
+    "accurate": 5,
+    "fast": 1,
+}
+
+
+def normalize_transcription_mode(value: Optional[str]) -> str:
+    mode = str(value or "accurate").strip().lower()
+    if mode not in TRANSCRIPTION_MODE_BEAM_SIZES:
+        raise HTTPException(status_code=422, detail="不支援的轉譯模式")
+    return mode
 
 
 class YoutubeLiveRequest(BaseModel):
@@ -95,6 +133,7 @@ class YoutubeLiveRequest(BaseModel):
     captcha_token: str = ""
     ignore_subtitles: bool = False
     include_word_timestamps: bool = False
+    transcription_mode: str = "accurate"
 
 
 class YoutubeLanguageSelection(BaseModel):
@@ -158,6 +197,7 @@ def whisper_low_confidence_spans(
 def whisper_word_payloads(
     segment: Any,
     language: Optional[str],
+    time_offset: float = 0.0,
 ) -> list[dict[str, Any]]:
     payloads: list[dict[str, Any]] = []
     for word in getattr(segment, "words", None) or []:
@@ -177,8 +217,8 @@ def whisper_word_payloads(
             continue
         payload: dict[str, Any] = {
             "word": value,
-            "start": round(start, 3),
-            "end": round(end, 3),
+            "start": round(start + time_offset, 3),
+            "end": round(end + time_offset, 3),
         }
         probability = getattr(word, "probability", None)
         if probability is not None:
@@ -288,6 +328,7 @@ def cleanup_youtube_live_jobs(jobs: dict[str, dict[str, Any]]) -> None:
 def cleanup_youtube_live_job_artifacts(job: dict[str, Any]) -> None:
     work_dir = job.pop("work_dir", None)
     job.pop("audio_path", None)
+    job.pop("audio_source", None)
     job.pop("subtitle_segments", None)
     if work_dir:
         shutil.rmtree(work_dir, ignore_errors=True)
@@ -307,87 +348,200 @@ def put_thread_event(loop: asyncio.AbstractEventLoop, queue: asyncio.Queue[dict[
 
 def transcribe_audio_stream(
     auto2lrc,
-    audio_path: Path,
+    audio_path: MediaSourceInput,
     language_hint: Optional[str],
     loop: asyncio.AbstractEventLoop,
     queue: asyncio.Queue[dict[str, Any]],
     job_id: Optional[str] = None,
     cancel_check: Optional[Callable[[], bool]] = None,
     include_word_timestamps: bool = False,
+    audio_duration_hint: Optional[float] = None,
+    transcription_mode: str = "accurate",
 ) -> dict[str, Any]:
     started_at = time.perf_counter()
-    audio_duration = 0.0
+    mode = (
+        transcription_mode
+        if transcription_mode in TRANSCRIPTION_MODE_BEAM_SIZES
+        else "accurate"
+    )
+    beam_size = TRANSCRIPTION_MODE_BEAM_SIZES[mode]
+    audio_duration = max(
+        0.0,
+        float(audio_duration_hint or probe_media_duration(audio_path) or 0.0),
+    )
     detected_language = language_hint
+    language_probability = None
     segment_count = 0
+    decoded_segment_count = 0
+    chunk_count = 0
+    processed_seconds = 0.0
+    last_emitted_start = 0.0
     content_parts: list[str] = []
     logger.info(
-        "Whisper transcription started: job_id=%s beam_size=5 language_hint=%s "
+        "Whisper transcription started: job_id=%s transcription_mode=%s "
+        "beam_size=%d language_hint=%s "
         "temperature=0.0 condition_on_previous_text=false vad_filter=%s "
-        "word_timestamps=true hallucination_silence_threshold=%.2f",
+        "word_timestamps=true hallucination_silence_threshold=%.2f "
+        "initial_chunk_seconds=%.1f chunk_seconds=%.1f "
+        "overlap_seconds=%.1f pcm_queue_size=%d",
         job_id or "unknown",
+        mode,
+        beam_size,
         language_hint or "auto",
         YOUTUBE_WHISPER_VAD_FILTER,
         YOUTUBE_WHISPER_HALLUCINATION_SILENCE_SECONDS,
+        YOUTUBE_WHISPER_INITIAL_CHUNK_SECONDS,
+        YOUTUBE_WHISPER_STREAM_CHUNK_SECONDS,
+        YOUTUBE_WHISPER_STREAM_OVERLAP_SECONDS,
+        YOUTUBE_WHISPER_STREAM_QUEUE_SIZE,
     )
 
     try:
         if cancel_check is not None and cancel_check():
             raise TranscriptionCancelled("轉譯已取消")
-        segments, info = auto2lrc.transcribe(
-            str(audio_path),
-            beam_size=5,
-            language=language_hint,
-            vad_filter=YOUTUBE_WHISPER_VAD_FILTER,
-            vad_parameters=(
-                YOUTUBE_WHISPER_VAD_PARAMETERS
-                if YOUTUBE_WHISPER_VAD_FILTER
-                else None
-            ),
-            word_timestamps=True,
-            hallucination_silence_threshold=(
-                YOUTUBE_WHISPER_HALLUCINATION_SILENCE_SECONDS
-            ),
-        )
-        detected_language = getattr(info, "language", language_hint)
-        audio_duration = float(getattr(info, "duration", 0.0) or 0.0)
-        for segment_count, segment in enumerate(segments, start=1):
-            if cancel_check is not None and cancel_check():
-                raise TranscriptionCancelled("轉譯已取消")
-            text = to_traditional_chinese(
-                segment.text.strip(),
-                detected_language,
-            )
-            if not text:
-                continue
-            content_parts.append(text)
-            payload = segment_payload(
-                segment_count,
-                segment.start,
-                segment.end,
-                text,
-                detected_language,
-                whisper_low_confidence_spans(segment, text, detected_language),
-                (
-                    whisper_word_payloads(segment, detected_language)
-                    if include_word_timestamps
-                    else None
-                ),
-            )
-            payload.update(
-                transcription_progress_payload(
-                    audio_duration,
-                    float(segment.end or 0.0),
-                    time.perf_counter() - started_at,
+        with FFmpegPcmChunkStream(
+            audio_path,
+            chunk_seconds=YOUTUBE_WHISPER_STREAM_CHUNK_SECONDS,
+            initial_chunk_seconds=YOUTUBE_WHISPER_INITIAL_CHUNK_SECONDS,
+            overlap_seconds=YOUTUBE_WHISPER_STREAM_OVERLAP_SECONDS,
+            queue_size=YOUTUBE_WHISPER_STREAM_QUEUE_SIZE,
+            cancel_check=cancel_check,
+        ) as audio_chunks:
+            for chunk in audio_chunks:
+                if cancel_check is not None and cancel_check():
+                    raise TranscriptionCancelled("轉譯已取消")
+                chunk_count += 1
+                audio_samples = np.frombuffer(
+                    chunk.data,
+                    dtype="<i2",
+                ).astype(np.float32)
+                audio_samples /= 32768.0
+                segments, info = auto2lrc.transcribe(
+                    audio_samples,
+                    beam_size=beam_size,
+                    language=detected_language,
+                    vad_filter=YOUTUBE_WHISPER_VAD_FILTER,
+                    vad_parameters=(
+                        YOUTUBE_WHISPER_VAD_PARAMETERS
+                        if YOUTUBE_WHISPER_VAD_FILTER
+                        else None
+                    ),
+                    word_timestamps=True,
+                    hallucination_silence_threshold=(
+                        YOUTUBE_WHISPER_HALLUCINATION_SILENCE_SECONDS
+                    ),
                 )
-            )
-            put_thread_event(
-                loop,
-                queue,
-                {
-                    "event": "segment",
-                    "data": payload,
-                },
-            )
+                chunk_language = getattr(info, "language", detected_language)
+                if chunk_language:
+                    detected_language = chunk_language
+                if language_probability is None:
+                    language_probability = getattr(info, "language_probability", None)
+
+                ownership_start = (
+                    YOUTUBE_WHISPER_STREAM_OVERLAP_SECONDS / 2
+                    if chunk.offset_seconds > 0
+                    else 0.0
+                )
+                ownership_end = chunk.duration_seconds
+                if not chunk.is_final:
+                    ownership_end = max(
+                        0.0,
+                        chunk.duration_seconds
+                        - YOUTUBE_WHISPER_STREAM_OVERLAP_SECONDS / 2,
+                    )
+                for segment in segments:
+                    decoded_segment_count += 1
+                    if cancel_check is not None and cancel_check():
+                        raise TranscriptionCancelled("轉譯已取消")
+                    local_start = float(getattr(segment, "start", 0.0) or 0.0)
+                    local_end = float(getattr(segment, "end", 0.0) or 0.0)
+                    if chunk.offset_seconds > 0 and local_end <= ownership_start + 0.001:
+                        continue
+                    if not chunk.is_final and local_end > ownership_end + 0.001:
+                        continue
+                    text = to_traditional_chinese(
+                        str(getattr(segment, "text", "") or "").strip(),
+                        detected_language,
+                    )
+                    if not text:
+                        continue
+                    global_start = chunk.offset_seconds + max(0.0, local_start)
+                    global_end = chunk.offset_seconds + max(local_start, local_end)
+                    timeline_adjusted = global_start + 0.001 < last_emitted_start
+                    if timeline_adjusted:
+                        logger.warning(
+                            "Whisper segment timeline moved backwards; clamping start and "
+                            "omitting word timeline: job_id=%s previous_start=%.3f "
+                            "current_start=%.3f current_end=%.3f",
+                            job_id or "unknown",
+                            last_emitted_start,
+                            global_start,
+                            global_end,
+                        )
+                        global_start = last_emitted_start
+                        global_end = max(global_end, global_start + 0.001)
+                    segment_count += 1
+                    content_parts.append(text)
+                    payload = segment_payload(
+                        segment_count,
+                        global_start,
+                        global_end,
+                        text,
+                        detected_language,
+                        whisper_low_confidence_spans(
+                            segment,
+                            text,
+                            detected_language,
+                        ),
+                        (
+                            (
+                                []
+                                if timeline_adjusted
+                                else whisper_word_payloads(
+                                    segment,
+                                    detected_language,
+                                    chunk.offset_seconds,
+                                )
+                            )
+                            if include_word_timestamps
+                            else None
+                        ),
+                    )
+                    last_emitted_start = global_start
+                    payload.update(
+                        transcription_progress_payload(
+                            audio_duration,
+                            global_end,
+                            time.perf_counter() - started_at,
+                        )
+                    )
+                    put_thread_event(
+                        loop,
+                        queue,
+                        {
+                            "event": "segment",
+                            "data": payload,
+                        },
+                    )
+
+                processed_seconds = chunk.offset_seconds + ownership_end
+                if chunk.is_final:
+                    audio_duration = max(audio_duration, processed_seconds)
+                put_thread_event(
+                    loop,
+                    queue,
+                    {
+                        "event": "progress",
+                        "data": transcription_progress_payload(
+                            audio_duration,
+                            processed_seconds,
+                            time.perf_counter() - started_at,
+                        ),
+                    },
+                )
+
+        if chunk_count == 0:
+            raise RuntimeError("媒體檔案沒有可轉譯的音軌")
 
         elapsed_seconds = time.perf_counter() - started_at
         real_time_factor = (
@@ -402,25 +556,31 @@ def transcribe_audio_stream(
         )
         logger.info(
             "Whisper transcription completed: job_id=%s "
+            "transcription_mode=%s beam_size=%d "
             "audio_duration=%.3fs elapsed=%.3fs real_time_factor=%s "
-            "speed=%s segments=%d emitted_segments=%d language=%s",
+            "speed=%s decoded_segments=%d emitted_segments=%d chunks=%d language=%s",
             job_id or "unknown",
+            mode,
+            beam_size,
             audio_duration,
             elapsed_seconds,
             f"{real_time_factor:.4f}" if real_time_factor is not None else "unknown",
             f"{speed_ratio:.2f}x" if speed_ratio is not None else "unknown",
+            decoded_segment_count,
             segment_count,
-            len(content_parts),
+            chunk_count,
             detected_language or "unknown",
         )
         return {
             "language": detected_language,
-            "language_probability": getattr(info, "language_probability", None),
+            "language_probability": language_probability,
             "segments_count": segment_count,
             "content": "\n".join(content_parts),
             "audio_duration_seconds": round(audio_duration, 3),
             "transcription_elapsed_seconds": round(elapsed_seconds, 3),
             "processing_speed_x": round(speed_ratio, 3) if speed_ratio is not None else None,
+            "transcription_mode": mode,
+            "beam_size": beam_size,
         }
     except Exception:
         logger.exception(
@@ -436,9 +596,10 @@ def transcribe_audio_stream(
 
 def detect_audio_language(
     auto2lrc,
-    audio_path: Path,
+    audio_path: MediaSourceInput,
     job_id: Optional[str] = None,
     cancel_check: Optional[Callable[[], bool]] = None,
+    audio_duration_hint: Optional[float] = None,
 ) -> dict[str, Any]:
     logger.info(
         "Whisper language detection started: job_id=%s",
@@ -448,8 +609,25 @@ def detect_audio_language(
     try:
         if cancel_check is not None and cancel_check():
             raise TranscriptionCancelled("轉譯已取消")
+        audio_duration = max(
+            0.0,
+            float(audio_duration_hint or probe_media_duration(audio_path) or 0.0),
+        )
+        try:
+            prefix_pcm = decode_media_prefix(
+                audio_path,
+                YOUTUBE_WHISPER_LANGUAGE_DETECT_SECONDS,
+                cancel_check,
+            )
+        except InterruptedError as exc:
+            raise TranscriptionCancelled("轉譯已取消") from exc
+        audio_samples = np.frombuffer(
+            prefix_pcm,
+            dtype="<i2",
+        ).astype(np.float32)
+        audio_samples /= 32768.0
         segments, info = auto2lrc.transcribe(
-            str(audio_path),
+            audio_samples,
             beam_size=5,
             language=None,
         )
@@ -469,7 +647,7 @@ def detect_audio_language(
         return {
             "language": language,
             "language_probability": probability,
-            "duration": float(getattr(info, "duration", 0.0) or 0.0),
+            "duration": audio_duration,
             "detection_elapsed_seconds": round(time.perf_counter() - started_at, 3),
         }
     finally:
@@ -581,13 +759,21 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         try:
             ensure_job_not_cancelled(job)
             if job.get("source_kind") == "upload" and not job.get("metadata_emitted"):
+                upload_path = Path(str(job.get("audio_path") or ""))
+                if not upload_path.is_file():
+                    raise RuntimeError("暫存影片已失效，請重新上傳")
+                if not job.get("video_duration_seconds"):
+                    job["video_duration_seconds"] = await asyncio.to_thread(
+                        probe_media_duration,
+                        upload_path,
+                    )
                 job["metadata_emitted"] = True
                 await push_event(
                     job,
                     "metadata",
                     {
                         "title": job.get("filename") or "Uploaded video",
-                        "duration": None,
+                        "duration": job.get("video_duration_seconds") or None,
                         "webpage_url": None,
                         "chapters": [],
                     },
@@ -599,19 +785,33 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                 if job.get("prepared_source") == "subtitle":
                     info = await emit_subtitle_segments(job)
                 else:
-                    audio_path = Path(str(job.get("audio_path") or ""))
-                    if not audio_path.is_file():
-                        raise RuntimeError("暫存音訊已失效，請重新建立轉譯任務")
+                    if job.get("source_kind", "youtube") == "youtube":
+                        await push_event(
+                            job,
+                            "status",
+                            {"message": "語言已確認，正在建立音訊串流"},
+                        )
+                        audio_source, _ = await asyncio.to_thread(
+                            get_youtube_audio_stream_source,
+                            job["url"],
+                            cookies_file,
+                        )
+                    else:
+                        audio_source = Path(str(job.get("audio_path") or ""))
+                        if not audio_source.is_file():
+                            raise RuntimeError("暫存音訊已失效，請重新建立轉譯任務")
                     info = await asyncio.to_thread(
                         transcribe_audio_stream,
                         auto2lrc,
-                        audio_path,
+                        audio_source,
                         job.get("language_hint"),
                         asyncio.get_running_loop(),
                         queue,
                         job_id,
                         lambda: job_is_cancelled(job),
                         bool(job.get("include_word_timestamps")),
+                        job.get("video_duration_seconds"),
+                        job.get("transcription_mode", "accurate"),
                     )
                 ensure_job_not_cancelled(job)
                 job["status"] = "done"
@@ -660,11 +860,13 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                     audio_path,
                     job_id,
                     lambda: job_is_cancelled(job),
+                    job.get("video_duration_seconds"),
                 )
                 ensure_job_not_cancelled(job)
                 job["detected_language"] = detection["language"]
                 job["detection_source"] = "whisper"
                 job["language_probability"] = detection["language_probability"]
+                job["video_duration_seconds"] = detection["duration"]
                 job["status"] = "awaiting_language_confirmation"
                 job["language_detected_monotonic"] = time.perf_counter()
                 job["expires_at"] = time.time() + YOUTUBE_LIVE_JOB_TTL_SECONDS
@@ -803,34 +1005,27 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                 return
 
             status_message = (
-                "正在下載音訊"
+                "正在建立音訊串流"
                 if job["ignore_subtitles"]
-                else "沒有可用字幕，正在下載音訊"
+                else "沒有可用字幕，正在建立音訊串流"
             )
             await push_event(job, "status", {"message": status_message})
-            phase = "audio_download"
-            work_dir = tempfile.mkdtemp(prefix="yt_live_")
-            job["work_dir"] = work_dir
-            audio_download_started = time.perf_counter()
-            audio_path, video_info = await asyncio.to_thread(
-                download_youtube_audio,
+            phase = "audio_stream"
+            audio_stream_started = time.perf_counter()
+            audio_source, video_info = await asyncio.to_thread(
+                get_youtube_audio_stream_source,
                 job["url"],
-                work_dir,
                 cookies_file,
             )
             ensure_job_not_cancelled(job)
-            job.update(
-                {
-                    "prepared_source": "whisper",
-                    "audio_path": str(audio_path),
-                }
-            )
+            job["prepared_source"] = "whisper"
             log_structured_event(
-                "video_audio_downloaded",
+                "video_audio_stream_resolved",
                 job_id=job_id,
-                audio_bytes=audio_path.stat().st_size if audio_path.is_file() else None,
-                audio_download_elapsed_ms=round(
-                    (time.perf_counter() - audio_download_started) * 1000
+                stream_protocol=video_info.get("protocol"),
+                audio_format=video_info.get("format_id"),
+                audio_stream_resolve_elapsed_ms=round(
+                    (time.perf_counter() - audio_stream_started) * 1000
                 ),
             )
             if not job.get("language_hint"):
@@ -838,14 +1033,15 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                 await push_event(
                     job,
                     "status",
-                    {"message": "音訊下載完成，正在偵測原文語言"},
+                    {"message": "音訊串流已建立，正在偵測原文語言"},
                 )
                 detection = await asyncio.to_thread(
                     detect_audio_language,
                     auto2lrc,
-                    audio_path,
+                    audio_source,
                     job_id,
                     lambda: job_is_cancelled(job),
+                    job.get("video_duration_seconds"),
                 )
                 ensure_job_not_cancelled(job)
                 job["detected_language"] = detection["language"]
@@ -877,17 +1073,19 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                 return
 
             phase = "transcription"
-            await push_event(job, "status", {"message": "音訊下載完成，開始逐段轉譯"})
+            await push_event(job, "status", {"message": "音訊串流已建立，開始逐段轉譯"})
             info = await asyncio.to_thread(
                 transcribe_audio_stream,
                 auto2lrc,
-                audio_path,
+                audio_source,
                 job["language_hint"],
                 asyncio.get_running_loop(),
                 queue,
                 job_id,
                 lambda: job_is_cancelled(job),
                 bool(job.get("include_word_timestamps")),
+                job.get("video_duration_seconds"),
+                job.get("transcription_mode", "accurate"),
             )
             ensure_job_not_cancelled(job)
 
@@ -1022,11 +1220,13 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
 
         job_id = secrets.token_urlsafe(18)
         created_monotonic = time.perf_counter()
+        transcription_mode = normalize_transcription_mode(payload.transcription_mode)
         jobs[job_id] = {
             "url": url,
             "language_hint": payload.language.strip() or None,
             "ignore_subtitles": payload.ignore_subtitles,
             "include_word_timestamps": payload.include_word_timestamps,
+            "transcription_mode": transcription_mode,
             "translation_token": secrets.token_urlsafe(32),
             "translation_tasks": set(),
             "cancel_token": secrets.token_urlsafe(32),
@@ -1047,6 +1247,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             source_language=jobs[job_id]["language_hint"] or "auto",
             ignore_subtitles=payload.ignore_subtitles,
             include_word_timestamps=payload.include_word_timestamps,
+            transcription_mode=transcription_mode,
         )
         try:
             enqueue_transcribe_task({"kind": "youtube_live", "id": job_id})
@@ -1077,6 +1278,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             source_language=jobs[job_id]["language_hint"] or "auto",
             ignore_subtitles=payload.ignore_subtitles,
             include_word_timestamps=payload.include_word_timestamps,
+            transcription_mode=transcription_mode,
             waiting_count=queue_counts["waiting_count"],
             transcribing_count=queue_counts["transcribing_count"],
         )
@@ -1095,7 +1297,9 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         file: UploadFile,
         language: str,
         include_word_timestamps: bool,
+        transcription_mode: str,
     ) -> dict[str, Any]:
+        transcription_mode = normalize_transcription_mode(transcription_mode)
         original_filename = Path(file.filename or "video").name
         suffix = Path(original_filename).suffix.lower()
         content_type = str(file.content_type or "").lower()
@@ -1140,6 +1344,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             "language_hint": language_hint,
             "ignore_subtitles": True,
             "include_word_timestamps": include_word_timestamps,
+            "transcription_mode": transcription_mode,
             "prepared_source": "whisper",
             "audio_path": str(upload_path),
             "work_dir": str(work_dir),
@@ -1163,6 +1368,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             source_kind="upload",
             source_language=language_hint or "auto",
             include_word_timestamps=include_word_timestamps,
+            transcription_mode=transcription_mode,
         )
         try:
             enqueue_transcribe_task({"kind": "youtube_live", "id": job_id})
@@ -1181,6 +1387,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             source_kind="upload",
             source_language=language_hint or "auto",
             include_word_timestamps=include_word_timestamps,
+            transcription_mode=transcription_mode,
             input_bytes=upload_bytes,
             waiting_count=queue_counts["waiting_count"],
             transcribing_count=queue_counts["transcribing_count"],
@@ -1206,6 +1413,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         language: str = Form(""),
         captcha_token: str = Form(""),
         include_word_timestamps: bool = Form(True),
+        transcription_mode: str = Form("accurate"),
     ):
         cleanup_youtube_live_jobs(jobs)
         if verify_captcha_token is not None:
@@ -1215,6 +1423,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             file,
             language,
             include_word_timestamps,
+            transcription_mode,
         )
 
     @router.post(
@@ -1228,6 +1437,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         language: str = Form(""),
         captcha_token: str = Form(""),
         include_word_timestamps: bool = Form(True),
+        transcription_mode: str = Form("accurate"),
     ):
         cleanup_youtube_live_jobs(jobs)
         if not files:
@@ -1250,6 +1460,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                     file,
                     language,
                     include_word_timestamps,
+                    transcription_mode,
                 )
                 job["batch_index"] = batch_index
                 created_jobs.append(job)
