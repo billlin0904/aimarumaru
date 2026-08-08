@@ -175,12 +175,14 @@ def whisper_low_confidence_spans(
     segment: Any,
     text: str,
     language: Optional[str],
+    words: Optional[list[Any]] = None,
 ) -> list[str]:
     if str(language or "").lower().split("-", 1)[0] != "ko":
         return []
 
     spans: list[str] = []
-    for word in getattr(segment, "words", None) or []:
+    source_words = words if words is not None else getattr(segment, "words", None) or []
+    for word in source_words:
         value = str(getattr(word, "word", "") or "").strip()
         probability = getattr(word, "probability", None)
         if (
@@ -198,9 +200,11 @@ def whisper_word_payloads(
     segment: Any,
     language: Optional[str],
     time_offset: float = 0.0,
+    words: Optional[list[Any]] = None,
 ) -> list[dict[str, Any]]:
     payloads: list[dict[str, Any]] = []
-    for word in getattr(segment, "words", None) or []:
+    source_words = words if words is not None else getattr(segment, "words", None) or []
+    for word in source_words:
         raw_value = str(getattr(word, "word", "") or "")
         value = to_traditional_chinese(
             raw_value,
@@ -230,6 +234,82 @@ def whisper_word_payloads(
                 payload["probability"] = round(probability_value, 6)
         payloads.append(payload)
     return payloads
+
+
+def owned_whisper_segment(
+    segment: Any,
+    ownership_start: float,
+    ownership_end: float,
+    is_final_chunk: bool,
+) -> Optional[tuple[str, float, float, list[Any]]]:
+    """Return only the portion of a Whisper segment owned by this audio chunk.
+
+    Adjacent chunks overlap. Assigning ownership to a complete Whisper segment can
+    discard speech whenever that segment crosses the right boundary. Word
+    midpoints provide a stable, lossless boundary: the left chunk owns words
+    before the boundary and the right chunk owns words at or after it.
+
+    If Whisper did not provide a complete set of usable word timestamps, the
+    segment midpoint is used as a conservative fallback so the whole segment is
+    emitted by exactly one chunk.
+    """
+
+    segment_start = float(getattr(segment, "start", 0.0) or 0.0)
+    segment_end = float(getattr(segment, "end", 0.0) or 0.0)
+    raw_words = [
+        word
+        for word in (getattr(segment, "words", None) or [])
+        if str(getattr(word, "word", "") or "").strip()
+    ]
+    timed_words: list[tuple[Any, float, float]] = []
+    for word in raw_words:
+        try:
+            word_start = float(getattr(word, "start", None))
+            word_end = float(getattr(word, "end", None))
+        except (TypeError, ValueError):
+            break
+        if (
+            not math.isfinite(word_start)
+            or not math.isfinite(word_end)
+            or word_end < word_start
+        ):
+            break
+        timed_words.append((word, word_start, word_end))
+
+    if raw_words and len(timed_words) == len(raw_words):
+        owned_words = [
+            (word, word_start, word_end)
+            for word, word_start, word_end in timed_words
+            if (word_start + word_end) / 2 >= ownership_start
+            and (
+                is_final_chunk
+                or (word_start + word_end) / 2 < ownership_end
+            )
+        ]
+        if not owned_words:
+            return None
+        text = "".join(
+            str(getattr(word, "word", "") or "")
+            for word, _, _ in owned_words
+        ).strip()
+        if not text:
+            return None
+        return (
+            text,
+            owned_words[0][1],
+            max(word_end for _, _, word_end in owned_words),
+            [word for word, _, _ in owned_words],
+        )
+
+    segment_midpoint = (segment_start + segment_end) / 2
+    if segment_midpoint < ownership_start:
+        return None
+    if not is_final_chunk and segment_midpoint >= ownership_end:
+        return None
+    text = str(getattr(segment, "text", "") or "").strip()
+    if not text:
+        return None
+    return text, segment_start, segment_end, []
 
 
 def transcription_progress_payload(
@@ -453,14 +533,17 @@ def transcribe_audio_stream(
                     decoded_segment_count += 1
                     if cancel_check is not None and cancel_check():
                         raise TranscriptionCancelled("轉譯已取消")
-                    local_start = float(getattr(segment, "start", 0.0) or 0.0)
-                    local_end = float(getattr(segment, "end", 0.0) or 0.0)
-                    if chunk.offset_seconds > 0 and local_end <= ownership_start + 0.001:
+                    owned_segment = owned_whisper_segment(
+                        segment,
+                        ownership_start,
+                        ownership_end,
+                        chunk.is_final,
+                    )
+                    if owned_segment is None:
                         continue
-                    if not chunk.is_final and local_end > ownership_end + 0.001:
-                        continue
+                    raw_text, local_start, local_end, owned_words = owned_segment
                     text = to_traditional_chinese(
-                        str(getattr(segment, "text", "") or "").strip(),
+                        raw_text,
                         detected_language,
                     )
                     if not text:
@@ -492,6 +575,7 @@ def transcribe_audio_stream(
                             segment,
                             text,
                             detected_language,
+                            owned_words,
                         ),
                         (
                             (
@@ -501,6 +585,7 @@ def transcribe_audio_stream(
                                     segment,
                                     detected_language,
                                     chunk.offset_seconds,
+                                    owned_words,
                                 )
                             )
                             if include_word_timestamps

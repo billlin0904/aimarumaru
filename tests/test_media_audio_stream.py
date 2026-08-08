@@ -24,14 +24,16 @@ class FakeAuto2Lrc:
         self.clear_count = 0
 
     def transcribe(self, samples, **options):
+        call_index = len(self.sample_counts)
         self.sample_counts.append(len(samples))
         self.options.append(options)
         duration = len(samples) / 16000
+        word_start = 0.2 if call_index == 0 or duration < 2.0 else 1.2
         words = [
             SimpleNamespace(
-                word=" test",
-                start=0.2,
-                end=min(0.8, duration),
+                word=" first",
+                start=word_start,
+                end=min(word_start + 0.6, duration),
                 probability=0.99,
             )
         ]
@@ -63,7 +65,12 @@ class BoundaryOverlapAuto2Lrc(FakeAuto2Lrc):
                     start=8.3,
                     end=9.6,
                     text="which I'll label WQ",
-                    words=[],
+                    words=[
+                        SimpleNamespace(word=" which", start=8.3, end=8.7, probability=0.99),
+                        SimpleNamespace(word=" I'll", start=8.7, end=9.0, probability=0.99),
+                        SimpleNamespace(word=" label", start=9.0, end=9.3, probability=0.99),
+                        SimpleNamespace(word=" WQ", start=9.3, end=9.6, probability=0.99),
+                    ],
                 ),
             ]
         elif call_index == 1:
@@ -72,7 +79,15 @@ class BoundaryOverlapAuto2Lrc(FakeAuto2Lrc):
                     start=0.0,
                     end=4.0,
                     text="matrix which I'll label WQ and multiplying",
-                    words=[],
+                    words=[
+                        SimpleNamespace(word=" matrix", start=0.0, end=0.4, probability=0.99),
+                        SimpleNamespace(word=" which", start=0.4, end=0.8, probability=0.99),
+                        SimpleNamespace(word=" I'll", start=0.8, end=1.0, probability=0.99),
+                        SimpleNamespace(word=" label", start=1.0, end=1.3, probability=0.99),
+                        SimpleNamespace(word=" WQ", start=1.3, end=1.6, probability=0.99),
+                        SimpleNamespace(word=" and", start=1.6, end=2.0, probability=0.99),
+                        SimpleNamespace(word=" multiplying", start=2.0, end=4.0, probability=0.99),
+                    ],
                 )
             ]
         else:
@@ -182,8 +197,11 @@ class MediaAudioStreamTests(unittest.TestCase):
         progress_events = [event["data"] for event in events if event["event"] == "progress"]
 
         self.assertEqual(result["segments_count"], 4)
-        self.assertEqual([event["start"] for event in segment_events], [0.0, 8.0, 16.0, 24.0])
-        self.assertEqual(segment_events[1]["words"][0]["start"], 8.2)
+        self.assertEqual(
+            [event["start"] for event in segment_events],
+            [0.2, 9.2, 17.2, 24.0],
+        )
+        self.assertEqual(segment_events[1]["words"][0]["start"], 9.2)
         self.assertEqual(len(progress_events), 3)
         self.assertEqual(round(progress_events[-1]["progress_percent"]), 100)
         self.assertLessEqual(max(fake.sample_counts), 10 * 16000)
@@ -220,7 +238,7 @@ class MediaAudioStreamTests(unittest.TestCase):
         self.assertEqual(result["transcription_mode"], "fast")
         self.assertEqual(result["beam_size"], 1)
 
-    def test_overlap_boundary_keeps_complete_next_chunk_segment(self) -> None:
+    def test_overlap_boundary_splits_by_word_without_losing_speech(self) -> None:
         async def run_test():
             event_queue: asyncio.Queue = asyncio.Queue()
             fake = BoundaryOverlapAuto2Lrc()
@@ -252,8 +270,11 @@ class MediaAudioStreamTests(unittest.TestCase):
         texts = [segment["text"] for segment in segments]
         starts = [segment["start"] for segment in segments]
 
-        self.assertNotIn("which I'll label WQ", texts)
-        self.assertIn("matrix which I'll label WQ and multiplying", texts)
+        self.assertIn("which I'll", texts)
+        self.assertIn("label WQ and multiplying", texts)
+        boundary_text = " ".join(texts)
+        for word in ("which", "I'll", "label", "WQ", "multiplying"):
+            self.assertEqual(boundary_text.split().count(word), 1)
         self.assertEqual(starts, sorted(starts))
         self.assertEqual(result["segments_count"], len(segments))
 
