@@ -744,6 +744,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
     page_path = project_root / "pages" / "youtube_live.html"
     translate_page_path = project_root / "pages" / "youtube_live_translate.html"
     translate_script_path = project_root / "pages" / "youtube_live_translate.js"
+    translation_usage_script_path = project_root / "pages" / "translation_usage.js"
     subtitle_display_cues_script_path = (
         project_root / "pages" / "subtitle_display_cues.js"
     )
@@ -1267,6 +1268,14 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             headers={"Cache-Control": "no-store, max-age=0"},
         )
 
+    @router.get("/translation-usage.js", include_in_schema=False)
+    def translation_usage_script():
+        return Response(
+            translation_usage_script_path.read_text(encoding="utf-8"),
+            media_type="application/javascript",
+            headers={"Cache-Control": "no-store, max-age=0"},
+        )
+
     @router.get(
         "/api/youtube-live/playlists/preview",
         tags=["YouTube Live"],
@@ -1749,6 +1758,11 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                             ],
                             "properties": {
                                 "request_id": {"type": "string"},
+                                "translation_type": {
+                                    "type": "string",
+                                    "enum": ["std", "pro"],
+                                    "default": "std",
+                                },
                                 "source_language": {
                                     "type": "string",
                                     "enum": ["en", "ja", "ko", "th", "zh-TW"],
@@ -2131,6 +2145,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             operation=f"video_translation_{operation}",
             source_language=payload.get("source_language"),
             target_language=payload.get("target_language"),
+            translation_type=payload.get("translation_type", "std"),
             segments=len(segments),
             groups=len(groups),
             preceding_source_groups=len(preceding_source_context),
@@ -2161,12 +2176,38 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                         "Content-Type",
                         "application/json",
                     )
+                    response_payload = None
+                    try:
+                        response_payload = json.loads(response_body)
+                    except (UnicodeDecodeError, json.JSONDecodeError):
+                        pass
+                    usage = (
+                        response_payload.get("usage")
+                        if isinstance(response_payload, dict)
+                        else None
+                    )
+                    usage = usage if isinstance(usage, dict) else {}
+                    set_request_log_metadata(
+                        request,
+                        translation_provider=(
+                            response_payload.get("provider")
+                            if isinstance(response_payload, dict)
+                            else None
+                        ),
+                        counted_input_tokens=usage.get("counted_input_tokens"),
+                        prompt_tokens=usage.get("prompt_tokens"),
+                        output_tokens=usage.get("output_tokens"),
+                        estimated_cost_usd=usage.get("estimated_total_cost_usd"),
+                        estimated_cost_twd=usage.get("estimated_total_cost_twd"),
+                    )
                     logger.info(
                         "Translation workflow proxy completed: operation=%s "
                         "job_id=%s status=%d request_id=%s segments=%d groups=%d "
                         "preceding_source_groups=%d "
                         "source_ids=%d characters=%d request_bytes=%d "
-                        "response_bytes=%d elapsed=%.3fs",
+                        "response_bytes=%d translation_type=%s provider=%s "
+                        "counted_input_tokens=%s prompt_tokens=%s output_tokens=%s "
+                        "estimated_cost_usd=%s estimated_cost_twd=%s elapsed=%.3fs",
                         operation,
                         authorized_job_id,
                         upstream_response.status,
@@ -2178,6 +2219,17 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                         characters,
                         len(body),
                         len(response_body),
+                        payload.get("translation_type", "std"),
+                        (
+                            response_payload.get("provider")
+                            if isinstance(response_payload, dict)
+                            else None
+                        ),
+                        usage.get("counted_input_tokens"),
+                        usage.get("prompt_tokens"),
+                        usage.get("output_tokens"),
+                        usage.get("estimated_total_cost_usd"),
+                        usage.get("estimated_total_cost_twd"),
                         time.perf_counter() - started_at,
                     )
                     return Response(

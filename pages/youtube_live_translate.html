@@ -705,6 +705,13 @@
           </select>
         </div>
         <div class="col-12 col-md-6 col-xl-3">
+          <label class="form-label fw-semibold" for="translationType" data-i18n="translationType">翻譯類型</label>
+          <select id="translationType" class="form-select form-select-lg">
+            <option value="std" data-i18n="translationTypeStd">Std（Qwen3 14B）</option>
+            <option value="pro" data-i18n="translationTypePro">Pro（Gemini，按 token 計費）</option>
+          </select>
+        </div>
+        <div class="col-12 col-md-6 col-xl-3">
           <label class="form-label fw-semibold" for="transcriptionMode" data-i18n="transcriptionMode">轉譯模式</label>
           <select id="transcriptionMode" class="form-select form-select-lg">
             <option value="accurate" data-i18n="modeAccurate">高精度（較慢）</option>
@@ -842,6 +849,7 @@
   </footer>
 
   <script src="/subtitle-display-cues.js?v=20260809-1" defer></script>
-  <script src="/youtube-live-translate.js?v=20260809-1" defer></script>
+  <script src="/translation-usage.js?v=20260809-1" defer></script>
+  <script src="/youtube-live-translate.js?v=20260809-2" defer></script>
 </body>
 </html>
