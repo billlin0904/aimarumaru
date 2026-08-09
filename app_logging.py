@@ -3,10 +3,9 @@ import logging
 import os
 import sys
 import time
-from datetime import datetime, timezone
-from logging.handlers import TimedRotatingFileHandler
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, TextIO
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import FastAPI, Request
@@ -83,7 +82,112 @@ def environment_flag(name: str, default: bool = True) -> bool:
     }
 
 
-def configure_daily_access_file_logging() -> TimedRotatingFileHandler | None:
+class MultiprocessSafeDailyFileHandler(logging.Handler):
+    """Write directly to a dated file instead of renaming an open Windows file."""
+
+    terminator = "\n"
+
+    def __init__(
+        self,
+        base_path: Path,
+        *,
+        retention_days: int,
+        timezone_name: str,
+        date_provider: Callable[[], date] | None = None,
+    ) -> None:
+        super().__init__()
+        self.base_path = base_path.resolve()
+        self.baseFilename = str(self.base_path)
+        self.retention_days = max(1, retention_days)
+        try:
+            self.timezone = ZoneInfo(timezone_name)
+        except ZoneInfoNotFoundError:
+            self.timezone = timezone.utc
+        self._date_provider = date_provider or (
+            lambda: datetime.now(self.timezone).date()
+        )
+        self._current_date: date | None = None
+        self.stream: TextIO | None = None
+
+    def dated_path(self, log_date: date) -> Path:
+        suffix = self.base_path.suffix
+        stem = self.base_path.name[:-len(suffix)] if suffix else self.base_path.name
+        return self.base_path.with_name(
+            f"{stem}.{log_date.isoformat()}{suffix}"
+        )
+
+    def _close_stream(self) -> None:
+        if self.stream is None:
+            return
+        try:
+            self.stream.flush()
+            self.stream.close()
+        finally:
+            self.stream = None
+
+    def _delete_expired_files(self, current_date: date) -> None:
+        oldest_retained_date = current_date - timedelta(
+            days=self.retention_days - 1
+        )
+        suffix = self.base_path.suffix
+        stem = self.base_path.name[:-len(suffix)] if suffix else self.base_path.name
+        prefix = f"{stem}."
+        legacy_prefix = f"{self.base_path.name}."
+        candidates = set(self.base_path.parent.glob(f"{stem}.*{suffix}"))
+        candidates.update(self.base_path.parent.glob(f"{self.base_path.name}.*"))
+        for candidate in candidates:
+            name = candidate.name
+            if name.startswith(legacy_prefix):
+                date_text = name[len(legacy_prefix):]
+            else:
+                date_text = name[len(prefix):]
+                if suffix and date_text.endswith(suffix):
+                    date_text = date_text[:-len(suffix)]
+            try:
+                candidate_date = date.fromisoformat(date_text)
+            except ValueError:
+                continue
+            if candidate_date >= oldest_retained_date:
+                continue
+            try:
+                candidate.unlink()
+            except OSError:
+                # Another process may still have yesterday's file open on Windows.
+                # A later rollover/startup will retry the cleanup.
+                continue
+
+    def _ensure_stream(self, current_date: date) -> None:
+        if self.stream is not None and self._current_date == current_date:
+            return
+        self._close_stream()
+        self.base_path.parent.mkdir(parents=True, exist_ok=True)
+        self.stream = self.dated_path(current_date).open(
+            "a",
+            encoding="utf-8",
+        )
+        self._current_date = current_date
+        self._delete_expired_files(current_date)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            self._ensure_stream(self._date_provider())
+            if self.stream is None:  # pragma: no cover - guarded above
+                return
+            self.stream.write(self.format(record) + self.terminator)
+            self.stream.flush()
+        except Exception:
+            self.handleError(record)
+
+    def close(self) -> None:
+        self.acquire()
+        try:
+            self._close_stream()
+        finally:
+            self.release()
+        super().close()
+
+
+def configure_daily_access_file_logging() -> MultiprocessSafeDailyFileHandler | None:
     if not environment_flag(ACCESS_LOG_ENABLED_ENV):
         return None
 
@@ -100,7 +204,7 @@ def configure_daily_access_file_logging() -> TimedRotatingFileHandler | None:
     log_path = log_path.resolve()
 
     for handler in access_logger.handlers:
-        if isinstance(handler, TimedRotatingFileHandler):
+        if isinstance(handler, MultiprocessSafeDailyFileHandler):
             if Path(handler.baseFilename).resolve() == log_path:
                 return handler
 
@@ -110,22 +214,19 @@ def configure_daily_access_file_logging() -> TimedRotatingFileHandler | None:
             int(os.getenv(ACCESS_LOG_RETENTION_DAYS_ENV, "7")),
         )
         log_path.parent.mkdir(parents=True, exist_ok=True)
-        handler = TimedRotatingFileHandler(
+        timezone_name = os.getenv(
+            "AUDIOIO_LOG_TIMEZONE",
+            DEFAULT_LOG_TIMEZONE,
+        ).strip() or DEFAULT_LOG_TIMEZONE
+        handler = MultiprocessSafeDailyFileHandler(
             log_path,
-            when="midnight",
-            interval=1,
-            backupCount=retention_days,
-            encoding="utf-8",
-            utc=False,
+            retention_days=retention_days,
+            timezone_name=timezone_name,
         )
     except (OSError, ValueError) as exc:
         logging.getLogger(__name__).warning("無法建立 access log 檔案：%s", exc)
         return None
 
-    timezone_name = os.getenv(
-        "AUDIOIO_LOG_TIMEZONE",
-        DEFAULT_LOG_TIMEZONE,
-    ).strip() or DEFAULT_LOG_TIMEZONE
     handler.setLevel(logging.INFO)
     handler.setFormatter(JsonLineFormatter(timezone_name))
     access_logger.addHandler(handler)
@@ -214,6 +315,9 @@ def configure_access_logging(app: FastAPI) -> None:
                 language_probability=meta.get("language_probability"),
                 subtitle_source=meta.get("subtitle_source"),
                 segments=meta.get("segments"),
+                groups=meta.get("groups"),
+                source_ids=meta.get("source_ids"),
+                preceding_source_groups=meta.get("preceding_source_groups"),
                 context_segments=meta.get("context_segments"),
                 preceding_context_segments=meta.get("preceding_context_segments"),
                 following_context_segments=meta.get("following_context_segments"),

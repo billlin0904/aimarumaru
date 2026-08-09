@@ -173,13 +173,56 @@
     return texts.join(" ").trim();
   }
 
+  function sourceGroupContext(group) {
+    return {
+      group_id: String(group.groupId),
+      source_ids: [...group.sourceIds],
+      source_text: String(group.sourceText),
+    };
+  }
+
+  function withPrecedingSourceContext(group, precedingContext = null) {
+    return {
+      ...group,
+      precedingSourceContext: precedingContext
+        ? [{
+          group_id: String(precedingContext.group_id),
+          source_ids: [...precedingContext.source_ids],
+          source_text: String(precedingContext.source_text),
+        }]
+        : [],
+    };
+  }
+
+  function normalizeSrtTimeline(entries, maximumOverlapSeconds = 0.25) {
+    const normalized = entries
+      .map(entry => ({ ...entry }))
+      .sort((left, right) => left.start - right.start || left.end - right.end);
+    for (let index = 1; index < normalized.length; index += 1) {
+      const previous = normalized[index - 1];
+      const current = normalized[index];
+      const overlap = previous.end - current.start;
+      if (
+        overlap > 0
+        && overlap <= maximumOverlapSeconds
+        && current.start > previous.start
+      ) {
+        previous.end = current.start;
+      }
+    }
+    return normalized;
+  }
+
   return {
     contentSignature,
     displayCueAt,
     extractTitleTerms,
+    normalizeSrtTimeline,
     progressiveSourceText,
     sourceTextForOverlay,
+    sourceGroupContext,
     translationForSourceId,
     validateDisplayCues,
+    withPrecedingSourceContext,
   };
 }));

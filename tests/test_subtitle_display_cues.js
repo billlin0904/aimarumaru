@@ -6,11 +6,40 @@ const {
   contentSignature,
   displayCueAt,
   extractTitleTerms,
+  normalizeSrtTimeline,
   progressiveSourceText,
   sourceTextForOverlay,
+  sourceGroupContext,
   translationForSourceId,
   validateDisplayCues,
+  withPrecedingSourceContext,
 } = require("../pages/subtitle_display_cues.js");
+
+test("attaches only the preceding source group as read-only context", () => {
+  const previous = {
+    groupId: "g-25-31",
+    sourceIds: [25, 26, 27, 28, 29, 30, 31],
+    sourceText: "OpenAI lost like 20-something billion dollars last year.",
+    translatedText: "這個欄位不可傳給下一組",
+  };
+  const current = {
+    groupId: "g-32-36",
+    sourceIds: [32, 33, 34, 35, 36],
+    sourceText: "Anthropic's probably not far behind.",
+  };
+
+  const context = sourceGroupContext(previous);
+  const enriched = withPrecedingSourceContext(current, context);
+
+  assert.deepEqual(enriched.precedingSourceContext, [{
+    group_id: "g-25-31",
+    source_ids: [25, 26, 27, 28, 29, 30, 31],
+    source_text: "OpenAI lost like 20-something billion dollars last year.",
+  }]);
+  assert.equal(JSON.stringify(enriched).includes("這個欄位不可傳給下一組"), false);
+  previous.sourceIds.push(99);
+  assert.deepEqual(enriched.precedingSourceContext[0].source_ids, [25, 26, 27, 28, 29, 30, 31]);
+});
 
 test("extracts a work title without sending the whole YouTube title", () => {
   assert.deepEqual(
@@ -165,4 +194,17 @@ test("rejects gaps, overlaps, and missing source IDs", () => {
     () => validateDisplayCues(group, missingSource),
     /cover source IDs exactly once/,
   );
+});
+
+test("removes only tiny SRT overlaps without changing cue starts", () => {
+  const entries = normalizeSrtTimeline([
+    { start: 4.4, end: 8.54, text: "first" },
+    { start: 8.5, end: 10.0, text: "second" },
+    { start: 9.5, end: 12.0, text: "intentional overlap" },
+  ]);
+
+  assert.equal(entries[0].end, 8.5);
+  assert.equal(entries[1].start, 8.5);
+  assert.equal(entries[1].end, 10.0);
+  assert.equal(entries[2].start, 9.5);
 });

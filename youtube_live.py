@@ -2097,6 +2097,12 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         groups = payload.get("groups")
         segments = segments if isinstance(segments, list) else []
         groups = groups if isinstance(groups, list) else []
+        preceding_source_context = payload.get("preceding_source_context")
+        preceding_source_context = (
+            preceding_source_context
+            if isinstance(preceding_source_context, list)
+            else []
+        )
         source_id_count = sum(
             len(source_ids)
             for item in groups
@@ -2113,6 +2119,11 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             for item in groups
             if isinstance(item, dict)
         )
+        characters += sum(
+            len(str(item.get("source_text") or ""))
+            for item in preceding_source_context
+            if isinstance(item, dict)
+        )
         set_request_log_metadata(
             request,
             request_id=request_id,
@@ -2122,6 +2133,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             target_language=payload.get("target_language"),
             segments=len(segments),
             groups=len(groups),
+            preceding_source_groups=len(preceding_source_context),
             source_ids=source_id_count,
             characters=characters,
             final=payload.get("final"),
@@ -2152,6 +2164,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                     logger.info(
                         "Translation workflow proxy completed: operation=%s "
                         "job_id=%s status=%d request_id=%s segments=%d groups=%d "
+                        "preceding_source_groups=%d "
                         "source_ids=%d characters=%d request_bytes=%d "
                         "response_bytes=%d elapsed=%.3fs",
                         operation,
@@ -2160,6 +2173,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                         request_id,
                         len(segments),
                         len(groups),
+                        len(preceding_source_context),
                         source_id_count,
                         characters,
                         len(body),

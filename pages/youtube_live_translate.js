@@ -4,9 +4,12 @@ const {
   contentSignature,
   displayCueAt,
   extractTitleTerms,
+  normalizeSrtTimeline,
+  sourceGroupContext,
   sourceTextForOverlay,
   translationForSourceId,
   validateDisplayCues,
+  withPrecedingSourceContext,
 } = window.SubtitleDisplayCues;
 
 const form = document.getElementById("translateForm");
@@ -92,7 +95,7 @@ const TRANSLATION_WAVE_SIZE = 2;
 const RETRY_DELAYS_MS = [2000, 5000];
 const RETRYABLE_HTTP_STATUSES = new Set([429, 502, 503, 504]);
 const GROUPING_VERSION = "source-groups-v1";
-const GROUP_TRANSLATION_PROMPT_VERSION = "subtitle-groups-v1";
+const GROUP_TRANSLATION_PROMPT_VERSION = "subtitle-groups-v2";
 const NON_RETRYABLE_OUTPUT_CODES = new Set([
   "INVALID_RESPONSE",
   "INVALID_TRANSLATION_OUTPUT",
@@ -183,6 +186,7 @@ const segmentNodes = new Map();
 const failedSegmentIds = new Set();
 const translationFailureCodes = new Map();
 let pendingSegments = [];
+let lastSourceGroupContext = null;
 let eventSource = null;
 let translationQueue = Promise.resolve();
 let pendingTranslationBatches = [];
@@ -1200,6 +1204,7 @@ function resetView() {
   translatedGroups.clear();
   translatedDisplayCues.length = 0;
   sourceTranslationGroups.clear();
+  lastSourceGroupContext = null;
   segmentNodes.clear();
   failedSegmentIds.clear();
   translationFailureCodes.clear();
@@ -1570,7 +1575,9 @@ function enqueueTranslationGroups(groups, { deferStart = false } = {}) {
     sourceIdCount = 0;
   };
 
-  for (const group of groups) {
+  for (const rawGroup of groups) {
+    const group = withPrecedingSourceContext(rawGroup, lastSourceGroupContext);
+    lastSourceGroupContext = sourceGroupContext(group);
     for (const sourceId of group.sourceIds) {
       sourceTranslationGroups.set(sourceId, group);
       showSegmentTranslationGroup(sourceId, group);
@@ -1834,6 +1841,7 @@ async function translateBatch(batch) {
     target_language: selectedTargetLanguage,
     prompt_version: GROUP_TRANSLATION_PROMPT_VERSION,
     on_screen_terms: extractTitleTerms(videoTitle.textContent),
+    preceding_source_context: batch[0].precedingSourceContext || [],
     groups: batch.map(group => ({
       group_id: group.groupId,
       source_ids: group.sourceIds,
@@ -2144,9 +2152,14 @@ function transcriptFilename(suffix) {
 
 function buildSrt(mode) {
   if (mode === "source") {
-    return sortedSourceSegments().map((segment, index) => (
-      `${index + 1}\n${formatSrtTimestamp(segment.start)} --> ${formatSrtTimestamp(segment.end)}\n${segment.sourceText}`
-    )).join("\n\n") + (sourceSegments.size ? "\n" : "");
+    const entries = normalizeSrtTimeline(sortedSourceSegments().map(segment => ({
+      start: segment.start,
+      end: segment.end,
+      text: segment.sourceText,
+    })));
+    return entries.map((segment, index) => (
+      `${index + 1}\n${formatSrtTimestamp(segment.start)} --> ${formatSrtTimestamp(segment.end)}\n${segment.text}`
+    )).join("\n\n") + (entries.length ? "\n" : "");
   }
 
   const cueSourceIds = new Set(
@@ -2175,10 +2188,10 @@ function buildSrt(mode) {
         : translation,
     });
   }
-  entries.sort((left, right) => left.start - right.start || left.end - right.end);
-  return entries.map((entry, index) => (
+  const normalizedEntries = normalizeSrtTimeline(entries);
+  return normalizedEntries.map((entry, index) => (
     `${index + 1}\n${formatSrtTimestamp(entry.start)} --> ${formatSrtTimestamp(entry.end)}\n${entry.text}`
-  )).join("\n\n") + (entries.length ? "\n" : "");
+  )).join("\n\n") + (normalizedEntries.length ? "\n" : "");
 }
 
 function buildSegmentsJson() {
@@ -2356,6 +2369,7 @@ segmentList.addEventListener("click", event => {
     language: segment.language,
     forcedBoundary: true,
     segments: [segment],
+    precedingSourceContext: [],
   };
   for (const sourceId of group.sourceIds) {
     failedSegmentIds.delete(sourceId);
