@@ -20,6 +20,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingRes
 from pydantic import BaseModel
 
 from app_logging import log_structured_event, set_request_log_metadata
+from gpu_info import get_pynvml_gpu_info
 from media_audio_stream import (
     FFmpegPcmChunkStream,
     MediaSourceInput,
@@ -61,6 +62,11 @@ YOUTUBE_LIVE_JOB_TTL_SECONDS = 3600
 YOUTUBE_LIVE_EVENT_TIMEOUT_SECONDS = 30
 ETA_MIN_ELAPSED_SECONDS = 10
 ETA_MIN_PROCESSED_SECONDS = 30
+AUDIOIO_DASHBOARD_TOKEN = os.getenv("AUDIOIO_DASHBOARD_TOKEN", "").strip()
+AUDIOIO_DASHBOARD_JOB_LIMIT = max(
+    1,
+    min(100, int(os.getenv("AUDIOIO_DASHBOARD_JOB_LIMIT", "20"))),
+)
 TRANSLATE_API_BASE = os.getenv(
     "TRANSLATE_API_BASE",
     "https://translate.audio-io.com",
@@ -120,6 +126,66 @@ YOUTUBE_WHISPER_LANGUAGE_DETECT_SECONDS = max(
     10.0,
     float(os.getenv("YOUTUBE_WHISPER_LANGUAGE_DETECT_SECONDS", "30")),
 )
+
+
+def dashboard_percentile(values: list[float], percentile: float) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(float(value) for value in values)
+    rank = max(0, min(len(ordered) - 1, math.ceil(percentile * len(ordered)) - 1))
+    return round(ordered[rank], 3)
+
+
+def dashboard_request_authorized(
+    configured_token: str,
+    authorization: str,
+    client_host: str,
+) -> bool:
+    scheme, _, supplied_token = authorization.partition(" ")
+    if configured_token:
+        return scheme.lower() == "bearer" and secrets.compare_digest(
+            supplied_token,
+            configured_token,
+        )
+    return client_host in {"127.0.0.1", "::1", "localhost"}
+
+
+def new_job_telemetry() -> dict[str, Any]:
+    now = time.time()
+    return {
+        "phase": "queued",
+        "last_activity_at": now,
+        "transcription": {
+            "chunk_count": 0,
+            "processed_seconds": 0.0,
+            "progress_percent": 0.0,
+            "segments_emitted": 0,
+            "last_chunk_ms": None,
+            "average_chunk_ms": None,
+            "max_chunk_ms": None,
+            "processing_speed_x": None,
+            "last_chunk_at": None,
+        },
+        "translation": {
+            "active_requests": 0,
+            "requests_total": 0,
+            "successful_requests": 0,
+            "failed_requests": 0,
+            "grouping_requests": 0,
+            "translation_requests": 0,
+            "source_ids_seen": set(),
+            "source_ids_succeeded": set(),
+            "latencies_ms": [],
+            "last_latency_ms": None,
+            "last_status_code": None,
+            "last_provider": None,
+            "last_request_at": None,
+            "prompt_tokens": 0,
+            "output_tokens": 0,
+            "estimated_cost_usd": 0.0,
+            "estimated_cost_twd": 0.0,
+        },
+    }
 VIDEO_UPLOAD_MAX_BYTES = int(
     os.getenv("VIDEO_UPLOAD_MAX_BYTES", str(2 * 1024 * 1024 * 1024))
 )
@@ -516,6 +582,7 @@ def transcribe_audio_stream(
     transcription_mode: str = "accurate",
     asr_provider: str = "local",
     groq_client: GroqWhisperClient | None = None,
+    telemetry_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     started_at = time.perf_counter()
     mode = (
@@ -572,6 +639,9 @@ def transcribe_audio_stream(
             for chunk in audio_chunks:
                 if cancel_check is not None and cancel_check():
                     raise TranscriptionCancelled("轉譯已取消")
+                chunk_started_at = time.perf_counter()
+                decoded_before_chunk = decoded_segment_count
+                emitted_before_chunk = segment_count
                 chunk_count += 1
                 audio_samples = np.frombuffer(
                     chunk.data,
@@ -737,6 +807,38 @@ def transcribe_audio_stream(
                     },
                 )
 
+                chunk_elapsed_ms = round(
+                    (time.perf_counter() - chunk_started_at) * 1000,
+                    3,
+                )
+                total_elapsed = max(0.001, time.perf_counter() - started_at)
+                progress_percent = (
+                    min(100.0, processed_seconds / audio_duration * 100.0)
+                    if audio_duration > 0
+                    else 0.0
+                )
+                chunk_metrics = {
+                    "chunk_index": chunk_count,
+                    "offset_seconds": round(chunk.offset_seconds, 3),
+                    "duration_seconds": round(chunk.duration_seconds, 3),
+                    "processed_seconds": round(processed_seconds, 3),
+                    "progress_percent": round(progress_percent, 3),
+                    "chunk_elapsed_ms": chunk_elapsed_ms,
+                    "decoded_segments": decoded_segment_count - decoded_before_chunk,
+                    "emitted_in_chunk": segment_count - emitted_before_chunk,
+                    "segments_emitted": segment_count,
+                    "processing_speed_x": round(processed_seconds / total_elapsed, 3),
+                    "is_final": chunk.is_final,
+                }
+                if telemetry_callback is not None:
+                    telemetry_callback(chunk_metrics)
+                log_structured_event(
+                    "video_transcription_chunk_completed",
+                    job_id=job_id or "unknown",
+                    asr_provider=asr_provider,
+                    **chunk_metrics,
+                )
+
         if chunk_count == 0:
             raise RuntimeError("媒體檔案沒有可轉譯的音軌")
 
@@ -864,7 +966,10 @@ def detect_audio_language(
         }
     finally:
         if asr_provider == "local":
-            auto2lrc.clear_model_cache()
+            logger.info(
+                "Whisper language detection retained the warm local model: job_id=%s",
+                job_id or "unknown",
+            )
 
 
 def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_token=None) -> APIRouter:
@@ -872,12 +977,157 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
     page_path = project_root / "pages" / "youtube_live.html"
     translate_page_path = project_root / "pages" / "youtube_live_translate.html"
     translate_script_path = project_root / "pages" / "youtube_live_translate.js"
+    dashboard_page_path = project_root / "pages" / "dashboard.html"
+    dashboard_script_path = project_root / "pages" / "dashboard.js"
     translation_usage_script_path = project_root / "pages" / "translation_usage.js"
     subtitle_display_cues_script_path = (
         project_root / "pages" / "subtitle_display_cues.js"
     )
     cookies_file = project_root / "cookies.txt"
     jobs: dict[str, dict[str, Any]] = {}
+    telemetry_lock = threading.Lock()
+
+    def touch_job(job: dict[str, Any], *, phase: str | None = None) -> None:
+        with telemetry_lock:
+            telemetry = job.setdefault("telemetry", new_job_telemetry())
+            telemetry["last_activity_at"] = time.time()
+            if phase is not None:
+                telemetry["phase"] = phase
+
+    def record_transcription_chunk(job_id: str, metrics: dict[str, Any]) -> None:
+        job = jobs.get(job_id)
+        if job is None:
+            return
+        with telemetry_lock:
+            telemetry = job.setdefault("telemetry", new_job_telemetry())
+            transcription = telemetry["transcription"]
+            chunk_count = int(metrics.get("chunk_index") or 0)
+            previous_count = max(0, chunk_count - 1)
+            previous_average = float(transcription.get("average_chunk_ms") or 0.0)
+            chunk_ms = float(metrics.get("chunk_elapsed_ms") or 0.0)
+            transcription.update(
+                {
+                    "chunk_count": chunk_count,
+                    "processed_seconds": round(float(metrics.get("processed_seconds") or 0.0), 3),
+                    "progress_percent": round(float(metrics.get("progress_percent") or 0.0), 3),
+                    "segments_emitted": int(metrics.get("segments_emitted") or 0),
+                    "last_chunk_ms": round(chunk_ms, 3),
+                    "average_chunk_ms": round(
+                        ((previous_average * previous_count) + chunk_ms) / max(1, chunk_count),
+                        3,
+                    ),
+                    "max_chunk_ms": round(
+                        max(float(transcription.get("max_chunk_ms") or 0.0), chunk_ms),
+                        3,
+                    ),
+                    "processing_speed_x": metrics.get("processing_speed_x"),
+                    "last_chunk_at": time.time(),
+                }
+            )
+            telemetry["phase"] = "transcription"
+            telemetry["last_activity_at"] = time.time()
+
+    def translation_request_started(
+        job: dict[str, Any],
+        operation: str,
+        source_ids: set[int | str],
+    ) -> None:
+        with telemetry_lock:
+            telemetry = job.setdefault("telemetry", new_job_telemetry())
+            translation = telemetry["translation"]
+            translation["active_requests"] += 1
+            translation["requests_total"] += 1
+            if operation == "group":
+                translation["grouping_requests"] += 1
+            elif operation == "translate-groups":
+                translation["translation_requests"] += 1
+            translation["source_ids_seen"].update(source_ids)
+            translation["last_request_at"] = time.time()
+            telemetry["last_activity_at"] = time.time()
+
+    def translation_request_finished(
+        job: dict[str, Any],
+        *,
+        status_code: int,
+        latency_ms: float,
+        source_ids: set[int | str],
+        provider: str | None = None,
+        usage: dict[str, Any] | None = None,
+    ) -> None:
+        with telemetry_lock:
+            telemetry = job.setdefault("telemetry", new_job_telemetry())
+            translation = telemetry["translation"]
+            translation["active_requests"] = max(0, translation["active_requests"] - 1)
+            if 200 <= status_code < 300:
+                translation["successful_requests"] += 1
+                translation["source_ids_succeeded"].update(source_ids)
+            else:
+                translation["failed_requests"] += 1
+            latencies = translation["latencies_ms"]
+            latencies.append(round(latency_ms, 3))
+            del latencies[:-100]
+            translation["last_latency_ms"] = round(latency_ms, 3)
+            translation["last_status_code"] = status_code
+            translation["last_provider"] = provider or translation.get("last_provider")
+            translation["last_request_at"] = time.time()
+            if usage:
+                for key in ("prompt_tokens", "output_tokens"):
+                    try:
+                        translation[key] += int(usage.get(key) or 0)
+                    except (TypeError, ValueError):
+                        pass
+                for key in ("estimated_cost_usd", "estimated_cost_twd"):
+                    usage_key = key.replace("estimated_cost", "estimated_total_cost")
+                    try:
+                        translation[key] += float(usage.get(usage_key) or 0.0)
+                    except (TypeError, ValueError):
+                        pass
+            telemetry["last_activity_at"] = time.time()
+
+    def dashboard_job_payload(job_id: str, job: dict[str, Any]) -> dict[str, Any]:
+        now = time.time()
+        with telemetry_lock:
+            telemetry = job.setdefault("telemetry", new_job_telemetry())
+            transcription = dict(telemetry["transcription"])
+            translation = dict(telemetry["translation"])
+            latencies = list(translation.pop("latencies_ms", []))
+            translation["source_ids_seen"] = len(translation["source_ids_seen"])
+            translation["source_ids_succeeded"] = len(
+                translation["source_ids_succeeded"]
+            )
+            translation["average_latency_ms"] = (
+                round(sum(latencies) / len(latencies), 3) if latencies else None
+            )
+            translation["p95_latency_ms"] = dashboard_percentile(latencies, 0.95)
+            last_activity_at = float(telemetry.get("last_activity_at") or job["created_at"])
+            phase = str(telemetry.get("phase") or job.get("status") or "unknown")
+        last_activity_age = max(0.0, now - last_activity_at)
+        stalled_threshold = max(
+            90.0,
+            3.0 * float(transcription.get("last_chunk_ms") or 0.0) / 1000.0,
+        )
+        return {
+            "job_id": job_id,
+            "status": job.get("status"),
+            "phase": phase,
+            "source_kind": job.get("source_kind", "youtube"),
+            "processing_profile": normalize_processing_profile(
+                job.get("processing_profile")
+            ),
+            "asr_provider": asr_provider_for_profile(
+                normalize_processing_profile(job.get("processing_profile"))
+            ),
+            "source_language": job.get("language_hint") or job.get("detected_language") or "auto",
+            "created_at": datetime.fromtimestamp(
+                float(job["created_at"]), timezone.utc
+            ).isoformat(),
+            "age_seconds": round(max(0.0, now - float(job["created_at"])), 3),
+            "last_activity_age_seconds": round(last_activity_age, 3),
+            "stalled": job.get("status") == "running" and last_activity_age > stalled_threshold,
+            "video_duration_seconds": job.get("video_duration_seconds"),
+            "transcription": transcription,
+            "translation": translation,
+        }
 
     def job_is_cancelled(job: dict[str, Any]) -> bool:
         cancel_event = job.get("cancel_event")
@@ -980,6 +1230,14 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             processing_profile=processing_profile,
             asr_provider=asr_provider,
         )
+        touch_job(
+            job,
+            phase=(
+                "transcription"
+                if job.get("status") == "queued_for_transcription"
+                else "preparation"
+            ),
+        )
         try:
             ensure_job_not_cancelled(job)
             if job.get("source_kind") == "upload" and not job.get("metadata_emitted"):
@@ -1038,6 +1296,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                         job.get("transcription_mode", "accurate"),
                         asr_provider,
                         groq_client,
+                        lambda metrics: record_transcription_chunk(job_id, metrics),
                     )
                 ensure_job_not_cancelled(job)
                 job["status"] = "done"
@@ -1206,6 +1465,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                             "source": "youtube_subtitles",
                         },
                     )
+
                     log_structured_event(
                         "video_job_awaiting_language",
                         job_id=job_id,
@@ -1318,6 +1578,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                 job.get("transcription_mode", "accurate"),
                 asr_provider,
                 groq_client,
+                lambda metrics: record_transcription_chunk(job_id, metrics),
             )
             ensure_job_not_cancelled(job)
 
@@ -1370,6 +1631,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             await push_event(job, "failed", {"message": readable_exception_message(exc)})
         finally:
             job["expires_at"] = time.time() + YOUTUBE_LIVE_JOB_TTL_SECONDS
+            touch_job(job, phase=str(job.get("status") or phase))
             if terminal:
                 cleanup_youtube_live_job_artifacts(job)
                 await close_event_stream(job)
@@ -1421,6 +1683,93 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             media_type="application/javascript",
             headers={"Cache-Control": "no-store, max-age=0"},
         )
+
+    @router.get("/dashboard", include_in_schema=False)
+    def dashboard_page():
+        return HTMLResponse(
+            dashboard_page_path.read_text(encoding="utf-8"),
+            headers={"Cache-Control": "no-store, max-age=0"},
+        )
+
+    @router.get("/dashboard.js", include_in_schema=False)
+    def dashboard_script():
+        return Response(
+            dashboard_script_path.read_text(encoding="utf-8"),
+            media_type="application/javascript",
+            headers={"Cache-Control": "no-store, max-age=0"},
+        )
+
+    def require_dashboard_access(request: Request) -> None:
+        authorization = request.headers.get("authorization", "")
+        client_host = request.client.host if request.client else ""
+        if dashboard_request_authorized(
+            AUDIOIO_DASHBOARD_TOKEN,
+            authorization,
+            client_host,
+        ):
+            return
+        if AUDIOIO_DASHBOARD_TOKEN:
+            raise HTTPException(status_code=401, detail="Dashboard Token 無效")
+        raise HTTPException(
+            status_code=503,
+            detail="雲端 Dashboard 尚未設定 AUDIOIO_DASHBOARD_TOKEN",
+        )
+
+    @router.get(
+        "/api/dashboard/status",
+        tags=["System"],
+        summary="取得即時 GPU、轉錄及翻譯工作遙測",
+    )
+    def dashboard_status(request: Request):
+        require_dashboard_access(request)
+        cleanup_youtube_live_jobs(jobs)
+        queue_counts = get_transcribe_queue_counts()
+        sorted_jobs = sorted(
+            jobs.items(),
+            key=lambda item: float(item[1].get("created_at") or 0.0),
+            reverse=True,
+        )[:AUDIOIO_DASHBOARD_JOB_LIMIT]
+        job_payloads = [
+            dashboard_job_payload(job_id, job) for job_id, job in sorted_jobs
+        ]
+        try:
+            gpu_payload = get_pynvml_gpu_info()
+            gpus = [
+                {
+                    "index": index,
+                    "name": gpu.get("name"),
+                    "utilization_gpu": gpu.get(
+                        "scheduling_utilization",
+                        gpu.get("utilization_gpu"),
+                    ),
+                    "temperature_gpu": gpu.get("temperature_gpu"),
+                    "memory_used": gpu.get("memory_used"),
+                    "memory_total": gpu.get("memory_total"),
+                    "memory_free": gpu.get("memory_free"),
+                }
+                for index, gpu in enumerate(gpu_payload.get("gpus", []))
+            ]
+        except Exception as exc:
+            logger.warning("Dashboard could not read NVIDIA metrics: %s", exc)
+            gpus = []
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "queue": queue_counts,
+            "summary": {
+                "jobs": len(job_payloads),
+                "active_jobs": sum(
+                    job.get("status") in {"queued", "queued_for_transcription", "running"}
+                    for job in job_payloads
+                ),
+                "stalled_jobs": sum(bool(job.get("stalled")) for job in job_payloads),
+                "translation_errors": sum(
+                    int(job["translation"].get("failed_requests") or 0)
+                    for job in job_payloads
+                ),
+            },
+            "gpus": gpus,
+            "jobs": job_payloads,
+        }
 
     @router.get(
         "/api/youtube-live/playlists/preview",
@@ -1482,6 +1831,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             "created_monotonic": created_monotonic,
             "queued_monotonic": created_monotonic,
             "expires_at": time.time() + YOUTUBE_LIVE_JOB_TTL_SECONDS,
+            "telemetry": new_job_telemetry(),
         }
         set_request_log_metadata(
             http_request,
@@ -1619,6 +1969,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             "created_monotonic": created_monotonic,
             "queued_monotonic": created_monotonic,
             "expires_at": time.time() + YOUTUBE_LIVE_JOB_TTL_SECONDS,
+            "telemetry": new_job_telemetry(),
         }
         set_request_log_metadata(
             http_request,
@@ -2334,6 +2685,15 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             for source_ids in [item.get("source_ids")]
             if isinstance(source_ids, list)
         )
+        translation_source_ids: set[int | str] = {
+            source_id
+            for item in groups
+            if isinstance(item, dict)
+            for source_ids in [item.get("source_ids")]
+            if isinstance(source_ids, list)
+            for source_id in source_ids
+            if isinstance(source_id, (int, str))
+        }
         characters = sum(
             len(str(item.get("text") or ""))
             for item in segments
@@ -2371,6 +2731,14 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         workflow_task = asyncio.current_task()
         if workflow_task is not None:
             authorized_job.setdefault("translation_tasks", set()).add(workflow_task)
+        translation_request_started(
+            authorized_job,
+            operation,
+            translation_source_ids,
+        )
+        telemetry_status_code = 500
+        telemetry_provider: str | None = None
+        telemetry_usage: dict[str, Any] = {}
         try:
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.post(
@@ -2397,6 +2765,13 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                         else None
                     )
                     usage = usage if isinstance(usage, dict) else {}
+                    telemetry_status_code = upstream_response.status
+                    telemetry_provider = (
+                        response_payload.get("provider")
+                        if isinstance(response_payload, dict)
+                        else None
+                    )
+                    telemetry_usage = usage
                     set_request_log_metadata(
                         request,
                         translation_provider=(
@@ -2448,16 +2823,19 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                         headers={"Content-Type": response_content_type},
                     )
         except asyncio.CancelledError:
+            telemetry_status_code = 499
             return JSONResponse(
                 status_code=499,
                 content={"detail": "翻譯已取消", "retryable": False},
             )
         except asyncio.TimeoutError:
+            telemetry_status_code = 504
             return JSONResponse(
                 status_code=504,
                 content={"detail": "翻譯服務逾時", "retryable": True},
             )
         except aiohttp.ClientError:
+            telemetry_status_code = 502
             logger.exception(
                 "Translation workflow proxy failed: operation=%s job_id=%s "
                 "request_id=%s elapsed=%.3fs",
@@ -2471,6 +2849,14 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                 content={"detail": "無法連線至翻譯服務", "retryable": True},
             )
         finally:
+            translation_request_finished(
+                authorized_job,
+                status_code=telemetry_status_code,
+                latency_ms=(time.perf_counter() - started_at) * 1000,
+                source_ids=translation_source_ids,
+                provider=telemetry_provider,
+                usage=telemetry_usage,
+            )
             if workflow_task is not None:
                 authorized_job.get("translation_tasks", set()).discard(workflow_task)
 

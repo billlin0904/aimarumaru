@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Aimarumaru Ops</title>
+  <style>
+    :root {
+      --bg: #090d14;
+      --panel: #111823;
+      --panel-2: #151f2d;
+      --line: #243247;
+      --text: #eef4ff;
+      --muted: #91a0b7;
+      --cyan: #58d7ff;
+      --green: #65e6a7;
+      --amber: #ffca68;
+      --red: #ff747d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 16% 0%, rgba(46, 112, 156, .22), transparent 34rem),
+        radial-gradient(circle at 85% 12%, rgba(47, 129, 94, .12), transparent 28rem),
+        var(--bg);
+      font-family: Inter, "Noto Sans TC", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    button, input { font: inherit; }
+    .shell { width: min(1440px, 100%); margin: 0 auto; padding: 28px 24px 56px; }
+    .topbar { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 24px; }
+    .identity { display: flex; align-items: center; gap: 13px; }
+    .mark {
+      width: 42px; height: 42px; border: 1px solid #376079; border-radius: 12px;
+      display: grid; place-items: center; color: var(--cyan); background: #102131;
+      font-weight: 900; box-shadow: 0 0 28px rgba(88, 215, 255, .12);
+    }
+    h1 { margin: 0; font-size: 1.1rem; letter-spacing: .02em; }
+    .subtitle { margin: 4px 0 0; color: var(--muted); font-size: .78rem; }
+    .connection { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: .8rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 0 4px rgba(255, 202, 104, .1); }
+    .dot.live { background: var(--green); box-shadow: 0 0 0 4px rgba(101, 230, 167, .1); }
+    .panel { border: 1px solid var(--line); background: rgba(17, 24, 35, .92); border-radius: 14px; }
+    .login { max-width: 520px; margin: 12vh auto 0; padding: 30px; }
+    .login h2 { margin: 0 0 8px; font-size: 1.3rem; }
+    .login p { color: var(--muted); line-height: 1.65; font-size: .9rem; }
+    .token-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; margin-top: 22px; }
+    input { width: 100%; color: var(--text); background: #0a1019; border: 1px solid var(--line); border-radius: 9px; padding: 12px 13px; outline: none; }
+    input:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(88, 215, 255, .1); }
+    .button { color: #031018; background: var(--cyan); border: 0; border-radius: 9px; padding: 0 18px; font-weight: 800; cursor: pointer; }
+    .error { min-height: 1.3em; margin-top: 12px; color: var(--red); font-size: .82rem; }
+    .hidden { display: none !important; }
+    .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 13px; }
+    .metric { position: relative; min-height: 126px; padding: 18px; overflow: hidden; }
+    .metric-label { color: var(--muted); font-size: .74rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+    .metric-value { margin-top: 12px; font-size: clamp(1.5rem, 3vw, 2.25rem); font-weight: 800; letter-spacing: -.04em; }
+    .metric-note { margin-top: 7px; color: var(--muted); font-size: .76rem; }
+    .spark { position: absolute; right: 10px; bottom: 7px; width: 47%; height: 48px; opacity: .65; }
+    .main-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(320px, .8fr); gap: 13px; margin-top: 13px; }
+    .section { padding: 18px; }
+    .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+    .section h2 { margin: 0; font-size: .93rem; }
+    .section-meta { color: var(--muted); font-size: .72rem; }
+    .jobs { display: grid; gap: 9px; }
+    .job { border: 1px solid var(--line); border-radius: 11px; padding: 14px; background: #0d141e; }
+    .job-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .job-id { color: #c9d7eb; font: 700 .78rem ui-monospace, SFMono-Regular, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; }
+    .badge { flex: 0 0 auto; border-radius: 999px; padding: 4px 8px; font-size: .66rem; font-weight: 800; text-transform: uppercase; }
+    .badge.running, .badge.queued_for_transcription { color: var(--cyan); background: rgba(88, 215, 255, .1); }
+    .badge.done { color: var(--green); background: rgba(101, 230, 167, .1); }
+    .badge.failed, .badge.cancelled, .badge.stalled { color: var(--red); background: rgba(255, 116, 125, .1); }
+    .job-meta { display: flex; flex-wrap: wrap; gap: 7px 14px; margin-top: 9px; color: var(--muted); font-size: .7rem; }
+    .progress { height: 5px; margin-top: 13px; border-radius: 99px; background: #1d2939; overflow: hidden; }
+    .progress > span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #368cff, var(--cyan)); }
+    .job-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+    .job-stat { padding: 9px; border-radius: 8px; background: var(--panel-2); }
+    .job-stat b { display: block; font-size: .82rem; }
+    .job-stat span { display: block; margin-top: 3px; color: var(--muted); font-size: .63rem; }
+    .gpu-list { display: grid; gap: 10px; }
+    .gpu { padding: 14px; border: 1px solid var(--line); border-radius: 11px; background: #0d141e; }
+    .gpu-title { display: flex; justify-content: space-between; gap: 10px; font-size: .78rem; font-weight: 800; }
+    .gpu-bars { display: grid; gap: 9px; margin-top: 13px; }
+    .bar-row { display: grid; grid-template-columns: 42px 1fr 45px; align-items: center; gap: 8px; color: var(--muted); font-size: .66rem; }
+    .bar { height: 6px; border-radius: 99px; background: #1d2939; overflow: hidden; }
+    .bar span { display: block; height: 100%; background: var(--green); }
+    .empty { padding: 34px 12px; color: var(--muted); text-align: center; font-size: .82rem; }
+    .footer { margin-top: 14px; color: #637188; font-size: .68rem; text-align: right; }
+    @media (max-width: 920px) {
+      .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .main-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 580px) {
+      .shell { padding: 18px 12px 40px; }
+      .metrics { grid-template-columns: 1fr 1fr; gap: 8px; }
+      .metric { min-height: 112px; padding: 14px; }
+      .metric-value { font-size: 1.45rem; }
+      .job-stats { grid-template-columns: 1fr 1fr; }
+      .token-row { grid-template-columns: 1fr; }
+      .button { min-height: 44px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="identity">
+        <div class="mark">A</div>
+        <div><h1>Aimarumaru Ops</h1><p class="subtitle">Whisper 與翻譯管線即時遙測</p></div>
+      </div>
+      <div class="connection"><span id="connectionDot" class="dot"></span><span id="connectionText">尚未連線</span></div>
+    </header>
+
+    <section id="loginPanel" class="panel login">
+      <h2>連線到監控資料</h2>
+      <p>輸入伺服器設定的 <code>AUDIOIO_DASHBOARD_TOKEN</code>。Token 只保存在目前分頁的 sessionStorage，不會寫入網址或伺服器日誌。</p>
+      <form id="loginForm" class="token-row">
+        <input id="tokenInput" type="password" autocomplete="current-password" placeholder="Dashboard Token" aria-label="Dashboard Token">
+        <button class="button" type="submit">連線</button>
+      </form>
+      <div id="loginError" class="error" role="alert"></div>
+    </section>
+
+    <section id="dashboard" class="hidden">
+      <div class="metrics">
+        <article class="panel metric"><div class="metric-label">GPU Load</div><div id="gpuValue" class="metric-value">—</div><div id="gpuNote" class="metric-note">等待資料</div><svg id="gpuSpark" class="spark" viewBox="0 0 100 40" preserveAspectRatio="none"><polyline fill="none" stroke="#58d7ff" stroke-width="2" points=""></polyline></svg></article>
+        <article class="panel metric"><div class="metric-label">VRAM</div><div id="vramValue" class="metric-value">—</div><div id="vramNote" class="metric-note">等待資料</div></article>
+        <article class="panel metric"><div class="metric-label">Transcribe Queue</div><div id="queueValue" class="metric-value">—</div><div id="queueNote" class="metric-note">等待資料</div></article>
+        <article class="panel metric"><div class="metric-label">Pipeline Health</div><div id="healthValue" class="metric-value">—</div><div id="healthNote" class="metric-note">等待資料</div></article>
+      </div>
+      <div class="main-grid">
+        <section class="panel section"><div class="section-head"><h2>最近工作</h2><span id="jobsMeta" class="section-meta"></span></div><div id="jobs" class="jobs"></div></section>
+        <section class="panel section"><div class="section-head"><h2>GPU</h2><span class="section-meta">每 2 秒更新</span></div><div id="gpus" class="gpu-list"></div></section>
+      </div>
+      <div id="updatedAt" class="footer"></div>
+    </section>
+  </main>
+  <script src="/dashboard.js"></script>
+</body>
+</html>

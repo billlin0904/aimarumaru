@@ -36,6 +36,26 @@ Groq ASR 使用 OpenAI-compatible `/audio/transcriptions` multipart API。音訊
 Kotobamaru 需另外設定 Groq 與 Gemini 翻譯金鑰，Aimarumaru 透過既有
 `TRANSLATE_API_BASE` 代理翻譯請求。
 
+## Operations Dashboard
+
+`/dashboard` 顯示 NVIDIA GPU、VRAM、轉錄佇列、Whisper chunk 耗時、處理倍率、
+翻譯延遲／錯誤及 provider 回傳的估算費用。API 只輸出遙測，不輸出影片網址、
+字幕內容、翻譯權杖或 API 金鑰。
+
+本機未設定 Token 時只允許 localhost 讀取；雲端部署必須在 `.env` 設定：
+
+```dotenv
+AUDIOIO_DASHBOARD_TOKEN=請使用足夠長的隨機字串
+```
+
+可用 Linux 產生 Token：
+
+```bash
+python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
+```
+
+設定後重新啟動 Aimarumaru，再開啟 `https://你的網域/dashboard`。
+
 測試：
 
 ```powershell

@@ -15,6 +15,7 @@ from media_audio_stream import (
     probe_media_duration,
 )
 from youtube_live import (
+    detect_audio_language,
     owned_whisper_segment,
     transcribe_audio_stream,
     whisper_word_payloads,
@@ -120,6 +121,23 @@ class FakeGroqWhisperClient:
 
 @unittest.skipUnless(shutil.which("ffmpeg"), "FFmpeg is required")
 class MediaAudioStreamTests(unittest.TestCase):
+    def test_local_language_detection_keeps_whisper_model_warm(self) -> None:
+        local = FakeAuto2Lrc()
+        prefix_pcm = b"\0\0" * (5 * 16000)
+
+        with mock.patch("youtube_live.decode_media_prefix", return_value=prefix_pcm):
+            result = detect_audio_language(
+                local,
+                self.audio_path,
+                job_id="warm-model-job",
+                audio_duration_hint=25.0,
+                asr_provider="local",
+            )
+
+        self.assertEqual(result["language"], "en")
+        self.assertEqual(local.clear_count, 0)
+        self.assertEqual(local.sample_counts, [5 * 16000])
+
     def test_full_groq_segment_uses_authoritative_segment_text(self) -> None:
         segment = SimpleNamespace(
             text="Watch. Each step adds a few more numbers.",
@@ -227,6 +245,7 @@ class MediaAudioStreamTests(unittest.TestCase):
         async def run_test():
             event_queue: asyncio.Queue = asyncio.Queue()
             fake = FakeAuto2Lrc()
+            telemetry = []
             with (
                 mock.patch("youtube_live.YOUTUBE_WHISPER_STREAM_CHUNK_SECONDS", 10.0),
                 mock.patch("youtube_live.YOUTUBE_WHISPER_STREAM_OVERLAP_SECONDS", 2.0),
@@ -243,13 +262,17 @@ class MediaAudioStreamTests(unittest.TestCase):
                     None,
                     True,
                     25.0,
+                    "accurate",
+                    "local",
+                    None,
+                    telemetry.append,
                 )
             events = []
             while not event_queue.empty():
                 events.append(event_queue.get_nowait())
-            return fake, result, events
+            return fake, result, events, telemetry
 
-        fake, result, events = asyncio.run(run_test())
+        fake, result, events, telemetry = asyncio.run(run_test())
         segment_events = [event["data"] for event in events if event["event"] == "segment"]
         progress_events = [event["data"] for event in events if event["event"] == "progress"]
 
@@ -264,6 +287,10 @@ class MediaAudioStreamTests(unittest.TestCase):
         self.assertLessEqual(max(fake.sample_counts), 10 * 16000)
         self.assertTrue(all(options["beam_size"] == 5 for options in fake.options))
         self.assertEqual(fake.clear_count, 1)
+        self.assertEqual(len(telemetry), 3)
+        self.assertEqual(telemetry[-1]["chunk_index"], 3)
+        self.assertEqual(round(telemetry[-1]["progress_percent"]), 100)
+        self.assertEqual(telemetry[-1]["segments_emitted"], 4)
 
     def test_fast_transcription_mode_uses_greedy_search(self) -> None:
         async def run_test():
