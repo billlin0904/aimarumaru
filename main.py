@@ -18,10 +18,13 @@ import uuid
 from pathlib import Path
 from typing import Any, Optional
 
+from dotenv import load_dotenv
 from pydantic import BaseModel
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 import uvicorn
+
+load_dotenv(Path(__file__).resolve().with_name(".env"))
 
 from app_logging import (
     configure_access_logging,

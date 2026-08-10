@@ -33,11 +33,26 @@ def normalize_processing_profile(value: Optional[str]) -> ProcessingProfile:
 
 
 def asr_provider_for_profile(profile: ProcessingProfile) -> AsrProviderName:
-    return "local" if profile == "private" else "groq"
+    del profile
+    return "local"
 
 
 def translation_type_for_profile(profile: ProcessingProfile) -> TranslationType:
     return profile
+
+
+def route_translation_workflow_payload(
+    payload: dict[str, Any],
+    operation: str,
+    profile: ProcessingProfile,
+) -> dict[str, Any]:
+    """Apply provider routing only to operations that actually call a model."""
+    routed = dict(payload)
+    if operation == "translate-groups":
+        routed["translation_type"] = translation_type_for_profile(profile)
+    else:
+        routed.pop("translation_type", None)
+    return routed
 
 
 def pcm_float32_to_wav(audio_samples: np.ndarray, sample_rate: int = 16000) -> bytes:
@@ -183,6 +198,60 @@ def normalize_detected_language(language: object, fallback: str | None) -> str |
     return names.get(value, value or None)
 
 
+def detokenize_word_texts(raw_words: list[dict[str, Any]]) -> list[str]:
+    """Create joinable word pieces when Groq text alignment is unavailable."""
+    pieces: list[str] = []
+    closing_punctuation = set(".,!?;:%)]}〉》」』】、。，！？：；%")
+    opening_punctuation = set("([{〈《「『【")
+
+    def is_cjk(character: str) -> bool:
+        codepoint = ord(character)
+        return (
+            0x3040 <= codepoint <= 0x30FF
+            or 0x3400 <= codepoint <= 0x9FFF
+            or 0xAC00 <= codepoint <= 0xD7AF
+        )
+
+    for raw_word in raw_words:
+        token = str(raw_word.get("word") or "").strip()
+        if not token:
+            continue
+        if not pieces:
+            pieces.append(token)
+            continue
+        previous = pieces[-1]
+        needs_space = (
+            token[0] not in closing_punctuation
+            and previous[-1] not in opening_punctuation
+            and not token.startswith(("'", "’"))
+            and not (is_cjk(previous[-1]) and is_cjk(token[0]))
+        )
+        pieces.append((" " if needs_space else "") + token)
+    return pieces
+
+
+def align_word_texts(segment_text: str, raw_words: list[dict[str, Any]]) -> list[str]:
+    """Preserve the whitespace and punctuation omitted by Groq word tokens."""
+    cursor = 0
+    aligned: list[str] = []
+    lowered_text = segment_text.lower()
+    for raw_word in raw_words:
+        token = str(raw_word.get("word") or "").strip()
+        if not token:
+            return detokenize_word_texts(raw_words)
+        match_start = segment_text.find(token, cursor)
+        if match_start < 0:
+            match_start = lowered_text.find(token.lower(), cursor)
+        if match_start < 0:
+            return detokenize_word_texts(raw_words)
+        match_end = match_start + len(token)
+        aligned.append(segment_text[cursor:match_end])
+        cursor = match_end
+    if aligned and cursor < len(segment_text):
+        aligned[-1] += segment_text[cursor:]
+    return aligned
+
+
 def groq_response_to_segments(
     data: dict[str, Any],
     language_hint: str | None,
@@ -221,15 +290,20 @@ def groq_response_to_segments(
                 and float(word.get("start") or 0.0) < end + 0.001
                 and float(word.get("end") or 0.0) > start - 0.001
             ]
+        usable_words = [
+            word
+            for word in raw_words
+            if isinstance(word, dict) and str(word.get("word") or "").strip()
+        ]
+        aligned_word_texts = align_word_texts(text, usable_words)
         words = [
             SimpleNamespace(
-                word=str(word.get("word") or ""),
+                word=aligned_word_texts[word_index],
                 start=float(word.get("start") or start),
                 end=float(word.get("end") or end),
                 probability=float(word.get("probability") or 1.0),
             )
-            for word in raw_words
-            if isinstance(word, dict) and str(word.get("word") or "").strip()
+            for word_index, word in enumerate(usable_words)
         ]
         segments.append(
             SimpleNamespace(

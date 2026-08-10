@@ -31,6 +31,7 @@ from provider_profiles import (
     GroqWhisperSettings,
     asr_provider_for_profile,
     normalize_processing_profile,
+    route_translation_workflow_payload,
     translation_type_for_profile,
 )
 from text_converter import to_traditional_chinese
@@ -228,6 +229,7 @@ def whisper_word_payloads(
     words: Optional[list[Any]] = None,
 ) -> list[dict[str, Any]]:
     payloads: list[dict[str, Any]] = []
+    previous_start = float("-inf")
     source_words = words if words is not None else getattr(segment, "words", None) or []
     for word in source_words:
         raw_value = str(getattr(word, "word", "") or "")
@@ -244,6 +246,9 @@ def whisper_word_payloads(
             continue
         if not math.isfinite(start) or not math.isfinite(end) or end < start:
             continue
+        start = max(start, previous_start)
+        end = max(end, start + 0.001)
+        previous_start = start
         payload: dict[str, Any] = {
             "word": value,
             "start": round(start + time_offset, 3),
@@ -313,10 +318,13 @@ def owned_whisper_segment(
         ]
         if not owned_words:
             return None
-        text = "".join(
-            str(getattr(word, "word", "") or "")
-            for word, _, _ in owned_words
-        ).strip()
+        if len(owned_words) == len(timed_words):
+            text = str(getattr(segment, "text", "") or "").strip()
+        else:
+            text = "".join(
+                str(getattr(word, "word", "") or "")
+                for word, _, _ in owned_words
+            ).strip()
         if not text:
             return None
         return (
@@ -2135,7 +2143,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             low_confidence_spans=low_confidence_span_count,
             characters=characters,
             processing_profile=processing_profile,
-            translation_type=payload["translation_type"],
+            translation_type=payload.get("translation_type"),
         )
 
         upstream_url = f"{TRANSLATE_API_BASE}/api/v1/subtitles/translate"
@@ -2294,7 +2302,11 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         processing_profile = normalize_processing_profile(
             authorized_job.get("processing_profile")
         )
-        payload["translation_type"] = translation_type_for_profile(processing_profile)
+        payload = route_translation_workflow_payload(
+            payload,
+            operation,
+            processing_profile,
+        )
         body = json.dumps(
             payload, ensure_ascii=False, separators=(",", ":")
         ).encode("utf-8")
@@ -2344,7 +2356,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             source_language=payload.get("source_language"),
             target_language=payload.get("target_language"),
             processing_profile=processing_profile,
-            translation_type=payload["translation_type"],
+            translation_type=payload.get("translation_type"),
             segments=len(segments),
             groups=len(groups),
             preceding_source_groups=len(preceding_source_context),

@@ -1,19 +1,22 @@
 # Aimarumaru provider profiles
 
-影片翻譯頁面提供三種處理方案。三者共用同一條 VAD、來源正規化、語意翻譯群組、
-結果驗證與 deterministic display cues 流程，只替換 ASR 與翻譯 provider：
+影片翻譯頁面提供三種處理方案。三者共用本機 faster-whisper，以及同一條 VAD、
+來源正規化、語意翻譯群組、結果驗證與 deterministic display cues 流程；目前只替換
+翻譯 provider：
 
 | 方案 | ASR | 翻譯 |
 | --- | --- | --- |
-| Standard | Groq `whisper-large-v3` | Groq `openai/gpt-oss-120b` |
-| Premium | Groq `whisper-large-v3` | Gemini |
+| Standard | 本機 faster-whisper | Groq `openai/gpt-oss-120b` |
+| Premium | 本機 faster-whisper | Gemini |
 | Private | 本機 faster-whisper | 本機 Ollama `qwen3:14b` |
 
 `std`、`pro` 仍分別相容於 `standard`、`premium`。後端會依建立 job 時的
 `processing_profile` 強制翻譯路由，後續代理請求無法自行改成其他 provider。
 Private 的字幕翻譯也會由 Kotobamaru 停用 Wikidata／Wikipedia 遠端查詢。
 
-Standard／Premium 需要在啟動 Aimarumaru 前設定：
+Groq Whisper adapter 目前保留供日後 A/B 測試，但三個正式方案都使用本機
+faster-whisper，因此 Aimarumaru 不需要為 ASR 設定 `GROQ_API_KEY`。若日後重新啟用
+Groq ASR，可使用：
 
 ```dotenv
 GROQ_API_KEY=gsk_請填入自己的金鑰

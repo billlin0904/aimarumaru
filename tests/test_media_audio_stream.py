@@ -14,7 +14,11 @@ from media_audio_stream import (
     decode_media_prefix,
     probe_media_duration,
 )
-from youtube_live import transcribe_audio_stream
+from youtube_live import (
+    owned_whisper_segment,
+    transcribe_audio_stream,
+    whisper_word_payloads,
+)
 
 
 class FakeAuto2Lrc:
@@ -116,6 +120,42 @@ class FakeGroqWhisperClient:
 
 @unittest.skipUnless(shutil.which("ffmpeg"), "FFmpeg is required")
 class MediaAudioStreamTests(unittest.TestCase):
+    def test_full_groq_segment_uses_authoritative_segment_text(self) -> None:
+        segment = SimpleNamespace(
+            text="Watch. Each step adds a few more numbers.",
+            start=0.0,
+            end=2.0,
+            words=[
+                SimpleNamespace(word="Watch.", start=0.0, end=0.4),
+                SimpleNamespace(word="Each", start=0.4, end=0.8),
+                SimpleNamespace(word="step", start=0.8, end=1.1),
+                SimpleNamespace(word="adds", start=1.1, end=1.4),
+                SimpleNamespace(word="a", start=1.4, end=1.5),
+                SimpleNamespace(word="few", start=1.5, end=1.7),
+                SimpleNamespace(word="more", start=1.7, end=1.8),
+                SimpleNamespace(word="numbers.", start=1.8, end=2.0),
+            ],
+        )
+
+        owned = owned_whisper_segment(segment, 0.0, 3.0, True)
+
+        self.assertIsNotNone(owned)
+        self.assertEqual(owned[0], segment.text)
+
+    def test_word_payloads_clamp_locally_reversed_timestamps(self) -> None:
+        words = [
+            SimpleNamespace(word=" so", start=18.6, end=18.84, probability=0.99),
+            SimpleNamespace(word=" far?", start=18.2, end=19.32, probability=0.99),
+        ]
+
+        payloads = whisper_word_payloads(
+            SimpleNamespace(words=words),
+            "en",
+        )
+
+        self.assertEqual([item["start"] for item in payloads], [18.6, 18.6])
+        self.assertGreater(payloads[1]["end"], payloads[1]["start"])
+
     def setUp(self) -> None:
         self.temporary_directory = tempfile.TemporaryDirectory()
         self.audio_path = Path(self.temporary_directory.name) / "audio.wav"

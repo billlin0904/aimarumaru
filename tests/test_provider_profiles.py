@@ -8,8 +8,10 @@ from provider_profiles import (
     GroqWhisperClient,
     GroqWhisperSettings,
     asr_provider_for_profile,
+    detokenize_word_texts,
     normalize_processing_profile,
     pcm_float32_to_wav,
+    route_translation_workflow_payload,
     translation_type_for_profile,
 )
 
@@ -39,12 +41,31 @@ class FakeSession:
 
 
 class ProviderProfileTests(unittest.TestCase):
+    def test_groq_word_fallback_adds_english_spaces(self):
+        pieces = detokenize_word_texts(
+            [
+                {"word": "Watch."},
+                {"word": "Each"},
+                {"word": "step"},
+                {"word": "works!"},
+            ]
+        )
+
+        self.assertEqual("".join(pieces), "Watch. Each step works!")
+
+    def test_groq_word_fallback_does_not_space_cjk_characters(self):
+        pieces = detokenize_word_texts(
+            [{"word": "今天"}, {"word": "天氣"}, {"word": "很好"}, {"word": "。"}]
+        )
+
+        self.assertEqual("".join(pieces), "今天天氣很好。")
+
     def test_profiles_swap_only_asr_and_translation_provider(self):
         expected = {
-            "standard": ("groq", "standard"),
-            "std": ("groq", "standard"),
-            "premium": ("groq", "premium"),
-            "pro": ("groq", "premium"),
+            "standard": ("local", "standard"),
+            "std": ("local", "standard"),
+            "premium": ("local", "premium"),
+            "pro": ("local", "premium"),
             "private": ("local", "private"),
         }
         for value, providers in expected.items():
@@ -53,6 +74,21 @@ class ProviderProfileTests(unittest.TestCase):
                 (asr_provider_for_profile(profile), translation_type_for_profile(profile)),
                 providers,
             )
+
+    def test_workflow_profile_is_only_added_to_translation_requests(self):
+        grouping = route_translation_workflow_payload(
+            {"request_id": "group-1", "translation_type": "premium"},
+            "group",
+            "standard",
+        )
+        translation = route_translation_workflow_payload(
+            {"request_id": "translate-1", "translation_type": "private"},
+            "translate-groups",
+            "premium",
+        )
+
+        self.assertNotIn("translation_type", grouping)
+        self.assertEqual(translation["translation_type"], "premium")
 
     def test_pcm_encoder_writes_mono_16khz_wav(self):
         payload = pcm_float32_to_wav(np.zeros(16000, dtype=np.float32))
@@ -93,7 +129,14 @@ class ProviderProfileTests(unittest.TestCase):
 
         self.assertEqual(info.language, "en")
         self.assertEqual(segments[0].text, "hello world")
-        self.assertEqual([word.word for word in segments[0].words], ["hello", "world"])
+        self.assertEqual(
+            [word.word for word in segments[0].words],
+            ["hello", " world"],
+        )
+        self.assertEqual(
+            "".join(word.word for word in segments[0].words),
+            segments[0].text,
+        )
         url, request = session.calls[0]
         self.assertTrue(url.endswith("/audio/transcriptions"))
         self.assertEqual(request["headers"]["Authorization"], "Bearer test-key")
