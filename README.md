@@ -33,6 +33,27 @@ Groq ASR 使用 OpenAI-compatible `/audio/transcriptions` multipart API。音訊
 本機 Silero VAD 判斷；完全無語音的 chunk 不會送出，回傳 segment 也必須與語音
 區間重疊。預設最短請求間隔 3.1 秒，用來避免免費方案超過 20 RPM。
 
+YouTube 音訊預設限制在 96 kbps 以內，降低串流供料等待；若來源沒有合適格式，會
+依序退回 128 kbps 與最佳可用音軌：
+
+```dotenv
+YOUTUBE_AUDIO_FORMAT=bestaudio[abr<=96]/bestaudio[abr<=128]/bestaudio
+```
+
+## Resumable video upload
+
+影片上傳頁使用 20 MiB 分塊，每個分塊獨立通過 Cloudflare，連線中斷後重新選擇
+同一個檔案即可從伺服器已收到的分塊續傳。所有分塊完成後才在伺服器合併並建立
+Whisper 工作；頁面會顯示每個檔案與整批上傳進度。暫存分塊預設保留兩小時：
+
+```dotenv
+VIDEO_UPLOAD_CHUNK_BYTES=20971520
+VIDEO_UPLOAD_SESSION_TTL_SECONDS=7200
+```
+
+單一影片仍受 `VIDEO_UPLOAD_MAX_BYTES` 限制，預設為 2 GiB。舊版單次 multipart
+上傳 API 保留相容性，新版頁面使用 `/api/video-upload/sessions/*`。
+
 Kotobamaru 需另外設定 Groq 與 Gemini 翻譯金鑰，Aimarumaru 透過既有
 `TRANSLATE_API_BASE` 代理翻譯請求。
 

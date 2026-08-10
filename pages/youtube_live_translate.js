@@ -106,6 +106,8 @@ const NON_RETRYABLE_OUTPUT_CODES = new Set([
   "INVALID_TRANSLATION_OUTPUT",
 ]);
 const MAX_UPLOAD_VIDEO_FILES = 10;
+const UPLOAD_CHUNK_RETRY_DELAYS_MS = [1000, 3000, 5000];
+const UPLOAD_SESSION_STORAGE_KEY = "aimarumaruVideoUploadSessionsV1";
 const SUPPORTED_VIDEO_EXTENSION_RE = /\.(avi|m4v|mkv|mov|mp4|mpeg|mpg|ts|webm|wmv)$/i;
 
 const params = new URLSearchParams(window.location.search);
@@ -115,7 +117,7 @@ const languageStorageKey = "audioTranscribeLanguage";
 const translations = {
   "zh-Hant": {
     pageTitle: "Video Translate", uploadPageTitle: "影片上傳翻譯", transcribeOnly: "僅轉譯", urlLabel: "YouTube 網址", videoFileLabel: "選擇影片", dropVideos: "拖曳影片到這裡", dropVideosBrowse: "或點擊選擇影片", videoFileHelp: "一次最多選擇 10 支影片；檔案只用於本次轉譯，完成、取消或逾時後會自動清除。", invalidVideoFiles: "只支援影片檔案，已略過不支援的檔案。", videoFileLimit: "一次最多只能選擇 10 支影片。", videosSelected: "已選擇 {count} 支影片", uploadPrivacyLink: "查看隱私權政策", ignoreSubtitles: "忽略內建字幕", includeWordTimestamps: "逐字顯示原文",
-    selectedVideos: "已選影片", selectedVideoCount: "{count} 支", videoBatchQueued: "排程中", videoBatchProcessing: "處理中", videoBatchDone: "已完成", videoBatchFailed: "失敗", videoBatchCancelled: "已取消", batchDownloads: "批次下載",
+    selectedVideos: "已選影片", selectedVideoCount: "{count} 支", videoBatchQueued: "排程中", videoBatchProcessing: "處理中", videoBatchDone: "已完成", videoBatchFailed: "失敗", videoBatchCancelled: "已取消", uploadPreparing: "準備上傳", uploadProgress: "上傳 {percent}%", uploadResuming: "續傳 {percent}%", uploadRetrying: "連線中斷，正在重試", uploadAssembling: "上傳完成，伺服器合併中", uploadOverallProgress: "正在上傳 {current}/{total} · {percent}%", batchDownloads: "批次下載",
     playlistLabel: "播放清單", playlistCount: "{count} 支影片", playlistLoading: "正在讀取播放清單…", playlistLoadFailed: "無法讀取播放清單", selectPlaylistVideo: "選擇第 {index} 支影片：{title}",
     videoPreview: "影片預覽", enterFullscreen: "全螢幕", exitFullscreen: "結束全螢幕", subtitleWaiting: "字幕完成後會顯示在這裡",
     sourceLanguage: "原文語言", targetLanguage: "翻譯目標語言", translationType: "處理方案", translationTypeStd: "Standard（本機 Whisper + GPT-OSS 120B）", translationTypePro: "Premium（本機 Whisper + Gemini）", translationTypePrivate: "Private（本機 Whisper + Qwen3 14B）", transcriptionMode: "轉譯模式", modeAccurate: "高精度（較慢）", modeFast: "快速", autoDetect: "自動偵測", languageEnglish: "英文", languageJapanese: "日文", languageKorean: "韓文", languageThai: "泰文", languageTraditionalChinese: "繁體中文",
@@ -130,7 +132,7 @@ const translations = {
   },
   en: {
     pageTitle: "Video Translate", uploadPageTitle: "Upload Video Translate", transcribeOnly: "Transcribe only", urlLabel: "YouTube URL", videoFileLabel: "Choose videos", dropVideos: "Drop videos here", dropVideosBrowse: "or click to choose videos", videoFileHelp: "Choose up to 10 videos. Files are used only for this batch and deleted after completion, cancellation, or expiration.", invalidVideoFiles: "Only video files are supported. Unsupported files were skipped.", videoFileLimit: "You can select up to 10 videos at a time.", videosSelected: "{count} videos selected", uploadPrivacyLink: "View Privacy Policy", ignoreSubtitles: "Ignore built-in subtitles", includeWordTimestamps: "Reveal source word by word",
-    selectedVideos: "Selected videos", selectedVideoCount: "{count} videos", videoBatchQueued: "Queued", videoBatchProcessing: "Processing", videoBatchDone: "Complete", videoBatchFailed: "Failed", videoBatchCancelled: "Cancelled", batchDownloads: "Batch downloads",
+    selectedVideos: "Selected videos", selectedVideoCount: "{count} videos", videoBatchQueued: "Queued", videoBatchProcessing: "Processing", videoBatchDone: "Complete", videoBatchFailed: "Failed", videoBatchCancelled: "Cancelled", uploadPreparing: "Preparing upload", uploadProgress: "Uploading {percent}%", uploadResuming: "Resuming {percent}%", uploadRetrying: "Connection interrupted; retrying", uploadAssembling: "Upload complete; assembling on server", uploadOverallProgress: "Uploading {current}/{total} · {percent}%", batchDownloads: "Batch downloads",
     playlistLabel: "Playlist", playlistCount: "{count} videos", playlistLoading: "Loading playlist…", playlistLoadFailed: "Could not load playlist", selectPlaylistVideo: "Select video {index}: {title}",
     videoPreview: "Video preview", enterFullscreen: "Fullscreen", exitFullscreen: "Exit fullscreen", subtitleWaiting: "Subtitles will appear here when ready",
     sourceLanguage: "Source language", targetLanguage: "Target language", translationType: "Processing profile", translationTypeStd: "Standard (local Whisper + GPT-OSS 120B)", translationTypePro: "Premium (local Whisper + Gemini)", translationTypePrivate: "Private (local Whisper + Qwen3 14B)", transcriptionMode: "Transcription mode", modeAccurate: "High accuracy (slower)", modeFast: "Fast", autoDetect: "Auto detect", languageEnglish: "English", languageJapanese: "Japanese", languageKorean: "Korean", languageThai: "Thai", languageTraditionalChinese: "Traditional Chinese",
@@ -145,7 +147,7 @@ const translations = {
   },
   ja: {
     pageTitle: "Video Translate", uploadPageTitle: "動画アップロード翻訳", transcribeOnly: "文字起こしのみ", urlLabel: "YouTube URL", videoFileLabel: "動画を選択", dropVideos: "動画をここにドロップ", dropVideosBrowse: "またはクリックして選択", videoFileHelp: "一度に最大 10 本まで選択できます。完了・キャンセル・期限切れ後に自動削除されます。", invalidVideoFiles: "動画ファイルのみ対応しています。未対応のファイルは除外しました。", videoFileLimit: "一度に選択できる動画は最大 10 本です。", videosSelected: "{count} 本の動画を選択済み", uploadPrivacyLink: "プライバシーポリシーを見る", ignoreSubtitles: "内蔵字幕を無視", includeWordTimestamps: "原文を単語ごとに表示",
-    selectedVideos: "選択した動画", selectedVideoCount: "{count} 本", videoBatchQueued: "待機中", videoBatchProcessing: "処理中", videoBatchDone: "完了", videoBatchFailed: "失敗", videoBatchCancelled: "キャンセル済み", batchDownloads: "一括ダウンロード",
+    selectedVideos: "選択した動画", selectedVideoCount: "{count} 本", videoBatchQueued: "待機中", videoBatchProcessing: "処理中", videoBatchDone: "完了", videoBatchFailed: "失敗", videoBatchCancelled: "キャンセル済み", uploadPreparing: "アップロード準備中", uploadProgress: "アップロード {percent}%", uploadResuming: "再開 {percent}%", uploadRetrying: "接続が中断されました。再試行中", uploadAssembling: "アップロード完了。サーバーで結合中", uploadOverallProgress: "アップロード {current}/{total} · {percent}%", batchDownloads: "一括ダウンロード",
     playlistLabel: "再生リスト", playlistCount: "{count} 本", playlistLoading: "再生リストを読み込み中…", playlistLoadFailed: "再生リストを読み込めません", selectPlaylistVideo: "{index} 本目を選択：{title}",
     videoPreview: "動画プレビュー", enterFullscreen: "全画面", exitFullscreen: "全画面を終了", subtitleWaiting: "字幕の準備ができるとここに表示されます",
     sourceLanguage: "原文の言語", targetLanguage: "翻訳先の言語", translationType: "処理プロファイル", translationTypeStd: "Standard（ローカル Whisper + GPT-OSS 120B）", translationTypePro: "Premium（ローカル Whisper + Gemini）", translationTypePrivate: "Private（ローカル Whisper + Qwen3 14B）", transcriptionMode: "文字起こしモード", modeAccurate: "高精度（低速）", modeFast: "高速", autoDetect: "自動検出", languageEnglish: "英語", languageJapanese: "日本語", languageKorean: "韓国語", languageThai: "タイ語", languageTraditionalChinese: "繁体字中国語",
@@ -160,7 +162,7 @@ const translations = {
   },
   ko: {
     pageTitle: "Video Translate", uploadPageTitle: "동영상 업로드 번역", transcribeOnly: "전사만", urlLabel: "YouTube URL", videoFileLabel: "동영상 선택", dropVideos: "동영상을 여기에 놓으세요", dropVideosBrowse: "또는 클릭하여 선택", videoFileHelp: "한 번에 최대 10개를 선택할 수 있으며 완료, 취소 또는 만료 후 자동 삭제됩니다.", invalidVideoFiles: "동영상 파일만 지원합니다. 지원하지 않는 파일은 제외했습니다.", videoFileLimit: "한 번에 최대 10개의 동영상만 선택할 수 있습니다.", videosSelected: "동영상 {count}개 선택됨", uploadPrivacyLink: "개인정보 처리방침 보기", ignoreSubtitles: "내장 자막 무시", includeWordTimestamps: "원문을 단어별로 표시",
-    selectedVideos: "선택한 동영상", selectedVideoCount: "동영상 {count}개", videoBatchQueued: "대기 중", videoBatchProcessing: "처리 중", videoBatchDone: "완료", videoBatchFailed: "실패", videoBatchCancelled: "취소됨", batchDownloads: "일괄 다운로드",
+    selectedVideos: "선택한 동영상", selectedVideoCount: "동영상 {count}개", videoBatchQueued: "대기 중", videoBatchProcessing: "처리 중", videoBatchDone: "완료", videoBatchFailed: "실패", videoBatchCancelled: "취소됨", uploadPreparing: "업로드 준비 중", uploadProgress: "업로드 {percent}%", uploadResuming: "이어 올리기 {percent}%", uploadRetrying: "연결이 끊겨 다시 시도 중", uploadAssembling: "업로드 완료, 서버에서 병합 중", uploadOverallProgress: "업로드 {current}/{total} · {percent}%", batchDownloads: "일괄 다운로드",
     playlistLabel: "재생목록", playlistCount: "동영상 {count}개", playlistLoading: "재생목록을 불러오는 중…", playlistLoadFailed: "재생목록을 불러올 수 없습니다", selectPlaylistVideo: "{index}번 동영상 선택: {title}",
     videoPreview: "동영상 미리보기", enterFullscreen: "전체 화면", exitFullscreen: "전체 화면 종료", subtitleWaiting: "자막이 준비되면 여기에 표시됩니다",
     sourceLanguage: "원문 언어", targetLanguage: "번역 언어", translationType: "처리 프로필", translationTypeStd: "Standard(로컬 Whisper + GPT-OSS 120B)", translationTypePro: "Premium(로컬 Whisper + Gemini)", translationTypePrivate: "Private(로컬 Whisper + Qwen3 14B)", transcriptionMode: "전사 모드", modeAccurate: "고정밀(느림)", modeFast: "빠름", autoDetect: "자동 감지", languageEnglish: "영어", languageJapanese: "일본어", languageKorean: "한국어", languageThai: "태국어", languageTraditionalChinese: "번체 중국어",
@@ -235,7 +237,9 @@ let uploadPreviewUrl = "";
 let selectedUploadFileIndex = 0;
 const uploadSelectorUrls = [];
 const uploadFileStatusNodes = new Map();
+const uploadFileProgressNodes = new Map();
 const uploadFileStates = new Map();
+let activeUploadAbortController = null;
 let uploadBatchJobs = [];
 let uploadBatchJobIndex = -1;
 let uploadBatchAdvanceScheduled = false;
@@ -302,7 +306,7 @@ function applyLanguage(languageKey) {
       : "";
     for (const [index, node] of uploadFileStatusNodes.entries()) {
       const state = uploadFileStates.get(index);
-      if (state) node.textContent = t(state.key);
+      if (state) node.textContent = t(state.key, state.replacements);
     }
   }
   if (activePlaylistData) {
@@ -841,13 +845,21 @@ function setSelectedVideoFiles(incomingFiles, { append = false } = {}) {
   }
 }
 
-function setUploadFileStatus(index, key, state = "") {
-  uploadFileStates.set(index, { key, state });
+function setUploadFileStatus(index, key, state = "", replacements = {}) {
+  uploadFileStates.set(index, { key, state, replacements });
   const node = uploadFileStatusNodes.get(index);
   if (!node) return;
-  node.textContent = t(key);
+  node.textContent = t(key, replacements);
   node.classList.remove("d-none");
   node.dataset.state = state;
+}
+
+function setUploadFileProgress(index, percent) {
+  const normalized = Math.max(0, Math.min(100, Number(percent) || 0));
+  const node = uploadFileProgressNodes.get(index);
+  if (!node) return;
+  node.style.width = `${normalized}%`;
+  node.parentElement?.setAttribute("aria-valuenow", normalized.toFixed(1));
 }
 
 function selectUploadFile(index) {
@@ -868,6 +880,7 @@ function renderUploadFileSelector() {
   const files = [...videoFile.files];
   clearUploadSelectorUrls();
   uploadFileStatusNodes.clear();
+  uploadFileProgressNodes.clear();
   uploadFileItems.replaceChildren();
   uploadFilePanel.classList.toggle("d-none", files.length === 0);
   uploadFileCount.textContent = files.length
@@ -907,11 +920,25 @@ function renderUploadFileSelector() {
     uploadFileStatusNodes.set(index, status);
     const savedState = uploadFileStates.get(index);
     if (savedState) {
-      status.textContent = t(savedState.key);
+      status.textContent = t(savedState.key, savedState.replacements);
       status.classList.remove("d-none");
       status.dataset.state = savedState.state;
     }
     thumbnail.append(status);
+
+    const uploadProgress = document.createElement("div");
+    uploadProgress.className = "upload-file-progress";
+    uploadProgress.setAttribute("role", "progressbar");
+    uploadProgress.setAttribute("aria-valuemin", "0");
+    uploadProgress.setAttribute("aria-valuemax", "100");
+    uploadProgress.setAttribute("aria-valuenow", "0");
+    const uploadProgressFill = document.createElement("span");
+    uploadProgress.append(uploadProgressFill);
+    uploadFileProgressNodes.set(index, uploadProgressFill);
+    thumbnail.append(uploadProgress);
+    if (savedState?.replacements?.percent != null) {
+      setUploadFileProgress(index, savedState.replacements.percent);
+    }
 
     const copy = document.createElement("div");
     copy.className = "playlist-video-copy";
@@ -2508,6 +2535,22 @@ refreshCaptcha.addEventListener("click", async () => {
 });
 verifyCaptcha.addEventListener("click", verifyCaptchaAnswer);
 cancelJob.addEventListener("click", async () => {
+  if (uploadMode && activeUploadAbortController) {
+    activeUploadAbortController.abort();
+    activeUploadAbortController = null;
+    jobCancellationRequested = true;
+    cancelJob.classList.add("d-none");
+    setTranscriptionActive(false);
+    setTranslationActive(false);
+    sourceLanguage.disabled = false;
+    targetLanguage.disabled = false;
+    translationType.disabled = false;
+    setSourceControlsDisabled(false);
+    setStatus(t("cancelled"), "idle");
+    resetCaptchaState(false);
+    notifyParentHeight();
+    return;
+  }
   if (uploadMode && uploadBatchCancelRequests.size) {
     cancelJob.disabled = true;
     const requests = [...uploadBatchCancelRequests.entries()];
@@ -2741,6 +2784,241 @@ function activateUploadBatchJob(position) {
   }
 }
 
+function uploadSessionStore() {
+  try {
+    const value = JSON.parse(localStorage.getItem(UPLOAD_SESSION_STORAGE_KEY) || "{}");
+    return value && typeof value === "object" ? value : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function writeUploadSessionStore(value) {
+  localStorage.setItem(UPLOAD_SESSION_STORAGE_KEY, JSON.stringify(value));
+}
+
+function saveUploadSession(file, session) {
+  const store = uploadSessionStore();
+  store[videoFileIdentity(file)] = {
+    upload_id: session.upload_id,
+    upload_token: session.upload_token,
+    filename: file.name,
+    size_bytes: file.size,
+    chunk_bytes: session.chunk_bytes,
+    expires_at: session.expires_at,
+  };
+  writeUploadSessionStore(store);
+}
+
+function removeUploadSession(file) {
+  const store = uploadSessionStore();
+  delete store[videoFileIdentity(file)];
+  writeUploadSessionStore(store);
+}
+
+async function uploadSessionStatus(savedSession, signal) {
+  const response = await fetch(`/api/video-upload/sessions/${encodeURIComponent(savedSession.upload_id)}`, {
+    headers: { "X-Upload-Token": savedSession.upload_token },
+    cache: "no-store",
+    signal,
+  });
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}
+
+async function prepareUploadSessions(files, signal) {
+  const store = uploadSessionStore();
+  const sessions = new Array(files.length);
+  const missing = [];
+  for (const [index, file] of files.entries()) {
+    const saved = store[videoFileIdentity(file)];
+    if (!saved) {
+      missing.push({ index, file });
+      continue;
+    }
+    try {
+      const status = await uploadSessionStatus(saved, signal);
+      if (status.filename !== file.name || Number(status.size_bytes) !== file.size) {
+        throw new Error("upload session does not match selected file");
+      }
+      sessions[index] = { ...saved, ...status };
+    } catch (error) {
+      if (error.name === "AbortError") throw error;
+      delete store[videoFileIdentity(file)];
+      missing.push({ index, file });
+    }
+  }
+  writeUploadSessionStore(store);
+
+  if (missing.length) {
+    const response = await fetch("/api/video-upload/sessions/batch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        captcha_token: captchaToken.value,
+        files: missing.map(({ file }) => ({
+          filename: file.name,
+          size_bytes: file.size,
+          content_type: file.type,
+          last_modified: file.lastModified,
+        })),
+      }),
+      signal,
+    });
+    if (!response.ok) throw new Error(await readError(response));
+    const created = await response.json();
+    missing.forEach(({ index, file }, createdIndex) => {
+      const session = created.sessions?.[createdIndex];
+      if (!session) throw new Error(t("requestFailed"));
+      sessions[index] = session;
+      saveUploadSession(file, session);
+    });
+  }
+  return sessions;
+}
+
+function uploadChunkRequest(session, chunkIndex, blob, signal, onProgress) {
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open(
+      "PUT",
+      `/api/video-upload/sessions/${encodeURIComponent(session.upload_id)}/chunks/${chunkIndex}`,
+    );
+    request.setRequestHeader("X-Upload-Token", session.upload_token);
+    request.setRequestHeader("Content-Type", "application/octet-stream");
+    request.upload.addEventListener("progress", event => {
+      if (event.lengthComputable) onProgress(event.loaded, event.total);
+    });
+    request.addEventListener("load", () => {
+      let body = {};
+      try { body = JSON.parse(request.responseText || "{}"); } catch (_) {}
+      if (request.status >= 200 && request.status < 300) {
+        resolve(body);
+        return;
+      }
+      const error = new Error(
+        translationErrorMessage(body, `${t("requestFailed")} (HTTP ${request.status})`),
+      );
+      error.status = request.status;
+      reject(error);
+    });
+    request.addEventListener("error", () => reject(new Error(t("disconnected"))));
+    request.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+    if (signal) {
+      if (signal.aborted) {
+        request.abort();
+        return;
+      }
+      signal.addEventListener("abort", () => request.abort(), { once: true });
+    }
+    request.send(blob);
+  });
+}
+
+async function uploadVideoFilesInChunks(files, sessions, signal) {
+  const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+  const uploadedByFile = sessions.map(session => Number(session.uploaded_bytes) || 0);
+  const resumingByFile = uploadedByFile.map(value => value > 0);
+  const jobs = [];
+  const errors = [];
+
+  const updateProgress = (fileIndex, fileBytes) => {
+    uploadedByFile[fileIndex] = Math.max(0, Math.min(files[fileIndex].size, fileBytes));
+    const filePercent = files[fileIndex].size
+      ? uploadedByFile[fileIndex] / files[fileIndex].size * 100
+      : 0;
+    const totalUploaded = uploadedByFile.reduce((sum, value) => sum + value, 0);
+    const totalPercent = totalBytes ? totalUploaded / totalBytes * 100 : 0;
+    setUploadFileProgress(fileIndex, filePercent);
+    setUploadFileStatus(
+      fileIndex,
+      resumingByFile[fileIndex] ? "uploadResuming" : "uploadProgress",
+      "running",
+      { percent: Math.floor(filePercent) },
+    );
+    setStatus(t("uploadOverallProgress", {
+      current: fileIndex + 1,
+      total: files.length,
+      percent: Math.floor(totalPercent),
+    }), "running");
+  };
+
+  for (const [fileIndex, file] of files.entries()) {
+    const session = sessions[fileIndex];
+    try {
+      const completedChunks = new Set(session.completed_chunks || []);
+      let committedBytes = Number(session.uploaded_bytes) || 0;
+      updateProgress(fileIndex, committedBytes);
+      for (let chunkIndex = 0; chunkIndex < Number(session.chunk_count); chunkIndex += 1) {
+        if (completedChunks.has(chunkIndex)) continue;
+        const chunkStart = chunkIndex * Number(session.chunk_bytes);
+        const chunkEnd = Math.min(file.size, chunkStart + Number(session.chunk_bytes));
+        const blob = file.slice(chunkStart, chunkEnd);
+        let uploaded = false;
+        for (let attempt = 0; !uploaded; attempt += 1) {
+          try {
+            const status = await uploadChunkRequest(
+              session,
+              chunkIndex,
+              blob,
+              signal,
+              loaded => updateProgress(fileIndex, committedBytes + loaded),
+            );
+            committedBytes = Number(status.uploaded_bytes) || (committedBytes + blob.size);
+            completedChunks.add(chunkIndex);
+            uploaded = true;
+            updateProgress(fileIndex, committedBytes);
+          } catch (error) {
+            if (error.name === "AbortError") throw error;
+            if (attempt >= UPLOAD_CHUNK_RETRY_DELAYS_MS.length || (error.status >= 400 && error.status < 500)) {
+              throw error;
+            }
+            setUploadFileStatus(fileIndex, "uploadRetrying", "running");
+            await new Promise(resolve => setTimeout(resolve, UPLOAD_CHUNK_RETRY_DELAYS_MS[attempt]));
+            const status = await uploadSessionStatus(session, signal);
+            committedBytes = Number(status.uploaded_bytes) || 0;
+            for (const completed of status.completed_chunks || []) completedChunks.add(completed);
+            if (completedChunks.has(chunkIndex)) uploaded = true;
+            updateProgress(fileIndex, committedBytes);
+          }
+        }
+      }
+
+      setUploadFileProgress(fileIndex, 100);
+      setUploadFileStatus(fileIndex, "uploadAssembling", "running");
+      const response = await fetch(
+        `/api/video-upload/sessions/${encodeURIComponent(session.upload_id)}/complete`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Upload-Token": session.upload_token,
+          },
+          body: JSON.stringify({
+            language: requestedSourceLanguage === "zh-TW" ? "zh" : requestedSourceLanguage,
+            include_word_timestamps: includeWordTimestamps.checked,
+            transcription_mode: transcriptionMode.value,
+            processing_profile: selectedTranslationType,
+          }),
+          signal,
+        },
+      );
+      if (!response.ok) throw new Error(await readError(response));
+      const job = await response.json();
+      job.batch_index = fileIndex;
+      jobs.push(job);
+      removeUploadSession(file);
+      setUploadFileStatus(fileIndex, "videoBatchQueued", "queued");
+    } catch (error) {
+      if (error.name === "AbortError") throw error;
+      console.error("Video upload failed", error);
+      errors.push({ batch_index: fileIndex, filename: file.name, error: error.message });
+      setUploadFileStatus(fileIndex, "videoBatchFailed", "failed");
+    }
+  }
+  return { jobs, errors };
+}
+
 async function beginTranscription() {
   requestedSourceLanguage = sourceLanguage.value;
   selectedTargetLanguage = targetLanguage.value;
@@ -2781,18 +3059,25 @@ async function beginTranscription() {
 
   try {
     let response;
+    let uploadBatch;
     if (uploadMode) {
-      const uploadBody = new FormData();
-      [...videoFile.files].forEach(file => uploadBody.append("files", file));
-      uploadBody.append("language", whisperLanguage);
-      uploadBody.append("include_word_timestamps", String(includeWordTimestamps.checked));
-      uploadBody.append("transcription_mode", transcriptionMode.value);
-      uploadBody.append("processing_profile", selectedTranslationType);
-      uploadBody.append("captcha_token", captchaToken.value);
-      response = await fetch("/api/video-upload/jobs/batch", {
-        method: "POST",
-        body: uploadBody,
+      const files = [...videoFile.files];
+      activeUploadAbortController = new AbortController();
+      cancelJob.classList.remove("d-none");
+      files.forEach((_, index) => {
+        setUploadFileStatus(index, "uploadPreparing", "running");
+        setUploadFileProgress(index, 0);
       });
+      const sessions = await prepareUploadSessions(
+        files,
+        activeUploadAbortController.signal,
+      );
+      uploadBatch = await uploadVideoFilesInChunks(
+        files,
+        sessions,
+        activeUploadAbortController.signal,
+      );
+      activeUploadAbortController = null;
     } else {
       response = await fetch("/api/youtube-live/jobs", {
         method: "POST",
@@ -2808,9 +3093,8 @@ async function beginTranscription() {
         }),
       });
     }
-    if (!response.ok) throw new Error(await readError(response));
     if (uploadMode) {
-      const batch = await response.json();
+      const batch = uploadBatch;
       for (const failure of batch.errors || []) {
         setUploadFileStatus(Number(failure.batch_index), "videoBatchFailed", "failed");
       }
@@ -2830,6 +3114,7 @@ async function beginTranscription() {
       activateUploadBatchJob(0);
       return;
     }
+    if (!response.ok) throw new Error(await readError(response));
     const job = await response.json();
     if (!job.job_id || !job.events_url || !job.translation_token
       || !job.cancel_url || !job.cancel_token) {
@@ -2957,12 +3242,16 @@ async function beginTranscription() {
       maybeFinalize();
     };
   } catch (error) {
+    activeUploadAbortController = null;
     if (currentCancelRequest) cancelCurrentJob();
     cancelJob.classList.add("d-none");
     transcriptionDone = true;
     transcriptionFailed = true;
     setTranscriptionActive(false);
-    setStatus(error.message || t("requestFailed"), "failed");
+    setStatus(
+      error.name === "AbortError" ? t("cancelled") : (error.message || t("requestFailed")),
+      error.name === "AbortError" ? "idle" : "failed",
+    );
     sourceLanguage.disabled = false;
     targetLanguage.disabled = false;
     translationType.disabled = false;

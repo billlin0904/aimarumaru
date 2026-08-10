@@ -2,6 +2,7 @@ import html
 import json
 import logging
 import math
+import os
 import re
 import tempfile
 import time
@@ -69,6 +70,10 @@ YOUTUBE_TRADITIONAL_SUBTITLE_LANGUAGE_PRIORITY = [
 ]
 YOUTUBE_SUBTITLE_EXT_PRIORITY = ["vtt", "srt", "json3", "srv3", "ttml"]
 YOUTUBE_RATE_LIMIT_MESSAGE = "429 Client Error: Too Many Requests"
+YOUTUBE_AUDIO_FORMAT = os.getenv(
+    "YOUTUBE_AUDIO_FORMAT",
+    "bestaudio[abr<=96]/bestaudio[abr<=128]/bestaudio",
+).strip() or "bestaudio[abr<=96]/bestaudio[abr<=128]/bestaudio"
 
 
 class YoutubeSrtRequest(BaseModel):
@@ -643,7 +648,7 @@ def download_youtube_audio(url: str, output_dir: str, cookies_file: Path):
     def build_options(player_clients: Optional[list[str]], attempt_dir: str):
         output_path = str(Path(attempt_dir) / "%(id)s.%(ext)s")
         options = {
-            "format": "bestaudio[ext=m4a]/bestaudio/best",
+            "format": YOUTUBE_AUDIO_FORMAT,
             "outtmpl": output_path,
             "noplaylist": True,
             "quiet": False,
@@ -742,7 +747,7 @@ def get_youtube_audio_stream_source(
     for attempt_url in youtube_url_attempts(url, True):
         for player_clients in YOUTUBE_PLAYER_CLIENT_ATTEMPTS:
             options: dict[str, Any] = {
-                "format": "bestaudio[ext=m4a]/bestaudio/best",
+                "format": YOUTUBE_AUDIO_FORMAT,
                 "noplaylist": True,
                 "quiet": True,
                 "no_warnings": True,

@@ -205,6 +205,17 @@ def new_job_telemetry() -> dict[str, Any]:
 VIDEO_UPLOAD_MAX_BYTES = int(
     os.getenv("VIDEO_UPLOAD_MAX_BYTES", str(2 * 1024 * 1024 * 1024))
 )
+VIDEO_UPLOAD_CHUNK_BYTES = max(
+    5 * 1024 * 1024,
+    min(
+        50 * 1024 * 1024,
+        int(os.getenv("VIDEO_UPLOAD_CHUNK_BYTES", str(20 * 1024 * 1024))),
+    ),
+)
+VIDEO_UPLOAD_SESSION_TTL_SECONDS = max(
+    600,
+    int(os.getenv("VIDEO_UPLOAD_SESSION_TTL_SECONDS", "7200")),
+)
 VIDEO_UPLOAD_BATCH_MAX_FILES = max(
     1,
     int(os.getenv("VIDEO_UPLOAD_BATCH_MAX_FILES", "10")),
@@ -250,6 +261,91 @@ class YoutubeLanguageSelection(BaseModel):
 
 class YoutubeCancelRequest(BaseModel):
     cancel_token: str
+
+
+class VideoUploadFileSessionRequest(BaseModel):
+    filename: str
+    size_bytes: int
+    content_type: str = ""
+    last_modified: Optional[int] = None
+
+
+class VideoUploadBatchSessionRequest(BaseModel):
+    files: list[VideoUploadFileSessionRequest]
+    captcha_token: str = ""
+
+
+class VideoUploadCompleteRequest(BaseModel):
+    language: str = ""
+    include_word_timestamps: bool = True
+    transcription_mode: str = "accurate"
+    processing_profile: str = "standard"
+
+
+def video_upload_chunk_count(size_bytes: int, chunk_bytes: int) -> int:
+    if size_bytes <= 0 or chunk_bytes <= 0:
+        return 0
+    return math.ceil(size_bytes / chunk_bytes)
+
+
+def expected_video_upload_chunk_bytes(
+    size_bytes: int,
+    chunk_bytes: int,
+    chunk_index: int,
+) -> int:
+    chunk_count = video_upload_chunk_count(size_bytes, chunk_bytes)
+    if chunk_index < 0 or chunk_index >= chunk_count:
+        raise ValueError("invalid upload chunk index")
+    return min(chunk_bytes, size_bytes - (chunk_index * chunk_bytes))
+
+
+def completed_video_upload_chunks(
+    chunks_dir: Path,
+    size_bytes: int,
+    chunk_bytes: int,
+) -> tuple[list[int], int]:
+    completed: list[int] = []
+    uploaded_bytes = 0
+    for chunk_index in range(video_upload_chunk_count(size_bytes, chunk_bytes)):
+        part_path = chunks_dir / f"{chunk_index:08d}.part"
+        expected_bytes = expected_video_upload_chunk_bytes(
+            size_bytes,
+            chunk_bytes,
+            chunk_index,
+        )
+        if part_path.is_file() and part_path.stat().st_size == expected_bytes:
+            completed.append(chunk_index)
+            uploaded_bytes += expected_bytes
+    return completed, uploaded_bytes
+
+
+def assemble_video_upload_chunks(
+    chunks_dir: Path,
+    output_path: Path,
+    size_bytes: int,
+    chunk_bytes: int,
+) -> None:
+    temporary_path = output_path.with_suffix(output_path.suffix + ".assembling")
+    try:
+        with temporary_path.open("wb") as output:
+            for chunk_index in range(
+                video_upload_chunk_count(size_bytes, chunk_bytes)
+            ):
+                part_path = chunks_dir / f"{chunk_index:08d}.part"
+                expected_bytes = expected_video_upload_chunk_bytes(
+                    size_bytes,
+                    chunk_bytes,
+                    chunk_index,
+                )
+                if not part_path.is_file() or part_path.stat().st_size != expected_bytes:
+                    raise RuntimeError(f"缺少上傳分塊 {chunk_index}")
+                with part_path.open("rb") as part:
+                    shutil.copyfileobj(part, output, length=1024 * 1024)
+        if temporary_path.stat().st_size != size_bytes:
+            raise RuntimeError("合併後的影片大小不正確")
+        temporary_path.replace(output_path)
+    finally:
+        temporary_path.unlink(missing_ok=True)
 
 
 def sse_message(event: str, data: dict[str, Any]) -> str:
@@ -1033,7 +1129,59 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
     )
     cookies_file = project_root / "cookies.txt"
     jobs: dict[str, dict[str, Any]] = {}
+    upload_sessions: dict[str, dict[str, Any]] = {}
     telemetry_lock = threading.Lock()
+
+    def cleanup_video_upload_sessions() -> None:
+        now = time.time()
+        expired_ids = [
+            upload_id
+            for upload_id, session in upload_sessions.items()
+            if float(session.get("expires_at") or 0) <= now
+        ]
+        for upload_id in expired_ids:
+            session = upload_sessions.pop(upload_id, None)
+            if session:
+                work_dir = str(session.get("work_dir") or "")
+                if work_dir:
+                    shutil.rmtree(work_dir, ignore_errors=True)
+
+    def require_video_upload_session(
+        upload_id: str,
+        upload_token: str,
+    ) -> dict[str, Any]:
+        cleanup_video_upload_sessions()
+        session = upload_sessions.get(upload_id)
+        if session is None:
+            raise HTTPException(status_code=404, detail="找不到上傳工作，請重新開始")
+        if not upload_token or not secrets.compare_digest(
+            str(session["upload_token"]),
+            upload_token,
+        ):
+            raise HTTPException(status_code=403, detail="上傳憑證無效")
+        session["expires_at"] = time.time() + VIDEO_UPLOAD_SESSION_TTL_SECONDS
+        return session
+
+    def video_upload_session_payload(session: dict[str, Any]) -> dict[str, Any]:
+        completed_chunks, uploaded_bytes = completed_video_upload_chunks(
+            Path(session["chunks_dir"]),
+            int(session["size_bytes"]),
+            int(session["chunk_bytes"]),
+        )
+        return {
+            "upload_id": session["upload_id"],
+            "upload_token": session["upload_token"],
+            "filename": session["original_filename"],
+            "size_bytes": session["size_bytes"],
+            "chunk_bytes": session["chunk_bytes"],
+            "chunk_count": session["chunk_count"],
+            "completed_chunks": completed_chunks,
+            "uploaded_bytes": uploaded_bytes,
+            "expires_at": datetime.fromtimestamp(
+                float(session["expires_at"]),
+                timezone.utc,
+            ).isoformat(),
+        }
 
     def touch_job(job: dict[str, Any], *, phase: str | None = None) -> None:
         with telemetry_lock:
@@ -1608,6 +1756,12 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                 job_id=job_id,
                 stream_protocol=video_info.get("protocol"),
                 audio_format=video_info.get("format_id"),
+                audio_bitrate_kbps=video_info.get("abr"),
+                audio_codec=video_info.get("acodec"),
+                audio_filesize_bytes=(
+                    video_info.get("filesize")
+                    or video_info.get("filesize_approx")
+                ),
                 audio_stream_resolve_elapsed_ms=round(
                     (time.perf_counter() - audio_stream_started) * 1000
                 ),
@@ -1737,6 +1891,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
 
     register_transcribe_handler("youtube_live", handle_youtube_live_task)
     register_transcribe_cleanup(lambda: cleanup_youtube_live_jobs(jobs))
+    register_transcribe_cleanup(cleanup_video_upload_sessions)
 
     @router.get("/youtube-live", include_in_schema=False)
     def youtube_live_page():
@@ -1989,9 +2144,36 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             "asr_provider": asr_provider_for_profile(processing_profile),
         }
 
-    async def create_video_upload_job_entry(
+    def validated_video_upload_metadata(
+        filename: str,
+        content_type: str,
+        size_bytes: int | None = None,
+    ) -> tuple[str, str]:
+        original_filename = Path(filename or "video").name
+        suffix = Path(original_filename).suffix.lower()
+        normalized_content_type = str(content_type or "").lower()
+        if (
+            not normalized_content_type.startswith("video/")
+            and suffix not in VIDEO_UPLOAD_EXTENSIONS
+        ):
+            raise HTTPException(status_code=400, detail="請選擇支援的影片檔案")
+        if size_bytes is not None:
+            if size_bytes <= 0:
+                raise HTTPException(status_code=400, detail="上傳影片不可為空")
+            if size_bytes > VIDEO_UPLOAD_MAX_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail="上傳影片超過伺服器允許的大小",
+                )
+        return original_filename, suffix
+
+    async def register_video_upload_job(
         http_request: Request,
-        file: UploadFile,
+        *,
+        upload_path: Path,
+        work_dir: Path,
+        original_filename: str,
+        upload_bytes: int,
         language: str,
         include_word_timestamps: bool,
         transcription_mode: str,
@@ -2002,42 +2184,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             normalized_profile = normalize_processing_profile(processing_profile)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
-        original_filename = Path(file.filename or "video").name
-        suffix = Path(original_filename).suffix.lower()
-        content_type = str(file.content_type or "").lower()
-        if not content_type.startswith("video/") and suffix not in VIDEO_UPLOAD_EXTENSIONS:
-            raise HTTPException(status_code=400, detail="請選擇支援的影片檔案")
-
         job_id = secrets.token_urlsafe(18)
-        work_dir = Path(tempfile.mkdtemp(prefix="video_upload_"))
-        upload_path = work_dir / f"input{suffix or '.video'}"
-        upload_bytes = 0
-        try:
-            with upload_path.open("wb") as output:
-                while chunk := await file.read(1024 * 1024):
-                    upload_bytes += len(chunk)
-                    if upload_bytes > VIDEO_UPLOAD_MAX_BYTES:
-                        raise HTTPException(
-                            status_code=413,
-                            detail="上傳影片超過伺服器允許的大小",
-                        )
-                    output.write(chunk)
-        except asyncio.CancelledError:
-            shutil.rmtree(work_dir, ignore_errors=True)
-            raise
-        except HTTPException:
-            shutil.rmtree(work_dir, ignore_errors=True)
-            raise
-        except Exception as exc:
-            shutil.rmtree(work_dir, ignore_errors=True)
-            raise HTTPException(status_code=500, detail=f"儲存上傳影片失敗: {exc}") from exc
-        finally:
-            await file.close()
-
-        if upload_bytes == 0:
-            shutil.rmtree(work_dir, ignore_errors=True)
-            raise HTTPException(status_code=400, detail="上傳影片不可為空")
-
         language_hint = language.strip() or None
         created_monotonic = time.perf_counter()
         jobs[job_id] = {
@@ -2115,6 +2262,301 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             "processing_profile": normalized_profile,
             "asr_provider": asr_provider_for_profile(normalized_profile),
         }
+
+    async def create_video_upload_job_entry(
+        http_request: Request,
+        file: UploadFile,
+        language: str,
+        include_word_timestamps: bool,
+        transcription_mode: str,
+        processing_profile: str,
+    ) -> dict[str, Any]:
+        original_filename, suffix = validated_video_upload_metadata(
+            file.filename or "video",
+            str(file.content_type or ""),
+        )
+        work_dir = Path(tempfile.mkdtemp(prefix="video_upload_"))
+        upload_path = work_dir / f"input{suffix or '.video'}"
+        upload_bytes = 0
+        try:
+            with upload_path.open("wb") as output:
+                while chunk := await file.read(1024 * 1024):
+                    upload_bytes += len(chunk)
+                    if upload_bytes > VIDEO_UPLOAD_MAX_BYTES:
+                        raise HTTPException(
+                            status_code=413,
+                            detail="上傳影片超過伺服器允許的大小",
+                        )
+                    output.write(chunk)
+        except asyncio.CancelledError:
+            shutil.rmtree(work_dir, ignore_errors=True)
+            raise
+        except HTTPException:
+            shutil.rmtree(work_dir, ignore_errors=True)
+            raise
+        except Exception as exc:
+            shutil.rmtree(work_dir, ignore_errors=True)
+            raise HTTPException(
+                status_code=500,
+                detail=f"儲存上傳影片失敗: {exc}",
+            ) from exc
+        finally:
+            await file.close()
+
+        try:
+            validated_video_upload_metadata(
+                original_filename,
+                str(file.content_type or ""),
+                upload_bytes,
+            )
+            return await register_video_upload_job(
+                http_request,
+                upload_path=upload_path,
+                work_dir=work_dir,
+                original_filename=original_filename,
+                upload_bytes=upload_bytes,
+                language=language,
+                include_word_timestamps=include_word_timestamps,
+                transcription_mode=transcription_mode,
+                processing_profile=processing_profile,
+            )
+        except Exception:
+            if upload_path.exists() and not any(
+                str(job.get("audio_path") or "") == str(upload_path)
+                for job in jobs.values()
+            ):
+                shutil.rmtree(work_dir, ignore_errors=True)
+            raise
+
+    @router.post(
+        "/api/video-upload/sessions/batch",
+        tags=["Video Upload"],
+        summary="建立可續傳的分塊影片上傳工作",
+    )
+    async def create_video_upload_sessions(
+        http_request: Request,
+        payload: VideoUploadBatchSessionRequest,
+    ):
+        cleanup_youtube_live_jobs(jobs)
+        cleanup_video_upload_sessions()
+        if not payload.files:
+            raise HTTPException(status_code=400, detail="請至少選擇一個影片檔案")
+        if len(payload.files) > VIDEO_UPLOAD_BATCH_MAX_FILES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"一次最多上傳 {VIDEO_UPLOAD_BATCH_MAX_FILES} 個影片",
+            )
+        validated_files: list[tuple[VideoUploadFileSessionRequest, str, str]] = []
+        for file_request in payload.files:
+            original_filename, suffix = validated_video_upload_metadata(
+                file_request.filename,
+                file_request.content_type,
+                int(file_request.size_bytes),
+            )
+            validated_files.append((file_request, original_filename, suffix))
+        if verify_captcha_token is not None:
+            verify_captcha_token(payload.captcha_token)
+
+        created_upload_ids: list[str] = []
+        sessions: list[dict[str, Any]] = []
+        try:
+            for batch_index, (file_request, original_filename, suffix) in enumerate(
+                validated_files
+            ):
+                upload_id = secrets.token_urlsafe(18)
+                work_dir = Path(tempfile.mkdtemp(prefix="video_upload_session_"))
+                chunks_dir = work_dir / "chunks"
+                chunks_dir.mkdir()
+                session = {
+                    "upload_id": upload_id,
+                    "upload_token": secrets.token_urlsafe(32),
+                    "original_filename": original_filename,
+                    "suffix": suffix or ".video",
+                    "content_type": file_request.content_type,
+                    "size_bytes": int(file_request.size_bytes),
+                    "last_modified": file_request.last_modified,
+                    "chunk_bytes": VIDEO_UPLOAD_CHUNK_BYTES,
+                    "chunk_count": video_upload_chunk_count(
+                        int(file_request.size_bytes),
+                        VIDEO_UPLOAD_CHUNK_BYTES,
+                    ),
+                    "work_dir": str(work_dir),
+                    "chunks_dir": str(chunks_dir),
+                    "lock": asyncio.Lock(),
+                    "created_at": time.time(),
+                    "expires_at": time.time() + VIDEO_UPLOAD_SESSION_TTL_SECONDS,
+                }
+                upload_sessions[upload_id] = session
+                created_upload_ids.append(upload_id)
+                session_payload = video_upload_session_payload(session)
+                session_payload["batch_index"] = batch_index
+                sessions.append(session_payload)
+        except Exception:
+            for upload_id in created_upload_ids:
+                session = upload_sessions.pop(upload_id, None)
+                if session:
+                    shutil.rmtree(session["work_dir"], ignore_errors=True)
+            raise
+
+        set_request_log_metadata(
+            http_request,
+            operation="video_upload_sessions_create",
+            source_kind="upload",
+            upload_session_count=len(sessions),
+            input_bytes=sum(int(item.size_bytes) for item in payload.files),
+        )
+        return {
+            "chunk_bytes": VIDEO_UPLOAD_CHUNK_BYTES,
+            "sessions": sessions,
+        }
+
+    @router.get(
+        "/api/video-upload/sessions/{upload_id}",
+        tags=["Video Upload"],
+        summary="取得分塊影片上傳進度",
+    )
+    async def get_video_upload_session(
+        upload_id: str,
+        upload_token: str = Header("", alias="X-Upload-Token"),
+    ):
+        session = require_video_upload_session(upload_id, upload_token)
+        return video_upload_session_payload(session)
+
+    @router.put(
+        "/api/video-upload/sessions/{upload_id}/chunks/{chunk_index}",
+        tags=["Video Upload"],
+        summary="上傳一個影片分塊",
+    )
+    async def upload_video_chunk(
+        http_request: Request,
+        upload_id: str,
+        chunk_index: int,
+        upload_token: str = Header("", alias="X-Upload-Token"),
+    ):
+        session = require_video_upload_session(upload_id, upload_token)
+        try:
+            expected_bytes = expected_video_upload_chunk_bytes(
+                int(session["size_bytes"]),
+                int(session["chunk_bytes"]),
+                chunk_index,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail="上傳分塊不存在") from exc
+        content_length = http_request.headers.get("content-length")
+        if content_length:
+            try:
+                if int(content_length) != expected_bytes:
+                    raise HTTPException(status_code=400, detail="上傳分塊大小不正確")
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail="Content-Length 無效") from exc
+
+        chunks_dir = Path(session["chunks_dir"])
+        part_path = chunks_dir / f"{chunk_index:08d}.part"
+        async with session["lock"]:
+            if part_path.is_file() and part_path.stat().st_size == expected_bytes:
+                return video_upload_session_payload(session)
+            temporary_path = chunks_dir / (
+                f".{chunk_index:08d}.{secrets.token_hex(6)}.uploading"
+            )
+            written_bytes = 0
+            try:
+                with temporary_path.open("wb") as output:
+                    async for block in http_request.stream():
+                        written_bytes += len(block)
+                        if written_bytes > expected_bytes:
+                            raise HTTPException(
+                                status_code=413,
+                                detail="上傳分塊超過允許大小",
+                            )
+                        output.write(block)
+                if written_bytes != expected_bytes:
+                    raise HTTPException(status_code=400, detail="上傳分塊不完整")
+                temporary_path.replace(part_path)
+            finally:
+                temporary_path.unlink(missing_ok=True)
+
+        session["expires_at"] = time.time() + VIDEO_UPLOAD_SESSION_TTL_SECONDS
+        set_request_log_metadata(
+            http_request,
+            operation="video_upload_chunk",
+            source_kind="upload",
+            upload_id=upload_id,
+            chunk_index=chunk_index,
+            chunk_bytes=written_bytes,
+        )
+        return video_upload_session_payload(session)
+
+    @router.post(
+        "/api/video-upload/sessions/{upload_id}/complete",
+        tags=["Video Upload"],
+        summary="合併影片分塊並建立轉譯工作",
+    )
+    async def complete_video_upload_session(
+        http_request: Request,
+        upload_id: str,
+        payload: VideoUploadCompleteRequest,
+        upload_token: str = Header("", alias="X-Upload-Token"),
+    ):
+        session = require_video_upload_session(upload_id, upload_token)
+        async with session["lock"]:
+            completed_chunks, uploaded_bytes = completed_video_upload_chunks(
+                Path(session["chunks_dir"]),
+                int(session["size_bytes"]),
+                int(session["chunk_bytes"]),
+            )
+            if len(completed_chunks) != int(session["chunk_count"]):
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "message": "影片尚未上傳完成",
+                        "completed_chunks": completed_chunks,
+                        "uploaded_bytes": uploaded_bytes,
+                    },
+                )
+            work_dir = Path(session["work_dir"])
+            upload_path = work_dir / f"input{session['suffix']}"
+            try:
+                await asyncio.to_thread(
+                    assemble_video_upload_chunks,
+                    Path(session["chunks_dir"]),
+                    upload_path,
+                    int(session["size_bytes"]),
+                    int(session["chunk_bytes"]),
+                )
+                job = await register_video_upload_job(
+                    http_request,
+                    upload_path=upload_path,
+                    work_dir=work_dir,
+                    original_filename=str(session["original_filename"]),
+                    upload_bytes=int(session["size_bytes"]),
+                    language=payload.language,
+                    include_word_timestamps=payload.include_word_timestamps,
+                    transcription_mode=payload.transcription_mode,
+                    processing_profile=payload.processing_profile,
+                )
+            except Exception:
+                upload_sessions.pop(upload_id, None)
+                shutil.rmtree(work_dir, ignore_errors=True)
+                raise
+
+            upload_sessions.pop(upload_id, None)
+            shutil.rmtree(Path(session["chunks_dir"]), ignore_errors=True)
+            job["upload_id"] = upload_id
+            return job
+
+    @router.delete(
+        "/api/video-upload/sessions/{upload_id}",
+        tags=["Video Upload"],
+        summary="取消尚未完成的影片上傳",
+    )
+    async def cancel_video_upload_session(
+        upload_id: str,
+        upload_token: str = Header("", alias="X-Upload-Token"),
+    ):
+        session = require_video_upload_session(upload_id, upload_token)
+        upload_sessions.pop(upload_id, None)
+        shutil.rmtree(session["work_dir"], ignore_errors=True)
+        return {"status": "cancelled", "upload_id": upload_id}
 
     @router.post(
         "/api/video-upload/jobs",
