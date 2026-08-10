@@ -97,6 +97,23 @@ class BoundaryOverlapAuto2Lrc(FakeAuto2Lrc):
         return iter(segments), SimpleNamespace(language="en", language_probability=0.98)
 
 
+class FakeGroqWhisperClient:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def transcribe(self, samples, *, language=None):
+        self.calls += 1
+        duration = len(samples) / 16000
+        return [
+            SimpleNamespace(
+                start=0.1,
+                end=min(1.0, duration),
+                text="cloud transcript",
+                words=[],
+            )
+        ], SimpleNamespace(language=language or "en", language_probability=0.97)
+
+
 @unittest.skipUnless(shutil.which("ffmpeg"), "FFmpeg is required")
 class MediaAudioStreamTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -237,6 +254,44 @@ class MediaAudioStreamTests(unittest.TestCase):
         self.assertTrue(all(options["beam_size"] == 1 for options in fake.options))
         self.assertEqual(result["transcription_mode"], "fast")
         self.assertEqual(result["beam_size"], 1)
+
+    def test_groq_asr_uses_common_vad_and_does_not_load_local_model(self) -> None:
+        async def run_test():
+            event_queue: asyncio.Queue = asyncio.Queue()
+            local = FakeAuto2Lrc()
+            groq = FakeGroqWhisperClient()
+            with (
+                mock.patch("youtube_live.YOUTUBE_WHISPER_STREAM_CHUNK_SECONDS", 30.0),
+                mock.patch("youtube_live.YOUTUBE_WHISPER_INITIAL_CHUNK_SECONDS", 30.0),
+                mock.patch("youtube_live.YOUTUBE_WHISPER_STREAM_OVERLAP_SECONDS", 0.0),
+                mock.patch(
+                    "youtube_live.groq_vad_speech_intervals",
+                    return_value=[(0.0, 25.0)],
+                ),
+            ):
+                result = await asyncio.to_thread(
+                    transcribe_audio_stream,
+                    local,
+                    self.audio_path,
+                    "en",
+                    asyncio.get_running_loop(),
+                    event_queue,
+                    "groq-job",
+                    None,
+                    False,
+                    25.0,
+                    "accurate",
+                    "groq",
+                    groq,
+                )
+            return local, groq, result
+
+        local, groq, result = asyncio.run(run_test())
+        self.assertEqual(groq.calls, 1)
+        self.assertEqual(local.sample_counts, [])
+        self.assertEqual(local.clear_count, 0)
+        self.assertEqual(result["asr_provider"], "groq")
+        self.assertEqual(result["asr_model"], "whisper-large-v3")
 
     def test_overlap_boundary_splits_by_word_without_losing_speech(self) -> None:
         async def run_test():

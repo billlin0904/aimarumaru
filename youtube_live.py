@@ -26,6 +26,13 @@ from media_audio_stream import (
     decode_media_prefix,
     probe_media_duration,
 )
+from provider_profiles import (
+    GroqWhisperClient,
+    GroqWhisperSettings,
+    asr_provider_for_profile,
+    normalize_processing_profile,
+    translation_type_for_profile,
+)
 from text_converter import to_traditional_chinese
 from transcribe_queue import (
     TranscriptionCancelled,
@@ -61,6 +68,23 @@ TRANSLATE_API_TIMEOUT_SECONDS = float(
     os.getenv("TRANSLATE_API_TIMEOUT_SECONDS", "150")
 )
 TRANSLATE_PROXY_MAX_BODY_BYTES = 128 * 1024
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
+GROQ_ASR_BASE_URL = os.getenv(
+    "GROQ_ASR_BASE_URL",
+    os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1"),
+).rstrip("/")
+GROQ_ASR_MODEL = os.getenv("GROQ_ASR_MODEL", "whisper-large-v3").strip()
+GROQ_ASR_TIMEOUT_SECONDS = float(os.getenv("GROQ_ASR_TIMEOUT_SECONDS", "120"))
+GROQ_ASR_MAX_RETRIES = max(0, int(os.getenv("GROQ_ASR_MAX_RETRIES", "2")))
+GROQ_ASR_FALLBACK_WAIT_SECONDS = max(
+    0.0, float(os.getenv("GROQ_ASR_FALLBACK_WAIT_SECONDS", "10"))
+)
+GROQ_ASR_MAX_WAIT_SECONDS = max(
+    0.0, float(os.getenv("GROQ_ASR_MAX_WAIT_SECONDS", "30"))
+)
+GROQ_ASR_MIN_REQUEST_INTERVAL_SECONDS = max(
+    0.0, float(os.getenv("GROQ_ASR_MIN_REQUEST_INTERVAL_SECONDS", "3.1"))
+)
 YOUTUBE_WHISPER_VAD_FILTER = os.getenv(
     "YOUTUBE_WHISPER_VAD_FILTER",
     "true",
@@ -134,6 +158,7 @@ class YoutubeLiveRequest(BaseModel):
     ignore_subtitles: bool = False
     include_word_timestamps: bool = False
     transcription_mode: str = "accurate"
+    processing_profile: str = "standard"
 
 
 class YoutubeLanguageSelection(BaseModel):
@@ -426,6 +451,50 @@ def put_thread_event(loop: asyncio.AbstractEventLoop, queue: asyncio.Queue[dict[
     asyncio.run_coroutine_threadsafe(queue.put(event), loop).result()
 
 
+def create_groq_whisper_client() -> GroqWhisperClient:
+    return GroqWhisperClient(
+        GroqWhisperSettings(
+            api_key=GROQ_API_KEY,
+            base_url=GROQ_ASR_BASE_URL,
+            model=GROQ_ASR_MODEL,
+            timeout_seconds=GROQ_ASR_TIMEOUT_SECONDS,
+            max_retries=GROQ_ASR_MAX_RETRIES,
+            fallback_wait_seconds=GROQ_ASR_FALLBACK_WAIT_SECONDS,
+            max_wait_seconds=GROQ_ASR_MAX_WAIT_SECONDS,
+            min_request_interval_seconds=GROQ_ASR_MIN_REQUEST_INTERVAL_SECONDS,
+        )
+    )
+
+
+def groq_vad_speech_intervals(audio_samples: np.ndarray) -> list[tuple[float, float]]:
+    if not YOUTUBE_WHISPER_VAD_FILTER:
+        duration = len(audio_samples) / 16000
+        return [(0.0, duration)] if duration > 0 else []
+    from faster_whisper.vad import VadOptions, get_speech_timestamps
+
+    timestamps = get_speech_timestamps(
+        audio_samples,
+        VadOptions(**YOUTUBE_WHISPER_VAD_PARAMETERS),
+        sampling_rate=16000,
+    )
+    return [
+        (float(item["start"]) / 16000, float(item["end"]) / 16000)
+        for item in timestamps
+        if item.get("end", 0) > item.get("start", 0)
+    ]
+
+
+def overlaps_speech(
+    start: float,
+    end: float,
+    speech_intervals: list[tuple[float, float]],
+) -> bool:
+    return any(
+        start < speech_end and end > speech_start
+        for speech_start, speech_end in speech_intervals
+    )
+
+
 def transcribe_audio_stream(
     auto2lrc,
     audio_path: MediaSourceInput,
@@ -437,6 +506,8 @@ def transcribe_audio_stream(
     include_word_timestamps: bool = False,
     audio_duration_hint: Optional[float] = None,
     transcription_mode: str = "accurate",
+    asr_provider: str = "local",
+    groq_client: GroqWhisperClient | None = None,
 ) -> dict[str, Any]:
     started_at = time.perf_counter()
     mode = (
@@ -458,13 +529,16 @@ def transcribe_audio_stream(
     last_emitted_start = 0.0
     content_parts: list[str] = []
     logger.info(
-        "Whisper transcription started: job_id=%s transcription_mode=%s "
+        "Whisper transcription started: job_id=%s asr_provider=%s "
+        "asr_model=%s transcription_mode=%s "
         "beam_size=%d language_hint=%s "
         "temperature=0.0 condition_on_previous_text=false vad_filter=%s "
         "word_timestamps=true hallucination_silence_threshold=%.2f "
         "initial_chunk_seconds=%.1f chunk_seconds=%.1f "
         "overlap_seconds=%.1f pcm_queue_size=%d",
         job_id or "unknown",
+        asr_provider,
+        GROQ_ASR_MODEL if asr_provider == "groq" else "faster-whisper",
         mode,
         beam_size,
         language_hint or "auto",
@@ -496,21 +570,45 @@ def transcribe_audio_stream(
                     dtype="<i2",
                 ).astype(np.float32)
                 audio_samples /= 32768.0
-                segments, info = auto2lrc.transcribe(
-                    audio_samples,
-                    beam_size=beam_size,
-                    language=detected_language,
-                    vad_filter=YOUTUBE_WHISPER_VAD_FILTER,
-                    vad_parameters=(
-                        YOUTUBE_WHISPER_VAD_PARAMETERS
-                        if YOUTUBE_WHISPER_VAD_FILTER
-                        else None
-                    ),
-                    word_timestamps=True,
-                    hallucination_silence_threshold=(
-                        YOUTUBE_WHISPER_HALLUCINATION_SILENCE_SECONDS
-                    ),
-                )
+                speech_intervals: list[tuple[float, float]] = []
+                if asr_provider == "groq":
+                    speech_intervals = groq_vad_speech_intervals(audio_samples)
+                    if not speech_intervals:
+                        processed_seconds = chunk.offset_seconds + chunk.duration_seconds
+                        put_thread_event(
+                            loop,
+                            queue,
+                            {
+                                "event": "progress",
+                                "data": transcription_progress_payload(
+                                    audio_duration,
+                                    processed_seconds,
+                                    time.perf_counter() - started_at,
+                                ),
+                            },
+                        )
+                        continue
+                    active_groq_client = groq_client or create_groq_whisper_client()
+                    segments, info = active_groq_client.transcribe(
+                        audio_samples,
+                        language=detected_language,
+                    )
+                else:
+                    segments, info = auto2lrc.transcribe(
+                        audio_samples,
+                        beam_size=beam_size,
+                        language=detected_language,
+                        vad_filter=YOUTUBE_WHISPER_VAD_FILTER,
+                        vad_parameters=(
+                            YOUTUBE_WHISPER_VAD_PARAMETERS
+                            if YOUTUBE_WHISPER_VAD_FILTER
+                            else None
+                        ),
+                        word_timestamps=True,
+                        hallucination_silence_threshold=(
+                            YOUTUBE_WHISPER_HALLUCINATION_SILENCE_SECONDS
+                        ),
+                    )
                 chunk_language = getattr(info, "language", detected_language)
                 if chunk_language:
                     detected_language = chunk_language
@@ -533,6 +631,12 @@ def transcribe_audio_stream(
                     decoded_segment_count += 1
                     if cancel_check is not None and cancel_check():
                         raise TranscriptionCancelled("轉譯已取消")
+                    if asr_provider == "groq" and not overlaps_speech(
+                        float(getattr(segment, "start", 0.0)),
+                        float(getattr(segment, "end", 0.0)),
+                        speech_intervals,
+                    ):
+                        continue
                     owned_segment = owned_whisper_segment(
                         segment,
                         ownership_start,
@@ -640,11 +744,14 @@ def transcribe_audio_stream(
             else None
         )
         logger.info(
-            "Whisper transcription completed: job_id=%s "
+            "Whisper transcription completed: job_id=%s asr_provider=%s "
+            "asr_model=%s "
             "transcription_mode=%s beam_size=%d "
             "audio_duration=%.3fs elapsed=%.3fs real_time_factor=%s "
             "speed=%s decoded_segments=%d emitted_segments=%d chunks=%d language=%s",
             job_id or "unknown",
+            asr_provider,
+            GROQ_ASR_MODEL if asr_provider == "groq" else "faster-whisper",
             mode,
             beam_size,
             audio_duration,
@@ -666,6 +773,8 @@ def transcribe_audio_stream(
             "processing_speed_x": round(speed_ratio, 3) if speed_ratio is not None else None,
             "transcription_mode": mode,
             "beam_size": beam_size,
+            "asr_provider": asr_provider,
+            "asr_model": GROQ_ASR_MODEL if asr_provider == "groq" else "faster-whisper",
         }
     except Exception:
         logger.exception(
@@ -676,7 +785,8 @@ def transcribe_audio_stream(
         )
         raise
     finally:
-        auto2lrc.clear_model_cache()
+        if asr_provider == "local":
+            auto2lrc.clear_model_cache()
 
 
 def detect_audio_language(
@@ -685,6 +795,8 @@ def detect_audio_language(
     job_id: Optional[str] = None,
     cancel_check: Optional[Callable[[], bool]] = None,
     audio_duration_hint: Optional[float] = None,
+    asr_provider: str = "local",
+    groq_client: GroqWhisperClient | None = None,
 ) -> dict[str, Any]:
     logger.info(
         "Whisper language detection started: job_id=%s",
@@ -711,11 +823,18 @@ def detect_audio_language(
             dtype="<i2",
         ).astype(np.float32)
         audio_samples /= 32768.0
-        segments, info = auto2lrc.transcribe(
-            audio_samples,
-            beam_size=5,
-            language=None,
-        )
+        if asr_provider == "groq":
+            active_groq_client = groq_client or create_groq_whisper_client()
+            segments, info = active_groq_client.transcribe(
+                audio_samples,
+                language=None,
+            )
+        else:
+            segments, info = auto2lrc.transcribe(
+                audio_samples,
+                beam_size=5,
+                language=None,
+            )
         del segments
         if cancel_check is not None and cancel_check():
             raise TranscriptionCancelled("轉譯已取消")
@@ -736,7 +855,8 @@ def detect_audio_language(
             "detection_elapsed_seconds": round(time.perf_counter() - started_at, 3),
         }
     finally:
-        auto2lrc.clear_model_cache()
+        if asr_provider == "local":
+            auto2lrc.clear_model_cache()
 
 
 def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_token=None) -> APIRouter:
@@ -820,6 +940,14 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             return
 
         queue: asyncio.Queue[dict[str, Any]] = job["queue"]
+        processing_profile = normalize_processing_profile(
+            job.get("processing_profile")
+        )
+        asr_provider = asr_provider_for_profile(processing_profile)
+        groq_client = (
+            create_groq_whisper_client() if asr_provider == "groq" else None
+        )
+        asr_source = "groq_whisper" if asr_provider == "groq" else "whisper"
         terminal = False
         phase = "queued"
         run_started = time.perf_counter()
@@ -841,6 +969,8 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             source_language=job.get("language_hint") or "auto",
             ignore_subtitles=job.get("ignore_subtitles"),
             include_word_timestamps=job.get("include_word_timestamps"),
+            processing_profile=processing_profile,
+            asr_provider=asr_provider,
         )
         try:
             ensure_job_not_cancelled(job)
@@ -898,6 +1028,8 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                         bool(job.get("include_word_timestamps")),
                         job.get("video_duration_seconds"),
                         job.get("transcription_mode", "accurate"),
+                        asr_provider,
+                        groq_client,
                     )
                 ensure_job_not_cancelled(job)
                 job["status"] = "done"
@@ -947,10 +1079,12 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                     job_id,
                     lambda: job_is_cancelled(job),
                     job.get("video_duration_seconds"),
+                    asr_provider,
+                    groq_client,
                 )
                 ensure_job_not_cancelled(job)
                 job["detected_language"] = detection["language"]
-                job["detection_source"] = "whisper"
+                job["detection_source"] = asr_source
                 job["language_probability"] = detection["language_probability"]
                 job["video_duration_seconds"] = detection["duration"]
                 job["status"] = "awaiting_language_confirmation"
@@ -962,7 +1096,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                     {
                         "language": detection["language"],
                         "language_probability": detection["language_probability"],
-                        "source": "whisper",
+                        "source": asr_source,
                     },
                 )
                 log_structured_event(
@@ -972,7 +1106,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                     source_kind="upload",
                     detected_language=detection["language"],
                     language_probability=detection["language_probability"],
-                    subtitle_source="whisper",
+                    subtitle_source=asr_source,
                     detection_elapsed_ms=round(
                         detection["detection_elapsed_seconds"] * 1000
                     ),
@@ -1104,7 +1238,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                 cookies_file,
             )
             ensure_job_not_cancelled(job)
-            job["prepared_source"] = "whisper"
+            job["prepared_source"] = asr_source
             log_structured_event(
                 "video_audio_stream_resolved",
                 job_id=job_id,
@@ -1128,10 +1262,12 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                     job_id,
                     lambda: job_is_cancelled(job),
                     job.get("video_duration_seconds"),
+                    asr_provider,
+                    groq_client,
                 )
                 ensure_job_not_cancelled(job)
                 job["detected_language"] = detection["language"]
-                job["detection_source"] = "whisper"
+                job["detection_source"] = asr_source
                 job["language_probability"] = detection["language_probability"]
                 job["status"] = "awaiting_language_confirmation"
                 job["language_detected_monotonic"] = time.perf_counter()
@@ -1142,7 +1278,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                     {
                         "language": detection["language"],
                         "language_probability": detection["language_probability"],
-                        "source": "whisper",
+                        "source": asr_source,
                     },
                 )
                 log_structured_event(
@@ -1151,7 +1287,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                     job_status="awaiting_language_confirmation",
                     detected_language=detection["language"],
                     language_probability=detection["language_probability"],
-                    subtitle_source="whisper",
+                    subtitle_source=asr_source,
                     detection_elapsed_ms=round(
                         detection["detection_elapsed_seconds"] * 1000
                     ),
@@ -1172,17 +1308,19 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                 bool(job.get("include_word_timestamps")),
                 job.get("video_duration_seconds"),
                 job.get("transcription_mode", "accurate"),
+                asr_provider,
+                groq_client,
             )
             ensure_job_not_cancelled(job)
 
             job["status"] = "done"
             terminal = True
-            await push_event(job, "done", {"source": "whisper", **info})
+            await push_event(job, "done", {"source": asr_source, **info})
             log_structured_event(
                 "video_job_completed",
                 job_id=job_id,
                 job_status="done",
-                subtitle_source="whisper",
+                subtitle_source=asr_source,
                 source_language=info.get("language"),
                 language_probability=info.get("language_probability"),
                 segments=info.get("segments_count"),
@@ -1315,12 +1453,17 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         job_id = secrets.token_urlsafe(18)
         created_monotonic = time.perf_counter()
         transcription_mode = normalize_transcription_mode(payload.transcription_mode)
+        try:
+            processing_profile = normalize_processing_profile(payload.processing_profile)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         jobs[job_id] = {
             "url": url,
             "language_hint": payload.language.strip() or None,
             "ignore_subtitles": payload.ignore_subtitles,
             "include_word_timestamps": payload.include_word_timestamps,
             "transcription_mode": transcription_mode,
+            "processing_profile": processing_profile,
             "translation_token": secrets.token_urlsafe(32),
             "translation_tasks": set(),
             "cancel_token": secrets.token_urlsafe(32),
@@ -1342,6 +1485,8 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             ignore_subtitles=payload.ignore_subtitles,
             include_word_timestamps=payload.include_word_timestamps,
             transcription_mode=transcription_mode,
+            processing_profile=processing_profile,
+            asr_provider=asr_provider_for_profile(processing_profile),
         )
         try:
             enqueue_transcribe_task({"kind": "youtube_live", "id": job_id})
@@ -1373,6 +1518,8 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             ignore_subtitles=payload.ignore_subtitles,
             include_word_timestamps=payload.include_word_timestamps,
             transcription_mode=transcription_mode,
+            processing_profile=processing_profile,
+            asr_provider=asr_provider_for_profile(processing_profile),
             waiting_count=queue_counts["waiting_count"],
             transcribing_count=queue_counts["transcribing_count"],
         )
@@ -1384,6 +1531,8 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             "cancel_url": f"/api/youtube-live/jobs/{job_id}/cancel",
             "cancel_token": jobs[job_id]["cancel_token"],
             "status": "queued",
+            "processing_profile": processing_profile,
+            "asr_provider": asr_provider_for_profile(processing_profile),
         }
 
     async def create_video_upload_job_entry(
@@ -1392,8 +1541,13 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         language: str,
         include_word_timestamps: bool,
         transcription_mode: str,
+        processing_profile: str,
     ) -> dict[str, Any]:
         transcription_mode = normalize_transcription_mode(transcription_mode)
+        try:
+            normalized_profile = normalize_processing_profile(processing_profile)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         original_filename = Path(file.filename or "video").name
         suffix = Path(original_filename).suffix.lower()
         content_type = str(file.content_type or "").lower()
@@ -1439,7 +1593,12 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             "ignore_subtitles": True,
             "include_word_timestamps": include_word_timestamps,
             "transcription_mode": transcription_mode,
-            "prepared_source": "whisper",
+            "processing_profile": normalized_profile,
+            "prepared_source": (
+                "groq_whisper"
+                if asr_provider_for_profile(normalized_profile) == "groq"
+                else "whisper"
+            ),
             "audio_path": str(upload_path),
             "work_dir": str(work_dir),
             "translation_token": secrets.token_urlsafe(32),
@@ -1463,6 +1622,8 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             source_language=language_hint or "auto",
             include_word_timestamps=include_word_timestamps,
             transcription_mode=transcription_mode,
+            processing_profile=normalized_profile,
+            asr_provider=asr_provider_for_profile(normalized_profile),
         )
         try:
             enqueue_transcribe_task({"kind": "youtube_live", "id": job_id})
@@ -1482,6 +1643,8 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             source_language=language_hint or "auto",
             include_word_timestamps=include_word_timestamps,
             transcription_mode=transcription_mode,
+            processing_profile=normalized_profile,
+            asr_provider=asr_provider_for_profile(normalized_profile),
             input_bytes=upload_bytes,
             waiting_count=queue_counts["waiting_count"],
             transcribing_count=queue_counts["transcribing_count"],
@@ -1494,6 +1657,8 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             "cancel_url": f"/api/youtube-live/jobs/{job_id}/cancel",
             "cancel_token": jobs[job_id]["cancel_token"],
             "status": jobs[job_id]["status"],
+            "processing_profile": normalized_profile,
+            "asr_provider": asr_provider_for_profile(normalized_profile),
         }
 
     @router.post(
@@ -1508,6 +1673,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         captcha_token: str = Form(""),
         include_word_timestamps: bool = Form(True),
         transcription_mode: str = Form("accurate"),
+        processing_profile: str = Form("standard"),
     ):
         cleanup_youtube_live_jobs(jobs)
         if verify_captcha_token is not None:
@@ -1518,6 +1684,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             language,
             include_word_timestamps,
             transcription_mode,
+            processing_profile,
         )
 
     @router.post(
@@ -1532,6 +1699,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         captcha_token: str = Form(""),
         include_word_timestamps: bool = Form(True),
         transcription_mode: str = Form("accurate"),
+        processing_profile: str = Form("standard"),
     ):
         cleanup_youtube_live_jobs(jobs)
         if not files:
@@ -1555,6 +1723,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                     language,
                     include_word_timestamps,
                     transcription_mode,
+                    processing_profile,
                 )
                 job["batch_index"] = batch_index
                 created_jobs.append(job)
@@ -1760,8 +1929,14 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                                 "request_id": {"type": "string"},
                                 "translation_type": {
                                     "type": "string",
-                                    "enum": ["std", "pro"],
-                                    "default": "std",
+                                    "enum": [
+                                        "standard",
+                                        "premium",
+                                        "private",
+                                        "std",
+                                        "pro",
+                                    ],
+                                    "default": "standard",
                                 },
                                 "source_language": {
                                     "type": "string",
@@ -1873,6 +2048,17 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         if authorized_job_id is None:
             raise HTTPException(status_code=401, detail="翻譯權杖無效或已過期")
 
+        authorized_job = jobs[authorized_job_id]
+        processing_profile = normalize_processing_profile(
+            authorized_job.get("processing_profile")
+        )
+        payload["translation_type"] = translation_type_for_profile(processing_profile)
+        body = json.dumps(
+            payload, ensure_ascii=False, separators=(",", ":")
+        ).encode("utf-8")
+        if len(body) > TRANSLATE_PROXY_MAX_BODY_BYTES:
+            raise HTTPException(status_code=413, detail="翻譯請求不可超過 128 KiB")
+
         request_id = str(payload.get("request_id") or "")
         if not request_id.startswith(f"youtube-{authorized_job_id}-"):
             raise HTTPException(status_code=403, detail="request_id 與影片 job 不相符")
@@ -1948,12 +2134,13 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             on_screen_terms=len(on_screen_terms),
             low_confidence_spans=low_confidence_span_count,
             characters=characters,
+            processing_profile=processing_profile,
+            translation_type=payload["translation_type"],
         )
 
         upstream_url = f"{TRANSLATE_API_BASE}/api/v1/subtitles/translate"
         timeout = aiohttp.ClientTimeout(total=TRANSLATE_API_TIMEOUT_SECONDS)
         started_at = time.perf_counter()
-        authorized_job = jobs[authorized_job_id]
         translation_task = asyncio.current_task()
         if translation_task is not None:
             authorized_job.setdefault("translation_tasks", set()).add(translation_task)
@@ -2103,6 +2290,17 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         if authorized_job_id is None:
             raise HTTPException(status_code=401, detail="翻譯權杖無效或已過期")
 
+        authorized_job = jobs[authorized_job_id]
+        processing_profile = normalize_processing_profile(
+            authorized_job.get("processing_profile")
+        )
+        payload["translation_type"] = translation_type_for_profile(processing_profile)
+        body = json.dumps(
+            payload, ensure_ascii=False, separators=(",", ":")
+        ).encode("utf-8")
+        if len(body) > TRANSLATE_PROXY_MAX_BODY_BYTES:
+            raise HTTPException(status_code=413, detail="翻譯請求不可超過 128 KiB")
+
         request_id = str(payload.get("request_id") or "")
         if not request_id.startswith(f"youtube-{authorized_job_id}-"):
             raise HTTPException(status_code=403, detail="request_id 與影片 job 不相符")
@@ -2145,7 +2343,8 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             operation=f"video_translation_{operation}",
             source_language=payload.get("source_language"),
             target_language=payload.get("target_language"),
-            translation_type=payload.get("translation_type", "std"),
+            processing_profile=processing_profile,
+            translation_type=payload["translation_type"],
             segments=len(segments),
             groups=len(groups),
             preceding_source_groups=len(preceding_source_context),
@@ -2157,7 +2356,6 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         upstream_url = f"{TRANSLATE_API_BASE}{upstream_path}"
         timeout = aiohttp.ClientTimeout(total=TRANSLATE_API_TIMEOUT_SECONDS)
         started_at = time.perf_counter()
-        authorized_job = jobs[authorized_job_id]
         workflow_task = asyncio.current_task()
         if workflow_task is not None:
             authorized_job.setdefault("translation_tasks", set()).add(workflow_task)
@@ -2219,7 +2417,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                         characters,
                         len(body),
                         len(response_body),
-                        payload.get("translation_type", "std"),
+                        payload.get("translation_type", "standard"),
                         (
                             response_payload.get("provider")
                             if isinstance(response_payload, dict)
