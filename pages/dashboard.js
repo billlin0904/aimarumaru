@@ -130,6 +130,9 @@ function renderJobs(jobs) {
     stats.append(
       stat("轉錄進度", `${progress.toFixed(1)}%`),
       stat("最後 Chunk", transcribe.last_chunk_ms == null ? "—" : duration(Number(transcribe.last_chunk_ms) / 1000)),
+      stat("音訊等待", transcribe.last_input_wait_ms == null ? "—" : duration(Number(transcribe.last_input_wait_ms) / 1000)),
+      stat("Whisper 推論", transcribe.last_inference_ms == null ? "—" : duration(Number(transcribe.last_inference_ms) / 1000)),
+      stat("事件送出", transcribe.last_event_emit_ms == null ? "—" : duration(Number(transcribe.last_event_emit_ms) / 1000)),
       stat("處理倍率", transcribe.processing_speed_x == null ? "—" : `${number(transcribe.processing_speed_x, 2)}×`),
       stat("翻譯 P95", translate.p95_latency_ms == null ? "—" : duration(Number(translate.p95_latency_ms) / 1000)),
       stat("字幕段數", number(transcribe.segments_emitted)),

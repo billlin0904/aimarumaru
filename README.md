@@ -38,9 +38,21 @@ Kotobamaru 需另外設定 Groq 與 Gemini 翻譯金鑰，Aimarumaru 透過既�
 
 ## Operations Dashboard
 
-`/dashboard` 顯示 NVIDIA GPU、VRAM、轉錄佇列、Whisper chunk 耗時、處理倍率、
-翻譯延遲／錯誤及 provider 回傳的估算費用。API 只輸出遙測，不輸出影片網址、
-字幕內容、翻譯權杖或 API 金鑰。
+`/dashboard` 顯示 NVIDIA GPU、VRAM、轉錄佇列、Whisper chunk 耗時、音訊等待、
+模型推論、事件送出、處理倍率、翻譯延遲／錯誤及 provider 回傳的估算費用。
+API 只輸出遙測，不輸出影片網址、字幕內容、翻譯權杖或 API 金鑰。
+
+本機 Whisper 預設先準備兩個 PCM chunk，再開始第一批推論，降低 FFmpeg 供料速度
+短暫波動造成 GPU 間歇性閒置。代價是第一段字幕會晚幾秒出現；可依磁碟與來源網路
+調整：
+
+```dotenv
+YOUTUBE_WHISPER_STREAM_QUEUE_SIZE=2
+YOUTUBE_WHISPER_STREAM_PREFETCH_CHUNKS=2
+```
+
+`PREFETCH_CHUNKS` 不會超過 queue size。若更重視第一段字幕延遲，可設為 `1`；若
+Dashboard 的「音訊等待」仍經常大於零，可同時提高兩個值。
 
 本機未設定 Token 時只允許 localhost 讀取；雲端部署必須在 `.env` 設定：
 

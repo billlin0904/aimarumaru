@@ -122,6 +122,13 @@ YOUTUBE_WHISPER_STREAM_QUEUE_SIZE = max(
     1,
     int(os.getenv("YOUTUBE_WHISPER_STREAM_QUEUE_SIZE", "2")),
 )
+YOUTUBE_WHISPER_STREAM_PREFETCH_CHUNKS = max(
+    1,
+    min(
+        YOUTUBE_WHISPER_STREAM_QUEUE_SIZE,
+        int(os.getenv("YOUTUBE_WHISPER_STREAM_PREFETCH_CHUNKS", "2")),
+    ),
+)
 YOUTUBE_WHISPER_LANGUAGE_DETECT_SECONDS = max(
     10.0,
     float(os.getenv("YOUTUBE_WHISPER_LANGUAGE_DETECT_SECONDS", "30")),
@@ -163,6 +170,15 @@ def new_job_telemetry() -> dict[str, Any]:
             "last_chunk_ms": None,
             "average_chunk_ms": None,
             "max_chunk_ms": None,
+            "last_input_wait_ms": None,
+            "average_input_wait_ms": None,
+            "max_input_wait_ms": None,
+            "last_inference_ms": None,
+            "average_inference_ms": None,
+            "max_inference_ms": None,
+            "last_event_emit_ms": None,
+            "average_event_emit_ms": None,
+            "max_event_emit_ms": None,
             "processing_speed_x": None,
             "last_chunk_at": None,
         },
@@ -610,7 +626,7 @@ def transcribe_audio_stream(
         "temperature=0.0 condition_on_previous_text=false vad_filter=%s "
         "word_timestamps=true hallucination_silence_threshold=%.2f "
         "initial_chunk_seconds=%.1f chunk_seconds=%.1f "
-        "overlap_seconds=%.1f pcm_queue_size=%d",
+        "overlap_seconds=%.1f pcm_queue_size=%d prefetch_chunks=%d",
         job_id or "unknown",
         asr_provider,
         GROQ_ASR_MODEL if asr_provider == "groq" else "faster-whisper",
@@ -623,6 +639,7 @@ def transcribe_audio_stream(
         YOUTUBE_WHISPER_STREAM_CHUNK_SECONDS,
         YOUTUBE_WHISPER_STREAM_OVERLAP_SECONDS,
         YOUTUBE_WHISPER_STREAM_QUEUE_SIZE,
+        YOUTUBE_WHISPER_STREAM_PREFETCH_CHUNKS,
     )
 
     try:
@@ -634,12 +651,25 @@ def transcribe_audio_stream(
             initial_chunk_seconds=YOUTUBE_WHISPER_INITIAL_CHUNK_SECONDS,
             overlap_seconds=YOUTUBE_WHISPER_STREAM_OVERLAP_SECONDS,
             queue_size=YOUTUBE_WHISPER_STREAM_QUEUE_SIZE,
+            prefetch_chunks=YOUTUBE_WHISPER_STREAM_PREFETCH_CHUNKS,
             cancel_check=cancel_check,
         ) as audio_chunks:
-            for chunk in audio_chunks:
+            audio_chunk_iterator = iter(audio_chunks)
+            while True:
+                input_wait_started_at = time.perf_counter()
+                try:
+                    chunk = next(audio_chunk_iterator)
+                except StopIteration:
+                    break
+                input_wait_ms = round(
+                    (time.perf_counter() - input_wait_started_at) * 1000,
+                    3,
+                )
                 if cancel_check is not None and cancel_check():
                     raise TranscriptionCancelled("轉譯已取消")
                 chunk_started_at = time.perf_counter()
+                inference_elapsed_seconds = 0.0
+                event_emit_elapsed_seconds = 0.0
                 decoded_before_chunk = decoded_segment_count
                 emitted_before_chunk = segment_count
                 chunk_count += 1
@@ -649,28 +679,20 @@ def transcribe_audio_stream(
                 ).astype(np.float32)
                 audio_samples /= 32768.0
                 speech_intervals: list[tuple[float, float]] = []
+                inference_started_at = time.perf_counter()
                 if asr_provider == "groq":
                     speech_intervals = groq_vad_speech_intervals(audio_samples)
                     if not speech_intervals:
-                        processed_seconds = chunk.offset_seconds + chunk.duration_seconds
-                        put_thread_event(
-                            loop,
-                            queue,
-                            {
-                                "event": "progress",
-                                "data": transcription_progress_payload(
-                                    audio_duration,
-                                    processed_seconds,
-                                    time.perf_counter() - started_at,
-                                ),
-                            },
+                        segments = []
+                        info = None
+                    else:
+                        active_groq_client = (
+                            groq_client or create_groq_whisper_client()
                         )
-                        continue
-                    active_groq_client = groq_client or create_groq_whisper_client()
-                    segments, info = active_groq_client.transcribe(
-                        audio_samples,
-                        language=detected_language,
-                    )
+                        segments, info = active_groq_client.transcribe(
+                            audio_samples,
+                            language=detected_language,
+                        )
                 else:
                     segments, info = auto2lrc.transcribe(
                         audio_samples,
@@ -687,6 +709,9 @@ def transcribe_audio_stream(
                             YOUTUBE_WHISPER_HALLUCINATION_SILENCE_SECONDS
                         ),
                     )
+                inference_elapsed_seconds += (
+                    time.perf_counter() - inference_started_at
+                )
                 chunk_language = getattr(info, "language", detected_language)
                 if chunk_language:
                     detected_language = chunk_language
@@ -705,7 +730,19 @@ def transcribe_audio_stream(
                         chunk.duration_seconds
                         - YOUTUBE_WHISPER_STREAM_OVERLAP_SECONDS / 2,
                     )
-                for segment in segments:
+                segment_iterator = iter(segments)
+                while True:
+                    inference_started_at = time.perf_counter()
+                    try:
+                        segment = next(segment_iterator)
+                    except StopIteration:
+                        inference_elapsed_seconds += (
+                            time.perf_counter() - inference_started_at
+                        )
+                        break
+                    inference_elapsed_seconds += (
+                        time.perf_counter() - inference_started_at
+                    )
                     decoded_segment_count += 1
                     if cancel_check is not None and cancel_check():
                         raise TranscriptionCancelled("轉譯已取消")
@@ -782,6 +819,7 @@ def transcribe_audio_stream(
                             time.perf_counter() - started_at,
                         )
                     )
+                    event_emit_started_at = time.perf_counter()
                     put_thread_event(
                         loop,
                         queue,
@@ -790,10 +828,14 @@ def transcribe_audio_stream(
                             "data": payload,
                         },
                     )
+                    event_emit_elapsed_seconds += (
+                        time.perf_counter() - event_emit_started_at
+                    )
 
                 processed_seconds = chunk.offset_seconds + ownership_end
                 if chunk.is_final:
                     audio_duration = max(audio_duration, processed_seconds)
+                event_emit_started_at = time.perf_counter()
                 put_thread_event(
                     loop,
                     queue,
@@ -805,6 +847,9 @@ def transcribe_audio_stream(
                             time.perf_counter() - started_at,
                         ),
                     },
+                )
+                event_emit_elapsed_seconds += (
+                    time.perf_counter() - event_emit_started_at
                 )
 
                 chunk_elapsed_ms = round(
@@ -824,6 +869,9 @@ def transcribe_audio_stream(
                     "processed_seconds": round(processed_seconds, 3),
                     "progress_percent": round(progress_percent, 3),
                     "chunk_elapsed_ms": chunk_elapsed_ms,
+                    "input_wait_ms": input_wait_ms,
+                    "inference_ms": round(inference_elapsed_seconds * 1000, 3),
+                    "event_emit_ms": round(event_emit_elapsed_seconds * 1000, 3),
                     "decoded_segments": decoded_segment_count - decoded_before_chunk,
                     "emitted_in_chunk": segment_count - emitted_before_chunk,
                     "segments_emitted": segment_count,
@@ -1005,6 +1053,18 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             previous_count = max(0, chunk_count - 1)
             previous_average = float(transcription.get("average_chunk_ms") or 0.0)
             chunk_ms = float(metrics.get("chunk_elapsed_ms") or 0.0)
+            input_wait_ms = float(metrics.get("input_wait_ms") or 0.0)
+            inference_ms = float(metrics.get("inference_ms") or 0.0)
+            event_emit_ms = float(metrics.get("event_emit_ms") or 0.0)
+
+            def rolling_average(field: str, current_value: float) -> float:
+                previous_value = float(transcription.get(field) or 0.0)
+                return round(
+                    ((previous_value * previous_count) + current_value)
+                    / max(1, chunk_count),
+                    3,
+                )
+
             transcription.update(
                 {
                     "chunk_count": chunk_count,
@@ -1018,6 +1078,42 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                     ),
                     "max_chunk_ms": round(
                         max(float(transcription.get("max_chunk_ms") or 0.0), chunk_ms),
+                        3,
+                    ),
+                    "last_input_wait_ms": round(input_wait_ms, 3),
+                    "average_input_wait_ms": rolling_average(
+                        "average_input_wait_ms",
+                        input_wait_ms,
+                    ),
+                    "max_input_wait_ms": round(
+                        max(
+                            float(transcription.get("max_input_wait_ms") or 0.0),
+                            input_wait_ms,
+                        ),
+                        3,
+                    ),
+                    "last_inference_ms": round(inference_ms, 3),
+                    "average_inference_ms": rolling_average(
+                        "average_inference_ms",
+                        inference_ms,
+                    ),
+                    "max_inference_ms": round(
+                        max(
+                            float(transcription.get("max_inference_ms") or 0.0),
+                            inference_ms,
+                        ),
+                        3,
+                    ),
+                    "last_event_emit_ms": round(event_emit_ms, 3),
+                    "average_event_emit_ms": rolling_average(
+                        "average_event_emit_ms",
+                        event_emit_ms,
+                    ),
+                    "max_event_emit_ms": round(
+                        max(
+                            float(transcription.get("max_event_emit_ms") or 0.0),
+                            event_emit_ms,
+                        ),
                         3,
                     ),
                     "processing_speed_x": metrics.get("processing_speed_x"),

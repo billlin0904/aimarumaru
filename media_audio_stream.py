@@ -220,6 +220,7 @@ class FFmpegPcmChunkStream:
         initial_chunk_seconds: Optional[float] = None,
         overlap_seconds: float = 2.0,
         queue_size: int = 2,
+        prefetch_chunks: int = 1,
         cancel_check: Optional[Callable[[], bool]] = None,
     ) -> None:
         self.source = _normalize_source(media_path)
@@ -236,7 +237,9 @@ class FFmpegPcmChunkStream:
             self.chunk_seconds / 2,
         )
         self.cancel_check = cancel_check
-        self._queue: queue.Queue[object] = queue.Queue(maxsize=max(1, queue_size))
+        queue_capacity = max(1, int(queue_size))
+        self.prefetch_chunks = max(1, min(queue_capacity, int(prefetch_chunks)))
+        self._queue: queue.Queue[object] = queue.Queue(maxsize=queue_capacity)
         self._stop_event = threading.Event()
         self._process_lock = threading.Lock()
         self._process: Optional[subprocess.Popen[bytes]] = None
@@ -261,6 +264,22 @@ class FFmpegPcmChunkStream:
 
     def __iter__(self) -> Iterator[PcmAudioChunk]:
         self.start()
+        buffered_chunks: list[PcmAudioChunk] = []
+        reached_end = False
+        while len(buffered_chunks) < self.prefetch_chunks:
+            item = self._queue.get()
+            if item is _STREAM_END:
+                reached_end = True
+                break
+            if isinstance(item, _StreamFailure):
+                raise RuntimeError(item.message)
+            if isinstance(item, PcmAudioChunk):
+                buffered_chunks.append(item)
+
+        yield from buffered_chunks
+        if reached_end:
+            return
+
         while True:
             item = self._queue.get()
             if item is _STREAM_END:

@@ -11,6 +11,8 @@ from unittest import mock
 from media_audio_stream import (
     FFmpegPcmChunkStream,
     MediaAudioSource,
+    PcmAudioChunk,
+    _STREAM_END,
     decode_media_prefix,
     probe_media_duration,
 )
@@ -213,6 +215,25 @@ class MediaAudioStreamTests(unittest.TestCase):
         )
         self.assertLessEqual(max(len(chunk.data) for chunk in chunks), 10 * 16000 * 2)
 
+    def test_stream_prefetches_configured_chunks_before_first_yield(self) -> None:
+        stream = FFmpegPcmChunkStream(
+            self.audio_path,
+            queue_size=3,
+            prefetch_chunks=2,
+        )
+        chunks = [
+            PcmAudioChunk(b"\0\0", 0.0, 1.0, False),
+            PcmAudioChunk(b"\0\0", 1.0, 1.0, True),
+        ]
+        for item in (*chunks, _STREAM_END):
+            stream._queue.put_nowait(item)
+
+        with mock.patch.object(stream, "start"):
+            iterator = iter(stream)
+            self.assertEqual(next(iterator), chunks[0])
+            self.assertEqual(stream._queue.qsize(), 1)
+            self.assertEqual(list(iterator), [chunks[1]])
+
     def test_language_prefix_is_bounded(self) -> None:
         prefix = decode_media_prefix(self.audio_path, 3)
         self.assertEqual(len(prefix), 3 * 16000 * 2)
@@ -291,6 +312,9 @@ class MediaAudioStreamTests(unittest.TestCase):
         self.assertEqual(telemetry[-1]["chunk_index"], 3)
         self.assertEqual(round(telemetry[-1]["progress_percent"]), 100)
         self.assertEqual(telemetry[-1]["segments_emitted"], 4)
+        self.assertGreaterEqual(telemetry[-1]["input_wait_ms"], 0)
+        self.assertGreaterEqual(telemetry[-1]["inference_ms"], 0)
+        self.assertGreaterEqual(telemetry[-1]["event_emit_ms"], 0)
 
     def test_fast_transcription_mode_uses_greedy_search(self) -> None:
         async def run_test():
