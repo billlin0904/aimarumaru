@@ -1,6 +1,10 @@
 import asyncio
 import inspect
 import logging
+import os
+import threading
+import time
+from collections import deque
 from collections.abc import Awaitable, Callable
 from typing import Any, Optional
 
@@ -10,6 +14,12 @@ logger = logging.getLogger(__name__)
 
 TRANSCRIBE_QUEUE_MAX_SIZE = 100
 TRANSCRIBE_CLEANUP_INTERVAL_SECONDS = 300
+try:
+    TRANSCRIBE_WORKER_CONCURRENCY = max(
+        1, int(os.getenv("TRANSCRIBE_WORKER_CONCURRENCY", "2"))
+    )
+except ValueError:
+    TRANSCRIBE_WORKER_CONCURRENCY = 2
 
 TranscribeTask = dict[str, Any]
 TranscribeTaskHandler = Callable[[TranscribeTask], Awaitable[None] | None]
@@ -25,6 +35,68 @@ cleanup_handlers: list[TranscribeCleanupHandler] = []
 
 class TranscriptionCancelled(Exception):
     """Raised when a queued transcription has been cancelled by its owner."""
+
+
+class FairTranscriptionScheduler:
+    """Round-robin scheduler for the GPU-bound ASR turns of each job.
+
+    Queue workers may run multiple jobs concurrently, but only one local ASR
+    inference turn is admitted at a time.  Each completed audio chunk goes to
+    the back of the queue, allowing short jobs to make progress while a long
+    job is still decoding.
+    """
+
+    def __init__(self) -> None:
+        self._condition = threading.Condition()
+        self._order: deque[str] = deque()
+        self._active: str | None = None
+
+    def acquire(
+        self,
+        job_id: str,
+        cancel_check: Callable[[], bool] | None = None,
+    ) -> float:
+        started = time.perf_counter()
+        with self._condition:
+            if job_id not in self._order and self._active != job_id:
+                self._order.append(job_id)
+                self._condition.notify_all()
+            while self._active is not None or not self._order or self._order[0] != job_id:
+                if cancel_check is not None and cancel_check():
+                    try:
+                        self._order.remove(job_id)
+                    except ValueError:
+                        pass
+                    self._condition.notify_all()
+                    raise TranscriptionCancelled("轉譯已取消")
+                self._condition.wait(timeout=0.25)
+            self._active = job_id
+        return (time.perf_counter() - started) * 1000
+
+    def release(self, job_id: str, *, completed: bool = False) -> None:
+        with self._condition:
+            if self._active == job_id:
+                self._active = None
+            try:
+                self._order.remove(job_id)
+            except ValueError:
+                pass
+            if not completed:
+                self._order.append(job_id)
+            self._condition.notify_all()
+
+    def abort(self, job_id: str) -> None:
+        with self._condition:
+            if self._active == job_id:
+                self._active = None
+            try:
+                self._order.remove(job_id)
+            except ValueError:
+                pass
+            self._condition.notify_all()
+
+
+fair_transcription_scheduler = FairTranscriptionScheduler()
 
 
 async def maybe_await(result: Awaitable[Any] | Any) -> Any:
@@ -126,9 +198,10 @@ async def stop_transcribe_queue() -> None:
 
 async def transcribe_queue_worker() -> None:
     global transcribe_active_count
-    while True:
-        assert transcribe_queue is not None
-        task = await transcribe_queue.get()
+    active: set[asyncio.Task[Any]] = set()
+
+    async def run_task(task: TranscribeTask) -> None:
+        global transcribe_active_count
         transcribe_active_count += 1
         try:
             kind = str(task.get("kind", ""))
@@ -138,11 +211,39 @@ async def transcribe_queue_worker() -> None:
                     "No transcribe task handler registered for kind: %s",
                     kind,
                 )
-                continue
+                return
             await maybe_await(handler(task))
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception(
+                "Transcribe task handler failed: kind=%s id=%s",
+                task.get("kind", ""),
+                task.get("id", ""),
+            )
         finally:
             transcribe_active_count = max(0, transcribe_active_count - 1)
-            transcribe_queue.task_done()
+            if transcribe_queue is not None:
+                transcribe_queue.task_done()
+
+    try:
+        while True:
+            assert transcribe_queue is not None
+            while len(active) >= TRANSCRIBE_WORKER_CONCURRENCY:
+                done, pending = await asyncio.wait(
+                    active,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                active = set(pending)
+                for completed in done:
+                    completed.result()
+            task = await transcribe_queue.get()
+            active.add(asyncio.create_task(run_task(task)))
+    finally:
+        for running in active:
+            running.cancel()
+        if active:
+            await asyncio.gather(*active, return_exceptions=True)
 
 
 async def transcribe_cleanup_worker() -> None:

@@ -22,6 +22,15 @@ WHISPER_MODEL_NAME=turbo
 # WHISPER_MODEL_NAME=large-v3
 ```
 
+`start_audioio.sh` 啟動時會先把指定的 faster-whisper 模型快取到 `HF_HOME`；模型
+已存在時不會重新下載。若部署環境必須完全離線，可設定：
+
+```dotenv
+HF_HOME=/vault/cache/huggingface
+WHISPER_MODEL_NAME=turbo
+WHISPER_MODEL_DOWNLOAD=0
+```
+
 Groq Whisper adapter 目前保留供日後 A/B 測試，但三個正式方案都使用本機
 faster-whisper，因此 Aimarumaru 不需要為 ASR 設定 `GROQ_API_KEY`。若日後重新啟用
 Groq ASR，可使用：
@@ -78,10 +87,26 @@ API 只輸出遙測，不輸出影片網址、字幕內容、翻譯權杖或 API
 ```dotenv
 YOUTUBE_WHISPER_STREAM_QUEUE_SIZE=2
 YOUTUBE_WHISPER_STREAM_PREFETCH_CHUNKS=2
+TRANSCRIBE_WORKER_CONCURRENCY=2
 ```
 
 `PREFETCH_CHUNKS` 不會超過 queue size。若更重視第一段字幕延遲，可設為 `1`；若
 Dashboard 的「音訊等待」仍經常大於零，可同時提高兩個值。
+
+### 公平轉錄排程
+
+轉錄佇列預設允許兩個工作同時進入處理，但本機 Whisper 的 GPU 推論由公平排程器
+逐 chunk 輪轉。每個 chunk 預設約 30 秒；長影片完成一個 chunk 後會讓出 GPU，下一個
+工作即可取得一個 chunk 的機會，避免長影片獨佔整個佇列。字幕翻譯的語意 group 不會
+被 30 秒切塊限制，group 仍可跨 chunk 合併。
+
+```dotenv
+# 同時執行的轉錄工作數；1 會退回舊的單工作模式
+TRANSCRIBE_WORKER_CONCURRENCY=2
+```
+
+Dashboard 與 `audioio-access*.jsonl` 會記錄 `scheduler_wait_ms`，可用來確認工作是否
+真的交錯取得 Whisper turn；`input_wait_ms` 則仍代表 FFmpeg 音訊供料等待時間。
 
 ### English/Japanese/Korean ASR A/B benchmark
 

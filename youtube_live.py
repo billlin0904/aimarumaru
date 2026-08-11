@@ -40,6 +40,7 @@ from transcribe_queue import (
     TranscriptionCancelled,
     cancel_queued_transcribe_task,
     enqueue_transcribe_task,
+    fair_transcription_scheduler,
     get_transcribe_queue_counts,
     register_transcribe_cleanup,
     register_transcribe_handler,
@@ -720,6 +721,7 @@ def transcribe_audio_stream(
     processed_seconds = 0.0
     last_emitted_start = 0.0
     content_parts: list[str] = []
+    fair_scheduler_enabled = asr_provider == "local" and bool(job_id)
     logger.info(
         "Whisper transcription started: job_id=%s asr_provider=%s "
         "asr_model=%s transcription_mode=%s "
@@ -768,6 +770,17 @@ def transcribe_audio_stream(
                 )
                 if cancel_check is not None and cancel_check():
                     raise TranscriptionCancelled("轉譯已取消")
+                scheduler_wait_ms = 0.0
+                scheduler_turn_acquired = False
+                if fair_scheduler_enabled:
+                    scheduler_wait_ms = round(
+                        fair_transcription_scheduler.acquire(
+                            str(job_id),
+                            cancel_check,
+                        ),
+                        3,
+                    )
+                    scheduler_turn_acquired = True
                 chunk_started_at = time.perf_counter()
                 inference_elapsed_seconds = 0.0
                 event_emit_elapsed_seconds = 0.0
@@ -971,6 +984,7 @@ def transcribe_audio_stream(
                     "progress_percent": round(progress_percent, 3),
                     "chunk_elapsed_ms": chunk_elapsed_ms,
                     "input_wait_ms": input_wait_ms,
+                    "scheduler_wait_ms": scheduler_wait_ms,
                     "inference_ms": round(inference_elapsed_seconds * 1000, 3),
                     "event_emit_ms": round(event_emit_elapsed_seconds * 1000, 3),
                     "decoded_segments": decoded_segment_count - decoded_before_chunk,
@@ -987,6 +1001,11 @@ def transcribe_audio_stream(
                     asr_provider=asr_provider,
                     **chunk_metrics,
                 )
+                if scheduler_turn_acquired:
+                    fair_transcription_scheduler.release(
+                        str(job_id),
+                        completed=chunk.is_final,
+                    )
 
         if chunk_count == 0:
             raise RuntimeError("媒體檔案沒有可轉譯的音軌")
@@ -1044,6 +1063,8 @@ def transcribe_audio_stream(
         )
         raise
     finally:
+        if fair_scheduler_enabled:
+            fair_transcription_scheduler.abort(str(job_id))
         if asr_provider == "local":
             auto2lrc.clear_model_cache()
 
@@ -1089,11 +1110,24 @@ def detect_audio_language(
                 language=None,
             )
         else:
-            segments, info = auto2lrc.transcribe(
-                audio_samples,
-                beam_size=5,
-                language=None,
-            )
+            scheduler_turn_acquired = False
+            try:
+                if job_id:
+                    fair_transcription_scheduler.acquire(str(job_id), cancel_check)
+                    scheduler_turn_acquired = True
+                segments, info = auto2lrc.transcribe(
+                    audio_samples,
+                    beam_size=5,
+                    language=None,
+                )
+            finally:
+                if scheduler_turn_acquired:
+                    fair_transcription_scheduler.release(
+                        str(job_id),
+                        completed=True,
+                    )
+                elif job_id:
+                    fair_transcription_scheduler.abort(str(job_id))
         del segments
         if cancel_check is not None and cancel_check():
             raise TranscriptionCancelled("轉譯已取消")

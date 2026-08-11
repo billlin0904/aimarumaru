@@ -13,6 +13,8 @@ INSTALLER_REVISION="2"
 
 export HF_HOME="${HF_HOME:-/vault/cache/huggingface}"
 export XDG_CACHE_HOME="${XDG_CACHE_HOME:-/vault/cache}"
+export WHISPER_MODEL_NAME="${WHISPER_MODEL_NAME:-turbo}"
+export WHISPER_MODEL_DOWNLOAD="${WHISPER_MODEL_DOWNLOAD:-1}"
 export AUDIOIO_LOG_TIMEZONE="${AUDIOIO_LOG_TIMEZONE:-Asia/Taipei}"
 export AUDIOIO_LOG_LEVEL="${AUDIOIO_LOG_LEVEL:-INFO}"
 export PYTHONUNBUFFERED=1
@@ -45,6 +47,48 @@ install_ffmpeg() {
     else
         fail "安裝 FFmpeg 需要 root 權限，且目前找不到 sudo。"
     fi
+}
+
+whisper_model_repo() {
+    case "$1" in
+        turbo)
+            printf '%s\n' 'mobiuslabsgmbh/faster-whisper-large-v3-turbo'
+            ;;
+        large-v3)
+            printf '%s\n' 'Systran/faster-whisper-large-v3'
+            ;;
+        large-v2|large-v1|medium|small|base|tiny)
+            printf 'Systran/faster-whisper-%s\n' "$1"
+            ;;
+        distil-large-v3)
+            printf '%s\n' 'Systran/faster-distil-whisper-large-v3'
+            ;;
+        *)
+            # Also allow a Hugging Face repo id or a local model directory.
+            printf '%s\n' "$1"
+            ;;
+    esac
+}
+
+download_whisper_model() {
+    if [[ "${WHISPER_MODEL_DOWNLOAD}" != "1" ]]; then
+        log "略過 Whisper 模型下載（WHISPER_MODEL_DOWNLOAD=${WHISPER_MODEL_DOWNLOAD}）"
+        return
+    fi
+
+    if [[ -d "${WHISPER_MODEL_NAME}" ]]; then
+        log "使用本機 Whisper 模型：${WHISPER_MODEL_NAME}"
+        return
+    fi
+
+    MODEL_REPO="$(whisper_model_repo "${WHISPER_MODEL_NAME}")"
+    log "確認 Whisper 模型快取：${MODEL_REPO}（HF_HOME=${HF_HOME}）"
+    "${VENV_DIR}/bin/python" - "${MODEL_REPO}" "${HF_HOME}" <<'PY'
+from huggingface_hub import snapshot_download
+import sys
+
+snapshot_download(repo_id=sys.argv[1], cache_dir=sys.argv[2])
+PY
 }
 
 command -v "${PYTHON_BIN}" >/dev/null 2>&1 \
@@ -95,6 +139,8 @@ fi
 
 install_ffmpeg
 
+download_whisper_model
+
 for binary in ffmpeg ffprobe; do
     command -v "${binary}" >/dev/null 2>&1 \
         || fail "FFmpeg 安裝完成後仍找不到 ${binary}。"
@@ -108,6 +154,7 @@ FFMPEG_VERSION="${FFMPEG_VERSION%%$'\n'*}"
 log "Python：$(python --version 2>&1)"
 log "FFmpeg：${FFMPEG_VERSION}"
 log "模型快取：${HF_HOME}"
+log "Whisper 模型：${WHISPER_MODEL_NAME}"
 log "啟動 Audio IO：http://${HOST}:${PORT}"
 
 if [[ -f "${PID_FILE}" ]]; then
