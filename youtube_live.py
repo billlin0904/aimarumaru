@@ -144,6 +144,27 @@ def dashboard_percentile(values: list[float], percentile: float) -> float | None
     return round(ordered[rank], 3)
 
 
+_DASHBOARD_STATUS_PRIORITY = {
+    "running": 4,
+    "queued_for_transcription": 3,
+    "awaiting_language_confirmation": 2,
+    "queued": 2,
+    "failed": 1,
+    "cancelled": 0,
+    "done": 0,
+}
+
+
+def dashboard_job_sort_key(item: tuple[str, dict[str, Any]]) -> tuple[int, float]:
+    """Prioritize active jobs while keeping newest jobs first per state."""
+    _job_id, job = item
+    status = str(job.get("status") or "").strip().lower()
+    return (
+        _DASHBOARD_STATUS_PRIORITY.get(status, 0),
+        float(job.get("created_at") or 0.0),
+    )
+
+
 def dashboard_request_authorized(
     configured_token: str,
     authorization: str,
@@ -2016,7 +2037,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         queue_counts = get_transcribe_queue_counts()
         sorted_jobs = sorted(
             jobs.items(),
-            key=lambda item: float(item[1].get("created_at") or 0.0),
+            key=dashboard_job_sort_key,
             reverse=True,
         )[:AUDIOIO_DASHBOARD_JOB_LIMIT]
         job_payloads = [
