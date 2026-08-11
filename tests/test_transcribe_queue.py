@@ -85,6 +85,28 @@ class TranscribeQueueConcurrencyTests(unittest.IsolatedAsyncioTestCase):
             release.set()
             await stop_transcribe_queue()
 
+    async def test_failed_job_does_not_stop_queue_worker(self) -> None:
+        completed: list[str] = []
+
+        async def handler(task: dict) -> None:
+            if task["id"] == "failed":
+                raise RuntimeError("expected test failure")
+            completed.append(str(task["id"]))
+
+        kind = "test-failure-does-not-stop-worker"
+        register_transcribe_handler(kind, handler)
+        await start_transcribe_queue(max_size=4)
+        try:
+            enqueue_transcribe_task({"kind": kind, "id": "failed"})
+            enqueue_transcribe_task({"kind": kind, "id": "next"})
+            assert queue_module.transcribe_queue is not None
+            await asyncio.wait_for(queue_module.transcribe_queue.join(), timeout=1.0)
+            self.assertEqual(completed, ["next"])
+            self.assertIsNotNone(queue_module.transcribe_worker_task)
+            self.assertFalse(queue_module.transcribe_worker_task.done())
+        finally:
+            await stop_transcribe_queue()
+
 
 if __name__ == "__main__":
     unittest.main()

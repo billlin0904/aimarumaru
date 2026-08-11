@@ -16,10 +16,10 @@ TRANSCRIBE_QUEUE_MAX_SIZE = 100
 TRANSCRIBE_CLEANUP_INTERVAL_SECONDS = 300
 try:
     TRANSCRIBE_WORKER_CONCURRENCY = max(
-        1, int(os.getenv("TRANSCRIBE_WORKER_CONCURRENCY", "2"))
+        1, int(os.getenv("TRANSCRIBE_WORKER_CONCURRENCY", "10"))
     )
 except ValueError:
-    TRANSCRIBE_WORKER_CONCURRENCY = 2
+    TRANSCRIBE_WORKER_CONCURRENCY = 10
 
 TranscribeTask = dict[str, Any]
 TranscribeTaskHandler = Callable[[TranscribeTask], Awaitable[None] | None]
@@ -176,6 +176,11 @@ async def start_transcribe_queue(max_size: int = TRANSCRIBE_QUEUE_MAX_SIZE) -> N
     transcribe_queue = asyncio.Queue(maxsize=max_size)
     transcribe_worker_task = asyncio.create_task(transcribe_queue_worker())
     transcribe_cleanup_task = asyncio.create_task(transcribe_cleanup_worker())
+    logger.info(
+        "Transcribe queue started: max_size=%d worker_concurrency=%d",
+        max_size,
+        TRANSCRIBE_WORKER_CONCURRENCY,
+    )
 
 
 async def stop_transcribe_queue() -> None:
@@ -236,7 +241,15 @@ async def transcribe_queue_worker() -> None:
                 )
                 active = set(pending)
                 for completed in done:
-                    completed.result()
+                    try:
+                        completed.result()
+                    except asyncio.CancelledError:
+                        logger.warning("Transcribe task runner was cancelled")
+                    except Exception:
+                        # A handler failure must never terminate the queue
+                        # worker; its job has already been marked failed by
+                        # the handler owner and task_done() ran in finally.
+                        logger.exception("Transcribe task runner failed")
             task = await transcribe_queue.get()
             active.add(asyncio.create_task(run_task(task)))
     finally:

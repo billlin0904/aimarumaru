@@ -87,7 +87,7 @@ API 只輸出遙測，不輸出影片網址、字幕內容、翻譯權杖或 API
 ```dotenv
 YOUTUBE_WHISPER_STREAM_QUEUE_SIZE=2
 YOUTUBE_WHISPER_STREAM_PREFETCH_CHUNKS=2
-TRANSCRIBE_WORKER_CONCURRENCY=2
+TRANSCRIBE_WORKER_CONCURRENCY=10
 ```
 
 `PREFETCH_CHUNKS` 不會超過 queue size。若更重視第一段字幕延遲，可設為 `1`；若
@@ -102,7 +102,7 @@ Dashboard 的「音訊等待」仍經常大於零，可同時提高兩個值。
 
 ```dotenv
 # 同時執行的轉錄工作數；1 會退回舊的單工作模式
-TRANSCRIBE_WORKER_CONCURRENCY=2
+TRANSCRIBE_WORKER_CONCURRENCY=10
 ```
 
 Dashboard 與 `audioio-access*.jsonl` 會記錄 `scheduler_wait_ms`，可用來確認工作是否
