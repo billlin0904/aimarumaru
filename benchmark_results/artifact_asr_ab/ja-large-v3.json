@@ -1,0 +1,1011 @@
+{
+  "summary": {
+    "language": "ja",
+    "language_probability": 1,
+    "segments_count": 13,
+    "content": "ダ\nめくじが思ったより大きくて\nビヨーンと伸びたんで\n私は怖いシーンとか見ると笑っちゃう癖が\n悪い癖があって\nそうですね私もホラーマンが描いてるんで\nできれば心理的な怖さみたいなものを\n絵がそっち\n方を重点的に描きたいんですけど\n気持ちの悪い方向に行ってしまう癖がありまして\n自分の生活している中で\nなめくじもそうですけど\nムカデとかそういう気持ちが",
+    "audio_duration_seconds": 60.0,
+    "transcription_elapsed_seconds": 2.723,
+    "processing_speed_x": 22.031,
+    "transcription_mode": "accurate",
+    "beam_size": 5,
+    "asr_provider": "local",
+    "asr_model": "large-v3"
+  },
+  "segments": [
+    {
+      "index": 1,
+      "start": 3.95,
+      "end": 6.75,
+      "text": "ダ",
+      "language": "ja",
+      "words": [
+        {
+          "word": "ダ",
+          "start": 3.95,
+          "end": 6.75,
+          "probability": 0.264648
+        }
+      ],
+      "progress_percent": 11.25,
+      "elapsed_seconds": 0.469,
+      "processing_speed_x": 14.403,
+      "estimated_remaining_seconds": null,
+      "estimated_completion_at": null
+    },
+    {
+      "index": 2,
+      "start": 13.78,
+      "end": 17.0,
+      "text": "めくじが思ったより大きくて",
+      "language": "ja",
+      "words": [
+        {
+          "word": "め",
+          "start": 13.78,
+          "end": 14.66,
+          "probability": 0.991211
+        },
+        {
+          "word": "く",
+          "start": 14.66,
+          "end": 14.8,
+          "probability": 0.972168
+        },
+        {
+          "word": "じ",
+          "start": 14.8,
+          "end": 15.2,
+          "probability": 0.991211
+        },
+        {
+          "word": "が",
+          "start": 15.2,
+          "end": 15.42,
+          "probability": 0.907715
+        },
+        {
+          "word": "思",
+          "start": 15.42,
+          "end": 16.16,
+          "probability": 0.717285
+        },
+        {
+          "word": "った",
+          "start": 16.16,
+          "end": 16.36,
+          "probability": 0.971191
+        },
+        {
+          "word": "よ",
+          "start": 16.36,
+          "end": 16.44,
+          "probability": 0.995117
+        },
+        {
+          "word": "り",
+          "start": 16.44,
+          "end": 16.56,
+          "probability": 1.0
+        },
+        {
+          "word": "大",
+          "start": 16.56,
+          "end": 16.68,
+          "probability": 0.964844
+        },
+        {
+          "word": "き",
+          "start": 16.68,
+          "end": 16.78,
+          "probability": 0.999512
+        },
+        {
+          "word": "く",
+          "start": 16.78,
+          "end": 16.84,
+          "probability": 0.966797
+        },
+        {
+          "word": "て",
+          "start": 16.84,
+          "end": 17.0,
+          "probability": 0.990234
+        }
+      ],
+      "progress_percent": 28.33,
+      "elapsed_seconds": 1.627,
+      "processing_speed_x": 10.447,
+      "estimated_remaining_seconds": null,
+      "estimated_completion_at": null
+    },
+    {
+      "index": 3,
+      "start": 19.68,
+      "end": 21.02,
+      "text": "ビヨーンと伸びたんで",
+      "language": "ja",
+      "words": [
+        {
+          "word": "ビ",
+          "start": 19.68,
+          "end": 20.06,
+          "probability": 0.500488
+        },
+        {
+          "word": "ヨ",
+          "start": 20.06,
+          "end": 20.24,
+          "probability": 0.981689
+        },
+        {
+          "word": "ーン",
+          "start": 20.24,
+          "end": 20.34,
+          "probability": 0.942383
+        },
+        {
+          "word": "と",
+          "start": 20.34,
+          "end": 20.4,
+          "probability": 0.992188
+        },
+        {
+          "word": "伸",
+          "start": 20.4,
+          "end": 20.6,
+          "probability": 0.965576
+        },
+        {
+          "word": "び",
+          "start": 20.6,
+          "end": 20.7,
+          "probability": 0.999512
+        },
+        {
+          "word": "た",
+          "start": 20.7,
+          "end": 20.78,
+          "probability": 0.668457
+        },
+        {
+          "word": "んで",
+          "start": 20.78,
+          "end": 21.02,
+          "probability": 0.745605
+        }
+      ],
+      "progress_percent": 35.03,
+      "elapsed_seconds": 1.628,
+      "processing_speed_x": 12.914,
+      "estimated_remaining_seconds": null,
+      "estimated_completion_at": null
+    },
+    {
+      "index": 4,
+      "start": 22.72,
+      "end": 27.02,
+      "text": "私は怖いシーンとか見ると笑っちゃう癖が",
+      "language": "ja",
+      "words": [
+        {
+          "word": "私",
+          "start": 22.72,
+          "end": 23.1,
+          "probability": 0.883301
+        },
+        {
+          "word": "は",
+          "start": 23.1,
+          "end": 23.38,
+          "probability": 0.602051
+        },
+        {
+          "word": "怖",
+          "start": 23.38,
+          "end": 23.96,
+          "probability": 0.975586
+        },
+        {
+          "word": "い",
+          "start": 23.96,
+          "end": 25.06,
+          "probability": 0.999512
+        },
+        {
+          "word": "シ",
+          "start": 25.06,
+          "end": 25.1,
+          "probability": 0.997559
+        },
+        {
+          "word": "ーン",
+          "start": 25.1,
+          "end": 25.32,
+          "probability": 0.99707
+        },
+        {
+          "word": "とか",
+          "start": 25.32,
+          "end": 25.48,
+          "probability": 0.961426
+        },
+        {
+          "word": "見",
+          "start": 25.48,
+          "end": 25.62,
+          "probability": 0.833496
+        },
+        {
+          "word": "る",
+          "start": 25.62,
+          "end": 25.76,
+          "probability": 0.999512
+        },
+        {
+          "word": "と",
+          "start": 25.76,
+          "end": 25.84,
+          "probability": 0.991699
+        },
+        {
+          "word": "笑",
+          "start": 25.84,
+          "end": 26.06,
+          "probability": 0.873047
+        },
+        {
+          "word": "っちゃ",
+          "start": 26.06,
+          "end": 26.48,
+          "probability": 0.998047
+        },
+        {
+          "word": "う",
+          "start": 26.48,
+          "end": 26.66,
+          "probability": 0.999023
+        },
+        {
+          "word": "癖",
+          "start": 26.66,
+          "end": 26.84,
+          "probability": 0.962402
+        },
+        {
+          "word": "が",
+          "start": 26.84,
+          "end": 27.02,
+          "probability": 0.998535
+        }
+      ],
+      "progress_percent": 45.03,
+      "elapsed_seconds": 1.628,
+      "processing_speed_x": 16.597,
+      "estimated_remaining_seconds": null,
+      "estimated_completion_at": null
+    },
+    {
+      "index": 5,
+      "start": 27.68,
+      "end": 28.68,
+      "text": "悪い癖があって",
+      "language": "ja",
+      "words": [
+        {
+          "word": "悪",
+          "start": 27.68,
+          "end": 28.06,
+          "probability": 0.841797
+        },
+        {
+          "word": "い",
+          "start": 28.06,
+          "end": 28.14,
+          "probability": 0.990723
+        },
+        {
+          "word": "癖",
+          "start": 28.14,
+          "end": 28.3,
+          "probability": 0.999268
+        },
+        {
+          "word": "が",
+          "start": 28.3,
+          "end": 28.48,
+          "probability": 0.999512
+        },
+        {
+          "word": "あ",
+          "start": 28.48,
+          "end": 28.52,
+          "probability": 0.996582
+        },
+        {
+          "word": "って",
+          "start": 28.52,
+          "end": 28.68,
+          "probability": 1.0
+        }
+      ],
+      "progress_percent": 47.8,
+      "elapsed_seconds": 1.628,
+      "processing_speed_x": 17.614,
+      "estimated_remaining_seconds": null,
+      "estimated_completion_at": null
+    },
+    {
+      "index": 6,
+      "start": 33.620000000000005,
+      "end": 36.42,
+      "text": "そうですね私もホラーマンが描いてるんで",
+      "language": "ja",
+      "words": [
+        {
+          "word": "そうですね",
+          "start": 33.62,
+          "end": 34.0,
+          "probability": 0.854492
+        },
+        {
+          "word": "私",
+          "start": 34.0,
+          "end": 34.38,
+          "probability": 0.595215
+        },
+        {
+          "word": "も",
+          "start": 34.38,
+          "end": 34.68,
+          "probability": 0.998535
+        },
+        {
+          "word": "ホ",
+          "start": 34.68,
+          "end": 35.24,
+          "probability": 0.954102
+        },
+        {
+          "word": "ラ",
+          "start": 35.24,
+          "end": 35.48,
+          "probability": 0.999023
+        },
+        {
+          "word": "ー",
+          "start": 35.48,
+          "end": 35.54,
+          "probability": 0.999023
+        },
+        {
+          "word": "マ",
+          "start": 35.54,
+          "end": 35.541,
+          "probability": 0.818359
+        },
+        {
+          "word": "ン",
+          "start": 35.54,
+          "end": 35.66,
+          "probability": 0.99707
+        },
+        {
+          "word": "が",
+          "start": 35.66,
+          "end": 35.7,
+          "probability": 0.824219
+        },
+        {
+          "word": "描",
+          "start": 35.7,
+          "end": 35.98,
+          "probability": 0.980957
+        },
+        {
+          "word": "いて",
+          "start": 35.98,
+          "end": 36.1,
+          "probability": 1.0
+        },
+        {
+          "word": "る",
+          "start": 36.1,
+          "end": 36.2,
+          "probability": 0.522949
+        },
+        {
+          "word": "んで",
+          "start": 36.2,
+          "end": 36.42,
+          "probability": 0.960449
+        }
+      ],
+      "progress_percent": 60.7,
+      "elapsed_seconds": 1.629,
+      "processing_speed_x": 22.363,
+      "estimated_remaining_seconds": null,
+      "estimated_completion_at": null
+    },
+    {
+      "index": 7,
+      "start": 36.94,
+      "end": 40.1,
+      "text": "できれば心理的な怖さみたいなものを",
+      "language": "ja",
+      "words": [
+        {
+          "word": "でき",
+          "start": 36.94,
+          "end": 37.32,
+          "probability": 0.970215
+        },
+        {
+          "word": "れ",
+          "start": 37.32,
+          "end": 37.38,
+          "probability": 0.999512
+        },
+        {
+          "word": "ば",
+          "start": 37.38,
+          "end": 37.56,
+          "probability": 1.0
+        },
+        {
+          "word": "心",
+          "start": 37.56,
+          "end": 37.98,
+          "probability": 0.97998
+        },
+        {
+          "word": "理",
+          "start": 37.98,
+          "end": 38.32,
+          "probability": 1.0
+        },
+        {
+          "word": "的",
+          "start": 38.32,
+          "end": 38.52,
+          "probability": 1.0
+        },
+        {
+          "word": "な",
+          "start": 38.52,
+          "end": 38.76,
+          "probability": 0.999512
+        },
+        {
+          "word": "怖",
+          "start": 38.76,
+          "end": 39.0,
+          "probability": 0.994629
+        },
+        {
+          "word": "さ",
+          "start": 39.0,
+          "end": 39.28,
+          "probability": 1.0
+        },
+        {
+          "word": "みたい",
+          "start": 39.28,
+          "end": 39.48,
+          "probability": 0.997559
+        },
+        {
+          "word": "な",
+          "start": 39.48,
+          "end": 39.72,
+          "probability": 0.998535
+        },
+        {
+          "word": "もの",
+          "start": 39.72,
+          "end": 39.94,
+          "probability": 0.993652
+        },
+        {
+          "word": "を",
+          "start": 39.94,
+          "end": 40.1,
+          "probability": 0.96875
+        }
+      ],
+      "progress_percent": 66.83,
+      "elapsed_seconds": 1.629,
+      "processing_speed_x": 24.619,
+      "estimated_remaining_seconds": null,
+      "estimated_completion_at": null
+    },
+    {
+      "index": 8,
+      "start": 40.6,
+      "end": 41.96,
+      "text": "絵がそっち",
+      "language": "ja",
+      "words": [
+        {
+          "word": "絵",
+          "start": 40.6,
+          "end": 40.98,
+          "probability": 0.721436
+        },
+        {
+          "word": "が",
+          "start": 40.98,
+          "end": 41.06,
+          "probability": 0.760742
+        },
+        {
+          "word": "そ",
+          "start": 41.06,
+          "end": 41.78,
+          "probability": 0.911133
+        },
+        {
+          "word": "っち",
+          "start": 41.78,
+          "end": 41.96,
+          "probability": 1.0
+        }
+      ],
+      "progress_percent": 69.93,
+      "elapsed_seconds": 1.629,
+      "processing_speed_x": 25.757,
+      "estimated_remaining_seconds": null,
+      "estimated_completion_at": null
+    },
+    {
+      "index": 9,
+      "start": 42.04,
+      "end": 44.22,
+      "text": "方を重点的に描きたいんですけど",
+      "language": "ja",
+      "words": [
+        {
+          "word": "方",
+          "start": 42.04,
+          "end": 42.18,
+          "probability": 0.746094
+        },
+        {
+          "word": "を",
+          "start": 42.18,
+          "end": 42.36,
+          "probability": 0.901367
+        },
+        {
+          "word": "重",
+          "start": 42.36,
+          "end": 42.78,
+          "probability": 0.947266
+        },
+        {
+          "word": "点",
+          "start": 42.78,
+          "end": 43.04,
+          "probability": 0.999023
+        },
+        {
+          "word": "的",
+          "start": 43.04,
+          "end": 43.2,
+          "probability": 0.995117
+        },
+        {
+          "word": "に",
+          "start": 43.2,
+          "end": 43.36,
+          "probability": 0.994629
+        },
+        {
+          "word": "描",
+          "start": 43.36,
+          "end": 43.54,
+          "probability": 0.924316
+        },
+        {
+          "word": "き",
+          "start": 43.54,
+          "end": 43.64,
+          "probability": 0.990234
+        },
+        {
+          "word": "たい",
+          "start": 43.64,
+          "end": 43.76,
+          "probability": 0.999512
+        },
+        {
+          "word": "んです",
+          "start": 43.76,
+          "end": 43.92,
+          "probability": 0.946777
+        },
+        {
+          "word": "けど",
+          "start": 43.92,
+          "end": 44.22,
+          "probability": 0.959473
+        }
+      ],
+      "progress_percent": 73.7,
+      "elapsed_seconds": 2.721,
+      "processing_speed_x": 16.249,
+      "estimated_remaining_seconds": null,
+      "estimated_completion_at": null
+    },
+    {
+      "index": 10,
+      "start": 45.12,
+      "end": 50.68,
+      "text": "気持ちの悪い方向に行ってしまう癖がありまして",
+      "language": "ja",
+      "words": [
+        {
+          "word": "気",
+          "start": 45.12,
+          "end": 45.52,
+          "probability": 0.479248
+        },
+        {
+          "word": "持",
+          "start": 45.52,
+          "end": 45.92,
+          "probability": 0.999023
+        },
+        {
+          "word": "ち",
+          "start": 45.92,
+          "end": 46.08,
+          "probability": 1.0
+        },
+        {
+          "word": "の",
+          "start": 46.08,
+          "end": 46.12,
+          "probability": 0.998047
+        },
+        {
+          "word": "悪",
+          "start": 46.12,
+          "end": 46.36,
+          "probability": 0.999268
+        },
+        {
+          "word": "い",
+          "start": 46.36,
+          "end": 46.44,
+          "probability": 0.999512
+        },
+        {
+          "word": "方",
+          "start": 46.44,
+          "end": 46.58,
+          "probability": 0.996094
+        },
+        {
+          "word": "向",
+          "start": 46.58,
+          "end": 46.86,
+          "probability": 0.992676
+        },
+        {
+          "word": "に",
+          "start": 46.86,
+          "end": 47.48,
+          "probability": 0.986816
+        },
+        {
+          "word": "行",
+          "start": 47.48,
+          "end": 47.8,
+          "probability": 0.461914
+        },
+        {
+          "word": "って",
+          "start": 47.8,
+          "end": 48.76,
+          "probability": 0.999512
+        },
+        {
+          "word": "しま",
+          "start": 48.76,
+          "end": 48.94,
+          "probability": 0.999512
+        },
+        {
+          "word": "う",
+          "start": 48.94,
+          "end": 49.16,
+          "probability": 1.0
+        },
+        {
+          "word": "癖",
+          "start": 49.16,
+          "end": 50.08,
+          "probability": 0.969482
+        },
+        {
+          "word": "が",
+          "start": 50.08,
+          "end": 50.22,
+          "probability": 0.999023
+        },
+        {
+          "word": "あり",
+          "start": 50.22,
+          "end": 50.38,
+          "probability": 0.995117
+        },
+        {
+          "word": "ま",
+          "start": 50.38,
+          "end": 50.48,
+          "probability": 0.999023
+        },
+        {
+          "word": "して",
+          "start": 50.48,
+          "end": 50.68,
+          "probability": 1.0
+        }
+      ],
+      "progress_percent": 84.47,
+      "elapsed_seconds": 2.722,
+      "processing_speed_x": 18.617,
+      "estimated_remaining_seconds": null,
+      "estimated_completion_at": null
+    },
+    {
+      "index": 11,
+      "start": 51.44,
+      "end": 53.86,
+      "text": "自分の生活している中で",
+      "language": "ja",
+      "words": [
+        {
+          "word": "自",
+          "start": 51.44,
+          "end": 51.84,
+          "probability": 0.921875
+        },
+        {
+          "word": "分",
+          "start": 51.84,
+          "end": 52.14,
+          "probability": 1.0
+        },
+        {
+          "word": "の",
+          "start": 52.14,
+          "end": 52.28,
+          "probability": 0.98291
+        },
+        {
+          "word": "生活",
+          "start": 52.28,
+          "end": 52.76,
+          "probability": 0.999512
+        },
+        {
+          "word": "して",
+          "start": 52.76,
+          "end": 53.02,
+          "probability": 0.977051
+        },
+        {
+          "word": "いる",
+          "start": 53.02,
+          "end": 53.24,
+          "probability": 0.987305
+        },
+        {
+          "word": "中",
+          "start": 53.24,
+          "end": 53.48,
+          "probability": 0.994629
+        },
+        {
+          "word": "で",
+          "start": 53.48,
+          "end": 53.86,
+          "probability": 0.999512
+        }
+      ],
+      "progress_percent": 89.77,
+      "elapsed_seconds": 2.722,
+      "processing_speed_x": 19.784,
+      "estimated_remaining_seconds": null,
+      "estimated_completion_at": null
+    },
+    {
+      "index": 12,
+      "start": 55.6,
+      "end": 57.36,
+      "text": "なめくじもそうですけど",
+      "language": "ja",
+      "words": [
+        {
+          "word": "な",
+          "start": 55.6,
+          "end": 56.0,
+          "probability": 0.902344
+        },
+        {
+          "word": "め",
+          "start": 56.0,
+          "end": 56.4,
+          "probability": 0.998047
+        },
+        {
+          "word": "く",
+          "start": 56.4,
+          "end": 56.52,
+          "probability": 0.999023
+        },
+        {
+          "word": "じ",
+          "start": 56.52,
+          "end": 56.64,
+          "probability": 0.998535
+        },
+        {
+          "word": "も",
+          "start": 56.64,
+          "end": 56.76,
+          "probability": 0.998047
+        },
+        {
+          "word": "そう",
+          "start": 56.76,
+          "end": 56.96,
+          "probability": 0.998535
+        },
+        {
+          "word": "です",
+          "start": 56.96,
+          "end": 57.1,
+          "probability": 0.999512
+        },
+        {
+          "word": "けど",
+          "start": 57.1,
+          "end": 57.36,
+          "probability": 0.998047
+        }
+      ],
+      "progress_percent": 95.6,
+      "elapsed_seconds": 2.723,
+      "processing_speed_x": 21.067,
+      "estimated_remaining_seconds": null,
+      "estimated_completion_at": null
+    },
+    {
+      "index": 13,
+      "start": 57.94,
+      "end": 59.980000000000004,
+      "text": "ムカデとかそういう気持ちが",
+      "language": "ja",
+      "words": [
+        {
+          "word": "ム",
+          "start": 57.94,
+          "end": 58.34,
+          "probability": 0.510742
+        },
+        {
+          "word": "カ",
+          "start": 58.34,
+          "end": 58.72,
+          "probability": 0.998535
+        },
+        {
+          "word": "デ",
+          "start": 58.72,
+          "end": 58.84,
+          "probability": 0.958008
+        },
+        {
+          "word": "とか",
+          "start": 58.84,
+          "end": 59.04,
+          "probability": 0.997559
+        },
+        {
+          "word": "そう",
+          "start": 59.04,
+          "end": 59.4,
+          "probability": 0.981445
+        },
+        {
+          "word": "いう",
+          "start": 59.4,
+          "end": 59.56,
+          "probability": 0.999512
+        },
+        {
+          "word": "気",
+          "start": 59.56,
+          "end": 59.66,
+          "probability": 0.996582
+        },
+        {
+          "word": "持",
+          "start": 59.66,
+          "end": 59.84,
+          "probability": 1.0
+        },
+        {
+          "word": "ち",
+          "start": 59.84,
+          "end": 59.98,
+          "probability": 0.893066
+        },
+        {
+          "word": "が",
+          "start": 59.98,
+          "end": 59.981,
+          "probability": 0.77832
+        }
+      ],
+      "progress_percent": 99.97,
+      "elapsed_seconds": 2.723,
+      "processing_speed_x": 22.028,
+      "estimated_remaining_seconds": null,
+      "estimated_completion_at": null
+    }
+  ],
+  "chunks": [
+    {
+      "chunk_index": 1,
+      "offset_seconds": 0.0,
+      "duration_seconds": 15.0,
+      "processed_seconds": 14.0,
+      "progress_percent": 23.333,
+      "chunk_elapsed_ms": 199.656,
+      "input_wait_ms": 134.805,
+      "inference_ms": 199.033,
+      "event_emit_ms": 0.419,
+      "decoded_segments": 1,
+      "emitted_in_chunk": 1,
+      "segments_emitted": 1,
+      "processing_speed_x": 29.843,
+      "is_final": false
+    },
+    {
+      "chunk_index": 2,
+      "offset_seconds": 13.0,
+      "duration_seconds": 30.0,
+      "processed_seconds": 42.0,
+      "progress_percent": 70.0,
+      "chunk_elapsed_ms": 1352.211,
+      "input_wait_ms": 0.001,
+      "inference_ms": 1349.912,
+      "event_emit_ms": 1.503,
+      "decoded_segments": 7,
+      "emitted_in_chunk": 7,
+      "segments_emitted": 8,
+      "processing_speed_x": 23.059,
+      "is_final": false
+    },
+    {
+      "chunk_index": 3,
+      "offset_seconds": 41.0,
+      "duration_seconds": 19.0,
+      "processed_seconds": 60.0,
+      "progress_percent": 100.0,
+      "chunk_elapsed_ms": 901.764,
+      "input_wait_ms": 0.014,
+      "inference_ms": 899.749,
+      "event_emit_ms": 1.224,
+      "decoded_segments": 5,
+      "emitted_in_chunk": 5,
+      "segments_emitted": 13,
+      "processing_speed_x": 22.032,
+      "is_final": true
+    }
+  ]
+}

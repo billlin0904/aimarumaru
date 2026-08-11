@@ -703,6 +703,11 @@ def transcribe_audio_stream(
         else "accurate"
     )
     beam_size = TRANSCRIPTION_MODE_BEAM_SIZES[mode]
+    asr_model = (
+        GROQ_ASR_MODEL
+        if asr_provider == "groq"
+        else str(getattr(auto2lrc, "model_name", "faster-whisper"))
+    )
     audio_duration = max(
         0.0,
         float(audio_duration_hint or probe_media_duration(audio_path) or 0.0),
@@ -725,7 +730,7 @@ def transcribe_audio_stream(
         "overlap_seconds=%.1f pcm_queue_size=%d prefetch_chunks=%d",
         job_id or "unknown",
         asr_provider,
-        GROQ_ASR_MODEL if asr_provider == "groq" else "faster-whisper",
+        asr_model,
         mode,
         beam_size,
         language_hint or "auto",
@@ -1005,7 +1010,7 @@ def transcribe_audio_stream(
             "speed=%s decoded_segments=%d emitted_segments=%d chunks=%d language=%s",
             job_id or "unknown",
             asr_provider,
-            GROQ_ASR_MODEL if asr_provider == "groq" else "faster-whisper",
+            asr_model,
             mode,
             beam_size,
             audio_duration,
@@ -1028,7 +1033,7 @@ def transcribe_audio_stream(
             "transcription_mode": mode,
             "beam_size": beam_size,
             "asr_provider": asr_provider,
-            "asr_model": GROQ_ASR_MODEL if asr_provider == "groq" else "faster-whisper",
+            "asr_model": asr_model,
         }
     except Exception:
         logger.exception(

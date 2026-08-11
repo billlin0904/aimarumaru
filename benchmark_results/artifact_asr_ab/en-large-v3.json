@@ -1,0 +1,1411 @@
+{
+  "summary": {
+    "language": "en",
+    "language_probability": 1,
+    "segments_count": 15,
+    "content": "What are we getting, I don't want to say we, what are the bulls out there getting wrong about AI?\nBecause you've made no secret that you don't see any there there.\nYeah, so I think people are conflating a semiconductor rally with an underlying successful\nsuccessful business, which doesn't really exist.\nAnthropic's current revenue growth, which is deeply questionable,\nand the fact that they leaked profitability, manipulated by Elon Musk, of course,\ntheir growth is coming because people cannot measure how much an AI task actually costs.\nAnd a couple months ago, Anthropic started charging their enterprise customers the actual token rates.\nWhat this has led to is suddenly businesses are going,\noh, how much money are we spending?\nUber's, I think it was Uber's COO, Andrew McDonald, said\nthat they're having trouble justifying the AI spend based on the actual\nreturn that one could actually measure it. So you've got a thing where you can't measure the\ncosts and you can't measure the return on investment. What do you call that? You call\nit a thing without an ROI. Isn't it though safe to say, Ed, like",
+    "audio_duration_seconds": 60.0,
+    "transcription_elapsed_seconds": 4.016,
+    "processing_speed_x": 14.94,
+    "transcription_mode": "accurate",
+    "beam_size": 5,
+    "asr_provider": "local",
+    "asr_model": "large-v3"
+  },
+  "segments": [
+    {
+      "index": 1,
+      "start": 0.0,
+      "end": 4.24,
+      "text": "What are we getting, I don't want to say we, what are the bulls out there getting wrong about AI?",
+      "language": "en",
+      "words": [
+        {
+          "word": " What",
+          "start": 0.0,
+          "end": 0.32,
+          "probability": 0.645996
+        },
+        {
+          "word": " are",
+          "start": 0.32,
+          "end": 0.44,
+          "probability": 0.994629
+        },
+        {
+          "word": " we",
+          "start": 0.44,
+          "end": 0.56,
+          "probability": 0.981445
+        },
+        {
+          "word": " getting,",
+          "start": 0.56,
+          "end": 0.76,
+          "probability": 0.990723
+        },
+        {
+          "word": " I",
+          "start": 0.9,
+          "end": 1.16,
+          "probability": 0.984375
+        },
+        {
+          "word": " don't",
+          "start": 1.16,
+          "end": 1.28,
+          "probability": 0.996582
+        },
+        {
+          "word": " want",
+          "start": 1.28,
+          "end": 1.3,
+          "probability": 0.863281
+        },
+        {
+          "word": " to",
+          "start": 1.3,
+          "end": 1.4,
+          "probability": 0.998047
+        },
+        {
+          "word": " say",
+          "start": 1.4,
+          "end": 1.52,
+          "probability": 0.999023
+        },
+        {
+          "word": " we,",
+          "start": 1.52,
+          "end": 1.72,
+          "probability": 0.743652
+        },
+        {
+          "word": " what",
+          "start": 1.78,
+          "end": 1.96,
+          "probability": 0.974609
+        },
+        {
+          "word": " are",
+          "start": 1.96,
+          "end": 2.24,
+          "probability": 0.967285
+        },
+        {
+          "word": " the",
+          "start": 2.24,
+          "end": 2.42,
+          "probability": 0.998535
+        },
+        {
+          "word": " bulls",
+          "start": 2.42,
+          "end": 2.88,
+          "probability": 0.982666
+        },
+        {
+          "word": " out",
+          "start": 2.88,
+          "end": 2.98,
+          "probability": 0.996094
+        },
+        {
+          "word": " there",
+          "start": 2.98,
+          "end": 3.18,
+          "probability": 0.999512
+        },
+        {
+          "word": " getting",
+          "start": 3.18,
+          "end": 3.36,
+          "probability": 0.995605
+        },
+        {
+          "word": " wrong",
+          "start": 3.36,
+          "end": 3.62,
+          "probability": 0.999512
+        },
+        {
+          "word": " about",
+          "start": 3.62,
+          "end": 3.92,
+          "probability": 0.996582
+        },
+        {
+          "word": " AI?",
+          "start": 3.92,
+          "end": 4.24,
+          "probability": 0.985352
+        }
+      ],
+      "progress_percent": 7.07,
+      "elapsed_seconds": 1.273,
+      "processing_speed_x": 3.332,
+      "estimated_remaining_seconds": null,
+      "estimated_completion_at": null
+    },
+    {
+      "index": 2,
+      "start": 4.4,
+      "end": 8.54,
+      "text": "Because you've made no secret that you don't see any there there.",
+      "language": "en",
+      "words": [
+        {
+          "word": " Because",
+          "start": 4.4,
+          "end": 4.62,
+          "probability": 0.987793
+        },
+        {
+          "word": " you've",
+          "start": 4.62,
+          "end": 5.14,
+          "probability": 0.977051
+        },
+        {
+          "word": " made",
+          "start": 5.14,
+          "end": 5.6,
+          "probability": 0.994141
+        },
+        {
+          "word": " no",
+          "start": 5.6,
+          "end": 5.88,
+          "probability": 0.998535
+        },
+        {
+          "word": " secret",
+          "start": 5.88,
+          "end": 6.34,
+          "probability": 1.0
+        },
+        {
+          "word": " that",
+          "start": 6.34,
+          "end": 7.1,
+          "probability": 0.992188
+        },
+        {
+          "word": " you",
+          "start": 7.1,
+          "end": 7.52,
+          "probability": 0.999023
+        },
+        {
+          "word": " don't",
+          "start": 7.52,
+          "end": 7.78,
+          "probability": 0.999756
+        },
+        {
+          "word": " see",
+          "start": 7.78,
+          "end": 7.92,
+          "probability": 0.999512
+        },
+        {
+          "word": " any",
+          "start": 7.92,
+          "end": 8.08,
+          "probability": 0.99707
+        },
+        {
+          "word": " there",
+          "start": 8.08,
+          "end": 8.36,
+          "probability": 0.978027
+        },
+        {
+          "word": " there.",
+          "start": 8.36,
+          "end": 8.54,
+          "probability": 0.943359
+        }
+      ],
+      "progress_percent": 14.23,
+      "elapsed_seconds": 1.273,
+      "processing_speed_x": 6.708,
+      "estimated_remaining_seconds": null,
+      "estimated_completion_at": null
+    },
+    {
+      "index": 3,
+      "start": 8.76,
+      "end": 14.2,
+      "text": "Yeah, so I think people are conflating a semiconductor rally with an underlying successful",
+      "language": "en",
+      "words": [
+        {
+          "word": " Yeah,",
+          "start": 8.76,
+          "end": 9.1,
+          "probability": 0.974609
+        },
+        {
+          "word": " so",
+          "start": 9.18,
+          "end": 9.72,
+          "probability": 0.999512
+        },
+        {
+          "word": " I",
+          "start": 9.72,
+          "end": 10.14,
+          "probability": 0.995117
+        },
+        {
+          "word": " think",
+          "start": 10.14,
+          "end": 10.38,
+          "probability": 1.0
+        },
+        {
+          "word": " people",
+          "start": 10.38,
+          "end": 10.66,
+          "probability": 1.0
+        },
+        {
+          "word": " are",
+          "start": 10.66,
+          "end": 10.78,
+          "probability": 0.999512
+        },
+        {
+          "word": " conflating",
+          "start": 10.78,
+          "end": 11.28,
+          "probability": 0.999674
+        },
+        {
+          "word": " a",
+          "start": 11.28,
+          "end": 11.42,
+          "probability": 1.0
+        },
+        {
+          "word": " semiconductor",
+          "start": 11.42,
+          "end": 11.76,
+          "probability": 0.98584
+        },
+        {
+          "word": " rally",
+          "start": 11.76,
+          "end": 12.38,
+          "probability": 0.999512
+        },
+        {
+          "word": " with",
+          "start": 12.38,
+          "end": 13.28,
+          "probability": 0.999023
+        },
+        {
+          "word": " an",
+          "start": 13.28,
+          "end": 13.44,
+          "probability": 1.0
+        },
+        {
+          "word": " underlying",
+          "start": 13.44,
+          "end": 13.76,
+          "probability": 0.998535
+        },
+        {
+          "word": " successful",
+          "start": 13.76,
+          "end": 14.2,
+          "probability": 0.996094
+        }
+      ],
+      "progress_percent": 23.67,
+      "elapsed_seconds": 1.273,
+      "processing_speed_x": 11.151,
+      "estimated_remaining_seconds": null,
+      "estimated_completion_at": null
+    },
+    {
+      "index": 4,
+      "start": 13.78,
+      "end": 15.92,
+      "text": "successful business, which doesn't really exist.",
+      "language": "en",
+      "words": [
+        {
+          "word": " successful",
+          "start": 13.78,
+          "end": 14.24,
+          "probability": 0.98877
+        },
+        {
+          "word": " business,",
+          "start": 14.24,
+          "end": 14.76,
+          "probability": 1.0
+        },
+        {
+          "word": " which",
+          "start": 14.88,
+          "end": 15.06,
+          "probability": 0.999512
+        },
+        {
+          "word": " doesn't",
+          "start": 15.06,
+          "end": 15.4,
+          "probability": 0.999512
+        },
+        {
+          "word": " really",
+          "start": 15.4,
+          "end": 15.52,
+          "probability": 1.0
+        },
+        {
+          "word": " exist.",
+          "start": 15.52,
+          "end": 15.92,
+          "probability": 1.0
+        }
+      ],
+      "progress_percent": 26.53,
+      "elapsed_seconds": 2.763,
+      "processing_speed_x": 5.761,
+      "estimated_remaining_seconds": null,
+      "estimated_completion_at": null
+    },
+    {
+      "index": 5,
+      "start": 16.5,
+      "end": 19.08,
+      "text": "Anthropic's current revenue growth, which is deeply questionable,",
+      "language": "en",
+      "words": [
+        {
+          "word": " Anthropic's",
+          "start": 16.5,
+          "end": 17.02,
+          "probability": 0.847819
+        },
+        {
+          "word": " current",
+          "start": 17.02,
+          "end": 17.22,
+          "probability": 0.999023
+        },
+        {
+          "word": " revenue",
+          "start": 17.22,
+          "end": 17.6,
+          "probability": 1.0
+        },
+        {
+          "word": " growth,",
+          "start": 17.6,
+          "end": 17.98,
+          "probability": 1.0
+        },
+        {
+          "word": " which",
+          "start": 18.12,
+          "end": 18.26,
+          "probability": 0.999512
+        },
+        {
+          "word": " is",
+          "start": 18.26,
+          "end": 18.38,
+          "probability": 1.0
+        },
+        {
+          "word": " deeply",
+          "start": 18.38,
+          "end": 18.64,
+          "probability": 1.0
+        },
+        {
+          "word": " questionable,",
+          "start": 18.64,
+          "end": 19.08,
+          "probability": 0.999512
+        }
+      ],
+      "progress_percent": 31.8,
+      "elapsed_seconds": 2.764,
+      "processing_speed_x": 6.904,
+      "estimated_remaining_seconds": null,
+      "estimated_completion_at": null
+    },
+    {
+      "index": 6,
+      "start": 19.12,
+      "end": 22.7,
+      "text": "and the fact that they leaked profitability, manipulated by Elon Musk, of course,",
+      "language": "en",
+      "words": [
+        {
+          "word": " and",
+          "start": 19.12,
+          "end": 19.32,
+          "probability": 0.998047
+        },
+        {
+          "word": " the",
+          "start": 19.32,
+          "end": 19.34,
+          "probability": 1.0
+        },
+        {
+          "word": " fact",
+          "start": 19.34,
+          "end": 19.5,
+          "probability": 1.0
+        },
+        {
+          "word": " that",
+          "start": 19.5,
+          "end": 19.66,
+          "probability": 0.999512
+        },
+        {
+          "word": " they",
+          "start": 19.66,
+          "end": 19.8,
+          "probability": 1.0
+        },
+        {
+          "word": " leaked",
+          "start": 19.8,
+          "end": 20.08,
+          "probability": 0.999512
+        },
+        {
+          "word": " profitability,",
+          "start": 20.08,
+          "end": 20.54,
+          "probability": 0.999023
+        },
+        {
+          "word": " manipulated",
+          "start": 20.96,
+          "end": 21.6,
+          "probability": 0.999512
+        },
+        {
+          "word": " by",
+          "start": 21.6,
+          "end": 21.9,
+          "probability": 1.0
+        },
+        {
+          "word": " Elon",
+          "start": 21.9,
+          "end": 22.06,
+          "probability": 1.0
+        },
+        {
+          "word": " Musk,",
+          "start": 22.06,
+          "end": 22.34,
+          "probability": 1.0
+        },
+        {
+          "word": " of",
+          "start": 22.36,
+          "end": 22.48,
+          "probability": 0.999512
+        },
+        {
+          "word": " course,",
+          "start": 22.48,
+          "end": 22.7,
+          "probability": 1.0
+        }
+      ],
+      "progress_percent": 37.83,
+      "elapsed_seconds": 2.764,
+      "processing_speed_x": 8.212,
+      "estimated_remaining_seconds": null,
+      "estimated_completion_at": null
+    },
+    {
+      "index": 7,
+      "start": 23.34,
+      "end": 28.34,
+      "text": "their growth is coming because people cannot measure how much an AI task actually costs.",
+      "language": "en",
+      "words": [
+        {
+          "word": " their",
+          "start": 23.34,
+          "end": 23.86,
+          "probability": 0.999023
+        },
+        {
+          "word": " growth",
+          "start": 23.86,
+          "end": 24.24,
+          "probability": 1.0
+        },
+        {
+          "word": " is",
+          "start": 24.24,
+          "end": 24.4,
+          "probability": 1.0
+        },
+        {
+          "word": " coming",
+          "start": 24.4,
+          "end": 24.64,
+          "probability": 1.0
+        },
+        {
+          "word": " because",
+          "start": 24.64,
+          "end": 24.98,
+          "probability": 0.995117
+        },
+        {
+          "word": " people",
+          "start": 24.98,
+          "end": 25.34,
+          "probability": 1.0
+        },
+        {
+          "word": " cannot",
+          "start": 25.34,
+          "end": 25.66,
+          "probability": 0.999512
+        },
+        {
+          "word": " measure",
+          "start": 25.66,
+          "end": 26.1,
+          "probability": 1.0
+        },
+        {
+          "word": " how",
+          "start": 26.1,
+          "end": 26.36,
+          "probability": 0.999512
+        },
+        {
+          "word": " much",
+          "start": 26.36,
+          "end": 26.64,
+          "probability": 1.0
+        },
+        {
+          "word": " an",
+          "start": 26.64,
+          "end": 26.8,
+          "probability": 0.999512
+        },
+        {
+          "word": " AI",
+          "start": 26.8,
+          "end": 27.04,
+          "probability": 0.999023
+        },
+        {
+          "word": " task",
+          "start": 27.04,
+          "end": 27.4,
+          "probability": 0.999512
+        },
+        {
+          "word": " actually",
+          "start": 27.4,
+          "end": 27.94,
+          "probability": 1.0
+        },
+        {
+          "word": " costs.",
+          "start": 27.94,
+          "end": 28.34,
+          "probability": 1.0
+        }
+      ],
+      "progress_percent": 47.23,
+      "elapsed_seconds": 2.764,
+      "processing_speed_x": 10.251,
+      "estimated_remaining_seconds": null,
+      "estimated_completion_at": null
+    },
+    {
+      "index": 8,
+      "start": 28.6,
+      "end": 33.32,
+      "text": "And a couple months ago, Anthropic started charging their enterprise customers the actual token rates.",
+      "language": "en",
+      "words": [
+        {
+          "word": " And",
+          "start": 28.6,
+          "end": 28.84,
+          "probability": 0.918457
+        },
+        {
+          "word": " a",
+          "start": 28.84,
+          "end": 29.04,
+          "probability": 0.995605
+        },
+        {
+          "word": " couple",
+          "start": 29.04,
+          "end": 29.4,
+          "probability": 1.0
+        },
+        {
+          "word": " months",
+          "start": 29.4,
+          "end": 29.52,
+          "probability": 0.904297
+        },
+        {
+          "word": " ago,",
+          "start": 29.52,
+          "end": 29.82,
+          "probability": 0.999512
+        },
+        {
+          "word": " Anthropic",
+          "start": 29.86,
+          "end": 30.18,
+          "probability": 0.995117
+        },
+        {
+          "word": " started",
+          "start": 30.18,
+          "end": 30.42,
+          "probability": 1.0
+        },
+        {
+          "word": " charging",
+          "start": 30.42,
+          "end": 30.94,
+          "probability": 1.0
+        },
+        {
+          "word": " their",
+          "start": 30.94,
+          "end": 31.14,
+          "probability": 0.999512
+        },
+        {
+          "word": " enterprise",
+          "start": 31.14,
+          "end": 31.44,
+          "probability": 0.97998
+        },
+        {
+          "word": " customers",
+          "start": 31.44,
+          "end": 31.82,
+          "probability": 1.0
+        },
+        {
+          "word": " the",
+          "start": 31.82,
+          "end": 32.18,
+          "probability": 0.994141
+        },
+        {
+          "word": " actual",
+          "start": 32.18,
+          "end": 32.56,
+          "probability": 1.0
+        },
+        {
+          "word": " token",
+          "start": 32.56,
+          "end": 32.88,
+          "probability": 1.0
+        },
+        {
+          "word": " rates.",
+          "start": 32.88,
+          "end": 33.32,
+          "probability": 1.0
+        }
+      ],
+      "progress_percent": 55.53,
+      "elapsed_seconds": 2.765,
+      "processing_speed_x": 12.051,
+      "estimated_remaining_seconds": null,
+      "estimated_completion_at": null
+    },
+    {
+      "index": 9,
+      "start": 33.54,
+      "end": 36.2,
+      "text": "What this has led to is suddenly businesses are going,",
+      "language": "en",
+      "words": [
+        {
+          "word": " What",
+          "start": 33.54,
+          "end": 34.04,
+          "probability": 1.0
+        },
+        {
+          "word": " this",
+          "start": 34.04,
+          "end": 34.22,
+          "probability": 1.0
+        },
+        {
+          "word": " has",
+          "start": 34.22,
+          "end": 34.32,
+          "probability": 1.0
+        },
+        {
+          "word": " led",
+          "start": 34.32,
+          "end": 34.56,
+          "probability": 1.0
+        },
+        {
+          "word": " to",
+          "start": 34.56,
+          "end": 34.78,
+          "probability": 1.0
+        },
+        {
+          "word": " is",
+          "start": 34.78,
+          "end": 35.1,
+          "probability": 0.999512
+        },
+        {
+          "word": " suddenly",
+          "start": 35.1,
+          "end": 35.5,
+          "probability": 0.962891
+        },
+        {
+          "word": " businesses",
+          "start": 35.5,
+          "end": 35.86,
+          "probability": 0.997559
+        },
+        {
+          "word": " are",
+          "start": 35.86,
+          "end": 36.08,
+          "probability": 0.999023
+        },
+        {
+          "word": " going,",
+          "start": 36.08,
+          "end": 36.2,
+          "probability": 0.999512
+        }
+      ],
+      "progress_percent": 60.33,
+      "elapsed_seconds": 2.765,
+      "processing_speed_x": 13.092,
+      "estimated_remaining_seconds": null,
+      "estimated_completion_at": null
+    },
+    {
+      "index": 10,
+      "start": 36.3,
+      "end": 38.019999999999996,
+      "text": "oh, how much money are we spending?",
+      "language": "en",
+      "words": [
+        {
+          "word": " oh,",
+          "start": 36.3,
+          "end": 36.5,
+          "probability": 0.959961
+        },
+        {
+          "word": " how",
+          "start": 36.58,
+          "end": 37.02,
+          "probability": 1.0
+        },
+        {
+          "word": " much",
+          "start": 37.02,
+          "end": 37.22,
+          "probability": 1.0
+        },
+        {
+          "word": " money",
+          "start": 37.22,
+          "end": 37.48,
+          "probability": 1.0
+        },
+        {
+          "word": " are",
+          "start": 37.48,
+          "end": 37.58,
+          "probability": 1.0
+        },
+        {
+          "word": " we",
+          "start": 37.58,
+          "end": 37.72,
+          "probability": 0.999512
+        },
+        {
+          "word": " spending?",
+          "start": 37.72,
+          "end": 38.02,
+          "probability": 0.999512
+        }
+      ],
+      "progress_percent": 63.37,
+      "elapsed_seconds": 2.765,
+      "processing_speed_x": 13.749,
+      "estimated_remaining_seconds": null,
+      "estimated_completion_at": null
+    },
+    {
+      "index": 11,
+      "start": 38.239999999999995,
+      "end": 41.84,
+      "text": "Uber's, I think it was Uber's COO, Andrew McDonald, said",
+      "language": "en",
+      "words": [
+        {
+          "word": " Uber's,",
+          "start": 38.24,
+          "end": 38.74,
+          "probability": 0.810059
+        },
+        {
+          "word": " I",
+          "start": 38.86,
+          "end": 39.46,
+          "probability": 0.996582
+        },
+        {
+          "word": " think",
+          "start": 39.46,
+          "end": 39.74,
+          "probability": 1.0
+        },
+        {
+          "word": " it",
+          "start": 39.74,
+          "end": 39.82,
+          "probability": 1.0
+        },
+        {
+          "word": " was",
+          "start": 39.82,
+          "end": 40.16,
+          "probability": 1.0
+        },
+        {
+          "word": " Uber's",
+          "start": 40.16,
+          "end": 40.48,
+          "probability": 0.998779
+        },
+        {
+          "word": " COO,",
+          "start": 40.48,
+          "end": 40.88,
+          "probability": 0.991699
+        },
+        {
+          "word": " Andrew",
+          "start": 40.92,
+          "end": 41.14,
+          "probability": 0.997559
+        },
+        {
+          "word": " McDonald,",
+          "start": 41.14,
+          "end": 41.44,
+          "probability": 0.977051
+        },
+        {
+          "word": " said",
+          "start": 41.52,
+          "end": 41.84,
+          "probability": 0.999512
+        }
+      ],
+      "progress_percent": 69.73,
+      "elapsed_seconds": 2.766,
+      "processing_speed_x": 15.129,
+      "estimated_remaining_seconds": null,
+      "estimated_completion_at": null
+    },
+    {
+      "index": 12,
+      "start": 41.72,
+      "end": 47.0,
+      "text": "that they're having trouble justifying the AI spend based on the actual",
+      "language": "en",
+      "words": [
+        {
+          "word": " that",
+          "start": 41.72,
+          "end": 42.44,
+          "probability": 0.688965
+        },
+        {
+          "word": " they're",
+          "start": 42.44,
+          "end": 42.76,
+          "probability": 0.814941
+        },
+        {
+          "word": " having",
+          "start": 42.76,
+          "end": 43.1,
+          "probability": 0.997559
+        },
+        {
+          "word": " trouble",
+          "start": 43.1,
+          "end": 43.52,
+          "probability": 1.0
+        },
+        {
+          "word": " justifying",
+          "start": 43.52,
+          "end": 44.34,
+          "probability": 0.999268
+        },
+        {
+          "word": " the",
+          "start": 44.34,
+          "end": 44.68,
+          "probability": 0.777344
+        },
+        {
+          "word": " AI",
+          "start": 44.68,
+          "end": 45.44,
+          "probability": 0.975098
+        },
+        {
+          "word": " spend",
+          "start": 45.44,
+          "end": 45.76,
+          "probability": 0.997559
+        },
+        {
+          "word": " based",
+          "start": 45.76,
+          "end": 46.14,
+          "probability": 0.998047
+        },
+        {
+          "word": " on",
+          "start": 46.14,
+          "end": 46.48,
+          "probability": 1.0
+        },
+        {
+          "word": " the",
+          "start": 46.48,
+          "end": 46.66,
+          "probability": 1.0
+        },
+        {
+          "word": " actual",
+          "start": 46.66,
+          "end": 47.0,
+          "probability": 0.999512
+        }
+      ],
+      "progress_percent": 78.33,
+      "elapsed_seconds": 4.014,
+      "processing_speed_x": 11.708,
+      "estimated_remaining_seconds": null,
+      "estimated_completion_at": null
+    },
+    {
+      "index": 13,
+      "start": 47.0,
+      "end": 50.82,
+      "text": "return that one could actually measure it. So you've got a thing where you can't measure the",
+      "language": "en",
+      "words": [
+        {
+          "word": " return",
+          "start": 47.0,
+          "end": 47.46,
+          "probability": 0.999512
+        },
+        {
+          "word": " that",
+          "start": 47.46,
+          "end": 47.84,
+          "probability": 0.826172
+        },
+        {
+          "word": " one",
+          "start": 47.84,
+          "end": 48.0,
+          "probability": 0.980957
+        },
+        {
+          "word": " could",
+          "start": 48.0,
+          "end": 48.16,
+          "probability": 0.554199
+        },
+        {
+          "word": " actually",
+          "start": 48.16,
+          "end": 48.42,
+          "probability": 0.999512
+        },
+        {
+          "word": " measure",
+          "start": 48.42,
+          "end": 48.8,
+          "probability": 1.0
+        },
+        {
+          "word": " it.",
+          "start": 48.8,
+          "end": 48.92,
+          "probability": 0.979004
+        },
+        {
+          "word": " So",
+          "start": 49.0,
+          "end": 49.36,
+          "probability": 0.995117
+        },
+        {
+          "word": " you've",
+          "start": 49.36,
+          "end": 49.52,
+          "probability": 0.973145
+        },
+        {
+          "word": " got",
+          "start": 49.52,
+          "end": 49.66,
+          "probability": 1.0
+        },
+        {
+          "word": " a",
+          "start": 49.66,
+          "end": 49.74,
+          "probability": 0.999512
+        },
+        {
+          "word": " thing",
+          "start": 49.74,
+          "end": 49.96,
+          "probability": 0.999512
+        },
+        {
+          "word": " where",
+          "start": 49.96,
+          "end": 50.1,
+          "probability": 1.0
+        },
+        {
+          "word": " you",
+          "start": 50.1,
+          "end": 50.26,
+          "probability": 1.0
+        },
+        {
+          "word": " can't",
+          "start": 50.26,
+          "end": 50.52,
+          "probability": 0.999268
+        },
+        {
+          "word": " measure",
+          "start": 50.52,
+          "end": 50.7,
+          "probability": 0.999512
+        },
+        {
+          "word": " the",
+          "start": 50.7,
+          "end": 50.82,
+          "probability": 0.999512
+        }
+      ],
+      "progress_percent": 84.7,
+      "elapsed_seconds": 4.015,
+      "processing_speed_x": 12.657,
+      "estimated_remaining_seconds": null,
+      "estimated_completion_at": null
+    },
+    {
+      "index": 14,
+      "start": 50.82,
+      "end": 55.58,
+      "text": "costs and you can't measure the return on investment. What do you call that? You call",
+      "language": "en",
+      "words": [
+        {
+          "word": " costs",
+          "start": 50.82,
+          "end": 51.14,
+          "probability": 0.999512
+        },
+        {
+          "word": " and",
+          "start": 51.14,
+          "end": 51.68,
+          "probability": 0.884277
+        },
+        {
+          "word": " you",
+          "start": 51.68,
+          "end": 51.9,
+          "probability": 1.0
+        },
+        {
+          "word": " can't",
+          "start": 51.9,
+          "end": 52.24,
+          "probability": 0.999756
+        },
+        {
+          "word": " measure",
+          "start": 52.24,
+          "end": 52.46,
+          "probability": 0.999512
+        },
+        {
+          "word": " the",
+          "start": 52.46,
+          "end": 52.6,
+          "probability": 0.999512
+        },
+        {
+          "word": " return",
+          "start": 52.6,
+          "end": 52.8,
+          "probability": 0.999512
+        },
+        {
+          "word": " on",
+          "start": 52.8,
+          "end": 52.98,
+          "probability": 1.0
+        },
+        {
+          "word": " investment.",
+          "start": 52.98,
+          "end": 53.24,
+          "probability": 0.999512
+        },
+        {
+          "word": " What",
+          "start": 54.08,
+          "end": 54.52,
+          "probability": 0.999512
+        },
+        {
+          "word": " do",
+          "start": 54.52,
+          "end": 54.64,
+          "probability": 1.0
+        },
+        {
+          "word": " you",
+          "start": 54.64,
+          "end": 54.7,
+          "probability": 1.0
+        },
+        {
+          "word": " call",
+          "start": 54.7,
+          "end": 55.0,
+          "probability": 1.0
+        },
+        {
+          "word": " that?",
+          "start": 55.0,
+          "end": 55.2,
+          "probability": 1.0
+        },
+        {
+          "word": " You",
+          "start": 55.28,
+          "end": 55.42,
+          "probability": 0.999512
+        },
+        {
+          "word": " call",
+          "start": 55.42,
+          "end": 55.58,
+          "probability": 1.0
+        }
+      ],
+      "progress_percent": 92.63,
+      "elapsed_seconds": 4.015,
+      "processing_speed_x": 13.842,
+      "estimated_remaining_seconds": null,
+      "estimated_completion_at": null
+    },
+    {
+      "index": 15,
+      "start": 55.58,
+      "end": 59.9,
+      "text": "it a thing without an ROI. Isn't it though safe to say, Ed, like",
+      "language": "en",
+      "words": [
+        {
+          "word": " it",
+          "start": 55.58,
+          "end": 55.72,
+          "probability": 1.0
+        },
+        {
+          "word": " a",
+          "start": 55.72,
+          "end": 55.82,
+          "probability": 0.999023
+        },
+        {
+          "word": " thing",
+          "start": 55.82,
+          "end": 55.98,
+          "probability": 0.999512
+        },
+        {
+          "word": " without",
+          "start": 55.98,
+          "end": 56.16,
+          "probability": 0.998535
+        },
+        {
+          "word": " an",
+          "start": 56.16,
+          "end": 56.36,
+          "probability": 0.998535
+        },
+        {
+          "word": " ROI.",
+          "start": 56.36,
+          "end": 56.6,
+          "probability": 0.998535
+        },
+        {
+          "word": " Isn't",
+          "start": 58.04,
+          "end": 58.48,
+          "probability": 0.993652
+        },
+        {
+          "word": " it",
+          "start": 58.48,
+          "end": 58.6,
+          "probability": 1.0
+        },
+        {
+          "word": " though",
+          "start": 58.6,
+          "end": 58.72,
+          "probability": 0.619141
+        },
+        {
+          "word": " safe",
+          "start": 58.72,
+          "end": 59.0,
+          "probability": 0.786133
+        },
+        {
+          "word": " to",
+          "start": 59.0,
+          "end": 59.16,
+          "probability": 1.0
+        },
+        {
+          "word": " say,",
+          "start": 59.16,
+          "end": 59.46,
+          "probability": 1.0
+        },
+        {
+          "word": " Ed,",
+          "start": 59.46,
+          "end": 59.68,
+          "probability": 0.978027
+        },
+        {
+          "word": " like",
+          "start": 59.7,
+          "end": 59.9,
+          "probability": 0.993164
+        }
+      ],
+      "progress_percent": 99.83,
+      "elapsed_seconds": 4.016,
+      "processing_speed_x": 14.917,
+      "estimated_remaining_seconds": null,
+      "estimated_completion_at": null
+    }
+  ],
+  "chunks": [
+    {
+      "chunk_index": 1,
+      "offset_seconds": 0.0,
+      "duration_seconds": 15.0,
+      "processed_seconds": 14.0,
+      "progress_percent": 23.333,
+      "chunk_elapsed_ms": 946.462,
+      "input_wait_ms": 156.199,
+      "inference_ms": 945.267,
+      "event_emit_ms": 0.677,
+      "decoded_segments": 3,
+      "emitted_in_chunk": 3,
+      "segments_emitted": 3,
+      "processing_speed_x": 10.992,
+      "is_final": false
+    },
+    {
+      "chunk_index": 2,
+      "offset_seconds": 13.0,
+      "duration_seconds": 30.0,
+      "processed_seconds": 42.0,
+      "progress_percent": 70.0,
+      "chunk_elapsed_ms": 1671.56,
+      "input_wait_ms": 0.002,
+      "inference_ms": 1669.276,
+      "event_emit_ms": 1.352,
+      "decoded_segments": 9,
+      "emitted_in_chunk": 8,
+      "segments_emitted": 11,
+      "processing_speed_x": 14.259,
+      "is_final": false
+    },
+    {
+      "chunk_index": 3,
+      "offset_seconds": 41.0,
+      "duration_seconds": 19.0,
+      "processed_seconds": 60.0,
+      "progress_percent": 100.0,
+      "chunk_elapsed_ms": 1070.337,
+      "input_wait_ms": 0.011,
+      "inference_ms": 1068.909,
+      "event_emit_ms": 0.772,
+      "decoded_segments": 4,
+      "emitted_in_chunk": 4,
+      "segments_emitted": 15,
+      "processing_speed_x": 14.941,
+      "is_final": true
+    }
+  ]
+}

@@ -14,6 +14,14 @@
 `processing_profile` 強制翻譯路由，後續代理請求無法自行改成其他 provider。
 Private 的字幕翻譯也會由 Kotobamaru 停用 Wikidata／Wikipedia 遠端查詢。
 
+本機 ASR 預設使用 faster-whisper `turbo`，保留既有 VAD、逐字時間戳與字幕流程。
+若要切回較慢但多語精度較保守的 `large-v3`，可在 `.env` 覆寫：
+
+```dotenv
+WHISPER_MODEL_NAME=turbo
+# WHISPER_MODEL_NAME=large-v3
+```
+
 Groq Whisper adapter 目前保留供日後 A/B 測試，但三個正式方案都使用本機
 faster-whisper，因此 Aimarumaru 不需要為 ASR 設定 `GROQ_API_KEY`。若日後重新啟用
 Groq ASR，可使用：
@@ -74,6 +82,20 @@ YOUTUBE_WHISPER_STREAM_PREFETCH_CHUNKS=2
 
 `PREFETCH_CHUNKS` 不會超過 queue size。若更重視第一段字幕延遲，可設為 `1`；若
 Dashboard 的「音訊等待」仍經常大於零，可同時提高兩個值。
+
+### English/Japanese/Korean ASR A/B benchmark
+
+`benchmark_artifact_asr.py` 會用 `F:\kotobamaru\artifacts` 的英、日、韓三支影片，
+直接走正式環境的 FFmpeg 串流切塊、VAD、beam size 與逐字時間戳流程，依序比較
+`large-v3` 與 `turbo`。預設各測前 60 秒，並輸出 SRT、逐段 JSON 與 Markdown 報告：
+
+```powershell
+python benchmark_artifact_asr.py
+python benchmark_artifact_asr.py --duration 0
+```
+
+第二個指令會跑完整影片。報告的 transcript agreement 是兩模型的一致程度，不是
+人工正確率；實際品質仍應對照輸出的 SRT 與影片內容。
 
 本機未設定 Token 時只允許 localhost 讀取；雲端部署必須在 `.env` 設定：
 

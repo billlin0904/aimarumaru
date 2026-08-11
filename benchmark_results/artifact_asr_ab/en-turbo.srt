@@ -1,0 +1,59 @@
+1
+00:00:00,000 --> 00:00:04,360
+What are we getting, I don't want to say we, what are the bulls out there getting wrong about AI?
+
+2
+00:00:04,560 --> 00:00:08,680
+Because you've made no secret that you don't see any there there.
+
+3
+00:00:08,920 --> 00:00:13,920
+Yeah, so I think people are conflating a semiconductor rally with an underlying
+
+4
+00:00:13,940 --> 00:00:16,100
+successful business, which doesn't really exist.
+
+5
+00:00:16,580 --> 00:00:20,800
+Anthropik's current revenue growth, which is deeply questionable in the fact that they leaked profitability,
+
+6
+00:00:21,240 --> 00:00:22,800
+manipulated by Elon Musk, of course,
+
+7
+00:00:23,800 --> 00:00:28,480
+their growth is coming because people cannot measure how much an AI task actually costs.
+
+8
+00:00:28,740 --> 00:00:33,500
+And a couple months ago, Anthropik started charging their enterprise customers the actual token rates.
+
+9
+00:00:33,680 --> 00:00:36,260
+What this has led to is suddenly businesses are going,
+
+10
+00:00:36,400 --> 00:00:38,140
+oh, how much money are we spending?
+
+11
+00:00:38,140 --> 00:00:42,000
+Uber's, I think it was Uber's COO, Andrew McDonald, said
+
+12
+00:00:41,960 --> 00:00:47,100
+that they're having trouble justifying the AI spend based on the actual
+
+13
+00:00:47,100 --> 00:00:50,880
+return, that one could actually measure it. So you've got a thing where you can't measure the
+
+14
+00:00:50,880 --> 00:00:55,660
+costs and you can't measure the return on investment. What do you call that? You call
+
+15
+00:00:55,660 --> 00:00:59,980
+it a thing without an ROI. Isn't it though safe to say, Ed, like

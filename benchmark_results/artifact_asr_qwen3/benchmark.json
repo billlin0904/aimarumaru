@@ -1,0 +1,2070 @@
+{
+  "created_at": "2026-08-11T00:22:38.486732+00:00",
+  "duration_seconds": 60.0,
+  "model": "Qwen/Qwen3-ASR-1.7B",
+  "aligner": "Qwen/Qwen3-ForcedAligner-0.6B",
+  "results": [
+    {
+      "case": "en",
+      "label": "English interview",
+      "model": "Qwen/Qwen3-ASR-1.7B",
+      "aligner": "Qwen/Qwen3-ForcedAligner-0.6B",
+      "language": "English",
+      "text": "What are we getting? I don't want to say we. What what are the bulls out there getting wrong about AI? Because you you've made no secret that you don't see any there there. Yeah. So I think people are conflating a semiconductor rally with an underlying successful business, which doesn't really exist. Anthropic's current revenue growth, which is deeply questionable, and the fact that they leaked profitability manipulated by Elon Musk, of course. Their growth is coming because people cannot measure how much an AI task actually costs. And a couple months ago, Anthropic started charging their enterprise customers the actual token rates. What this has led to is suddenly businesses are going, oh, how much money are we spending? Uber's C I think it was Uber's CIO Andrew McDonald said that they're having trouble justifying the AI spend based on the actual return that one can actually measure it. So you've got a thing where you can't measure the costs and you can't measure the return on investment. What do you call that? You call it a thing without an ROI. Isn't it though? Safe to say, Ed? Like.",
+      "segments": [
+        {
+          "start": 0.24,
+          "end": 0.4,
+          "text": "What"
+        },
+        {
+          "start": 0.4,
+          "end": 0.48,
+          "text": "are"
+        },
+        {
+          "start": 0.48,
+          "end": 0.64,
+          "text": "we"
+        },
+        {
+          "start": 0.64,
+          "end": 1.04,
+          "text": "getting"
+        },
+        {
+          "start": 1.2,
+          "end": 1.2,
+          "text": "I"
+        },
+        {
+          "start": 1.2,
+          "end": 1.28,
+          "text": "don't"
+        },
+        {
+          "start": 1.28,
+          "end": 1.36,
+          "text": "want"
+        },
+        {
+          "start": 1.36,
+          "end": 1.44,
+          "text": "to"
+        },
+        {
+          "start": 1.44,
+          "end": 1.6,
+          "text": "say"
+        },
+        {
+          "start": 1.6,
+          "end": 1.84,
+          "text": "we"
+        },
+        {
+          "start": 1.84,
+          "end": 2.08,
+          "text": "What"
+        },
+        {
+          "start": 2.08,
+          "end": 2.24,
+          "text": "what"
+        },
+        {
+          "start": 2.24,
+          "end": 2.32,
+          "text": "are"
+        },
+        {
+          "start": 2.32,
+          "end": 2.48,
+          "text": "the"
+        },
+        {
+          "start": 2.48,
+          "end": 2.88,
+          "text": "bulls"
+        },
+        {
+          "start": 2.88,
+          "end": 3.12,
+          "text": "out"
+        },
+        {
+          "start": 3.12,
+          "end": 3.28,
+          "text": "there"
+        },
+        {
+          "start": 3.28,
+          "end": 3.52,
+          "text": "getting"
+        },
+        {
+          "start": 3.52,
+          "end": 3.84,
+          "text": "wrong"
+        },
+        {
+          "start": 3.84,
+          "end": 4.16,
+          "text": "about"
+        },
+        {
+          "start": 4.16,
+          "end": 4.48,
+          "text": "AI"
+        },
+        {
+          "start": 4.48,
+          "end": 4.88,
+          "text": "Because"
+        },
+        {
+          "start": 4.96,
+          "end": 5.2,
+          "text": "you"
+        },
+        {
+          "start": 5.28,
+          "end": 5.52,
+          "text": "you've"
+        },
+        {
+          "start": 5.52,
+          "end": 5.76,
+          "text": "made"
+        },
+        {
+          "start": 5.76,
+          "end": 6.0,
+          "text": "no"
+        },
+        {
+          "start": 6.0,
+          "end": 6.64,
+          "text": "secret"
+        },
+        {
+          "start": 6.96,
+          "end": 7.44,
+          "text": "that"
+        },
+        {
+          "start": 7.44,
+          "end": 7.68,
+          "text": "you"
+        },
+        {
+          "start": 7.68,
+          "end": 7.84,
+          "text": "don't"
+        },
+        {
+          "start": 7.84,
+          "end": 8.0,
+          "text": "see"
+        },
+        {
+          "start": 8.0,
+          "end": 8.24,
+          "text": "any"
+        },
+        {
+          "start": 8.24,
+          "end": 8.48,
+          "text": "there"
+        },
+        {
+          "start": 8.48,
+          "end": 8.8,
+          "text": "there"
+        },
+        {
+          "start": 8.96,
+          "end": 9.28,
+          "text": "Yeah"
+        },
+        {
+          "start": 9.6,
+          "end": 10.16,
+          "text": "So"
+        },
+        {
+          "start": 10.16,
+          "end": 10.24,
+          "text": "I"
+        },
+        {
+          "start": 10.24,
+          "end": 10.48,
+          "text": "think"
+        },
+        {
+          "start": 10.48,
+          "end": 10.72,
+          "text": "people"
+        },
+        {
+          "start": 10.72,
+          "end": 10.8,
+          "text": "are"
+        },
+        {
+          "start": 10.8,
+          "end": 11.36,
+          "text": "conflating"
+        },
+        {
+          "start": 11.36,
+          "end": 11.44,
+          "text": "a"
+        },
+        {
+          "start": 11.44,
+          "end": 12.24,
+          "text": "semiconductor"
+        },
+        {
+          "start": 12.24,
+          "end": 12.88,
+          "text": "rally"
+        },
+        {
+          "start": 13.2,
+          "end": 13.36,
+          "text": "with"
+        },
+        {
+          "start": 13.36,
+          "end": 13.52,
+          "text": "an"
+        },
+        {
+          "start": 13.52,
+          "end": 14.08,
+          "text": "underlying"
+        },
+        {
+          "start": 14.08,
+          "end": 14.56,
+          "text": "successful"
+        },
+        {
+          "start": 14.56,
+          "end": 14.96,
+          "text": "business"
+        },
+        {
+          "start": 14.96,
+          "end": 15.28,
+          "text": "which"
+        },
+        {
+          "start": 15.28,
+          "end": 15.44,
+          "text": "doesn't"
+        },
+        {
+          "start": 15.44,
+          "end": 15.68,
+          "text": "really"
+        },
+        {
+          "start": 15.68,
+          "end": 16.16,
+          "text": "exist"
+        },
+        {
+          "start": 16.56,
+          "end": 17.12,
+          "text": "Anthropic's"
+        },
+        {
+          "start": 17.12,
+          "end": 17.44,
+          "text": "current"
+        },
+        {
+          "start": 17.44,
+          "end": 17.76,
+          "text": "revenue"
+        },
+        {
+          "start": 17.76,
+          "end": 18.16,
+          "text": "growth"
+        },
+        {
+          "start": 18.16,
+          "end": 18.32,
+          "text": "which"
+        },
+        {
+          "start": 18.32,
+          "end": 18.48,
+          "text": "is"
+        },
+        {
+          "start": 18.48,
+          "end": 18.8,
+          "text": "deeply"
+        },
+        {
+          "start": 18.8,
+          "end": 19.28,
+          "text": "questionable"
+        },
+        {
+          "start": 19.28,
+          "end": 19.28,
+          "text": "and"
+        },
+        {
+          "start": 19.36,
+          "end": 19.36,
+          "text": "the"
+        },
+        {
+          "start": 19.36,
+          "end": 19.6,
+          "text": "fact"
+        },
+        {
+          "start": 19.6,
+          "end": 19.76,
+          "text": "that"
+        },
+        {
+          "start": 19.76,
+          "end": 19.84,
+          "text": "they"
+        },
+        {
+          "start": 19.84,
+          "end": 20.24,
+          "text": "leaked"
+        },
+        {
+          "start": 20.24,
+          "end": 21.12,
+          "text": "profitability"
+        },
+        {
+          "start": 21.36,
+          "end": 21.84,
+          "text": "manipulated"
+        },
+        {
+          "start": 21.84,
+          "end": 22.0,
+          "text": "by"
+        },
+        {
+          "start": 22.0,
+          "end": 22.16,
+          "text": "Elon"
+        },
+        {
+          "start": 22.16,
+          "end": 22.4,
+          "text": "Musk"
+        },
+        {
+          "start": 22.4,
+          "end": 22.56,
+          "text": "of"
+        },
+        {
+          "start": 22.56,
+          "end": 22.88,
+          "text": "course"
+        },
+        {
+          "start": 23.84,
+          "end": 24.0,
+          "text": "Their"
+        },
+        {
+          "start": 24.0,
+          "end": 24.32,
+          "text": "growth"
+        },
+        {
+          "start": 24.32,
+          "end": 24.48,
+          "text": "is"
+        },
+        {
+          "start": 24.48,
+          "end": 24.8,
+          "text": "coming"
+        },
+        {
+          "start": 24.8,
+          "end": 25.12,
+          "text": "because"
+        },
+        {
+          "start": 25.12,
+          "end": 25.52,
+          "text": "people"
+        },
+        {
+          "start": 25.52,
+          "end": 25.92,
+          "text": "cannot"
+        },
+        {
+          "start": 25.92,
+          "end": 26.24,
+          "text": "measure"
+        },
+        {
+          "start": 26.24,
+          "end": 26.48,
+          "text": "how"
+        },
+        {
+          "start": 26.48,
+          "end": 26.72,
+          "text": "much"
+        },
+        {
+          "start": 26.72,
+          "end": 26.88,
+          "text": "an"
+        },
+        {
+          "start": 26.88,
+          "end": 27.2,
+          "text": "AI"
+        },
+        {
+          "start": 27.2,
+          "end": 27.68,
+          "text": "task"
+        },
+        {
+          "start": 27.68,
+          "end": 28.08,
+          "text": "actually"
+        },
+        {
+          "start": 28.08,
+          "end": 28.64,
+          "text": "costs"
+        },
+        {
+          "start": 28.72,
+          "end": 29.04,
+          "text": "And"
+        },
+        {
+          "start": 29.04,
+          "end": 29.04,
+          "text": "a"
+        },
+        {
+          "start": 29.28,
+          "end": 29.44,
+          "text": "couple"
+        },
+        {
+          "start": 29.44,
+          "end": 29.76,
+          "text": "months"
+        },
+        {
+          "start": 29.76,
+          "end": 29.92,
+          "text": "ago"
+        },
+        {
+          "start": 29.92,
+          "end": 30.4,
+          "text": "Anthropic"
+        },
+        {
+          "start": 30.4,
+          "end": 30.72,
+          "text": "started"
+        },
+        {
+          "start": 30.72,
+          "end": 31.12,
+          "text": "charging"
+        },
+        {
+          "start": 31.12,
+          "end": 31.2,
+          "text": "their"
+        },
+        {
+          "start": 31.2,
+          "end": 31.68,
+          "text": "enterprise"
+        },
+        {
+          "start": 31.68,
+          "end": 32.16,
+          "text": "customers"
+        },
+        {
+          "start": 32.16,
+          "end": 32.24,
+          "text": "the"
+        },
+        {
+          "start": 32.32,
+          "end": 32.72,
+          "text": "actual"
+        },
+        {
+          "start": 32.72,
+          "end": 33.2,
+          "text": "token"
+        },
+        {
+          "start": 33.2,
+          "end": 33.6,
+          "text": "rates"
+        },
+        {
+          "start": 34.0,
+          "end": 34.16,
+          "text": "What"
+        },
+        {
+          "start": 34.16,
+          "end": 34.32,
+          "text": "this"
+        },
+        {
+          "start": 34.32,
+          "end": 34.48,
+          "text": "has"
+        },
+        {
+          "start": 34.48,
+          "end": 34.72,
+          "text": "led"
+        },
+        {
+          "start": 34.72,
+          "end": 34.96,
+          "text": "to"
+        },
+        {
+          "start": 34.96,
+          "end": 35.28,
+          "text": "is"
+        },
+        {
+          "start": 35.28,
+          "end": 35.6,
+          "text": "suddenly"
+        },
+        {
+          "start": 35.6,
+          "end": 36.08,
+          "text": "businesses"
+        },
+        {
+          "start": 36.08,
+          "end": 36.08,
+          "text": "are"
+        },
+        {
+          "start": 36.08,
+          "end": 36.32,
+          "text": "going"
+        },
+        {
+          "start": 36.4,
+          "end": 36.72,
+          "text": "oh"
+        },
+        {
+          "start": 37.04,
+          "end": 37.12,
+          "text": "how"
+        },
+        {
+          "start": 37.12,
+          "end": 37.36,
+          "text": "much"
+        },
+        {
+          "start": 37.36,
+          "end": 37.6,
+          "text": "money"
+        },
+        {
+          "start": 37.6,
+          "end": 37.6,
+          "text": "are"
+        },
+        {
+          "start": 37.6,
+          "end": 37.76,
+          "text": "we"
+        },
+        {
+          "start": 37.76,
+          "end": 38.32,
+          "text": "spending"
+        },
+        {
+          "start": 38.32,
+          "end": 39.12,
+          "text": "Uber's"
+        },
+        {
+          "start": 39.12,
+          "end": 39.44,
+          "text": "C"
+        },
+        {
+          "start": 39.52,
+          "end": 39.6,
+          "text": "I"
+        },
+        {
+          "start": 39.6,
+          "end": 39.76,
+          "text": "think"
+        },
+        {
+          "start": 39.76,
+          "end": 40.0,
+          "text": "it"
+        },
+        {
+          "start": 40.16,
+          "end": 40.24,
+          "text": "was"
+        },
+        {
+          "start": 40.24,
+          "end": 40.56,
+          "text": "Uber's"
+        },
+        {
+          "start": 40.56,
+          "end": 40.96,
+          "text": "CIO"
+        },
+        {
+          "start": 41.04,
+          "end": 41.2,
+          "text": "Andrew"
+        },
+        {
+          "start": 41.2,
+          "end": 41.68,
+          "text": "McDonald"
+        },
+        {
+          "start": 41.68,
+          "end": 42.08,
+          "text": "said"
+        },
+        {
+          "start": 42.4,
+          "end": 42.56,
+          "text": "that"
+        },
+        {
+          "start": 42.56,
+          "end": 42.96,
+          "text": "they're"
+        },
+        {
+          "start": 43.04,
+          "end": 43.36,
+          "text": "having"
+        },
+        {
+          "start": 43.36,
+          "end": 43.68,
+          "text": "trouble"
+        },
+        {
+          "start": 43.68,
+          "end": 44.56,
+          "text": "justifying"
+        },
+        {
+          "start": 44.64,
+          "end": 45.28,
+          "text": "the"
+        },
+        {
+          "start": 45.36,
+          "end": 45.68,
+          "text": "AI"
+        },
+        {
+          "start": 45.68,
+          "end": 46.08,
+          "text": "spend"
+        },
+        {
+          "start": 46.08,
+          "end": 46.4,
+          "text": "based"
+        },
+        {
+          "start": 46.4,
+          "end": 46.64,
+          "text": "on"
+        },
+        {
+          "start": 46.64,
+          "end": 46.72,
+          "text": "the"
+        },
+        {
+          "start": 46.8,
+          "end": 47.2,
+          "text": "actual"
+        },
+        {
+          "start": 47.28,
+          "end": 47.76,
+          "text": "return"
+        },
+        {
+          "start": 47.84,
+          "end": 48.0,
+          "text": "that"
+        },
+        {
+          "start": 48.0,
+          "end": 48.08,
+          "text": "one"
+        },
+        {
+          "start": 48.08,
+          "end": 48.24,
+          "text": "can"
+        },
+        {
+          "start": 48.24,
+          "end": 48.56,
+          "text": "actually"
+        },
+        {
+          "start": 48.56,
+          "end": 48.88,
+          "text": "measure"
+        },
+        {
+          "start": 48.88,
+          "end": 49.04,
+          "text": "it"
+        },
+        {
+          "start": 49.28,
+          "end": 49.44,
+          "text": "So"
+        },
+        {
+          "start": 49.44,
+          "end": 49.6,
+          "text": "you've"
+        },
+        {
+          "start": 49.6,
+          "end": 49.76,
+          "text": "got"
+        },
+        {
+          "start": 49.76,
+          "end": 49.76,
+          "text": "a"
+        },
+        {
+          "start": 49.76,
+          "end": 50.08,
+          "text": "thing"
+        },
+        {
+          "start": 50.08,
+          "end": 50.16,
+          "text": "where"
+        },
+        {
+          "start": 50.16,
+          "end": 50.32,
+          "text": "you"
+        },
+        {
+          "start": 50.32,
+          "end": 50.56,
+          "text": "can't"
+        },
+        {
+          "start": 50.56,
+          "end": 50.8,
+          "text": "measure"
+        },
+        {
+          "start": 50.8,
+          "end": 50.88,
+          "text": "the"
+        },
+        {
+          "start": 50.88,
+          "end": 51.44,
+          "text": "costs"
+        },
+        {
+          "start": 51.76,
+          "end": 51.92,
+          "text": "and"
+        },
+        {
+          "start": 51.92,
+          "end": 52.0,
+          "text": "you"
+        },
+        {
+          "start": 52.0,
+          "end": 52.32,
+          "text": "can't"
+        },
+        {
+          "start": 52.32,
+          "end": 52.56,
+          "text": "measure"
+        },
+        {
+          "start": 52.56,
+          "end": 52.64,
+          "text": "the"
+        },
+        {
+          "start": 52.64,
+          "end": 52.96,
+          "text": "return"
+        },
+        {
+          "start": 52.96,
+          "end": 53.04,
+          "text": "on"
+        },
+        {
+          "start": 53.04,
+          "end": 53.68,
+          "text": "investment"
+        },
+        {
+          "start": 54.4,
+          "end": 54.64,
+          "text": "What"
+        },
+        {
+          "start": 54.64,
+          "end": 54.72,
+          "text": "do"
+        },
+        {
+          "start": 54.72,
+          "end": 54.8,
+          "text": "you"
+        },
+        {
+          "start": 54.8,
+          "end": 55.12,
+          "text": "call"
+        },
+        {
+          "start": 55.12,
+          "end": 55.36,
+          "text": "that"
+        },
+        {
+          "start": 55.36,
+          "end": 55.52,
+          "text": "You"
+        },
+        {
+          "start": 55.52,
+          "end": 55.68,
+          "text": "call"
+        },
+        {
+          "start": 55.68,
+          "end": 55.76,
+          "text": "it"
+        },
+        {
+          "start": 55.76,
+          "end": 55.84,
+          "text": "a"
+        },
+        {
+          "start": 55.84,
+          "end": 56.08,
+          "text": "thing"
+        },
+        {
+          "start": 56.08,
+          "end": 56.32,
+          "text": "without"
+        },
+        {
+          "start": 56.32,
+          "end": 56.4,
+          "text": "an"
+        },
+        {
+          "start": 56.4,
+          "end": 56.96,
+          "text": "ROI"
+        },
+        {
+          "start": 56.96,
+          "end": 56.96,
+          "text": "Isn't"
+        },
+        {
+          "start": 58.24,
+          "end": 58.4,
+          "text": "it"
+        },
+        {
+          "start": 58.64,
+          "end": 58.8,
+          "text": "though"
+        },
+        {
+          "start": 58.8,
+          "end": 59.12,
+          "text": "Safe"
+        },
+        {
+          "start": 59.12,
+          "end": 59.2,
+          "text": "to"
+        },
+        {
+          "start": 59.2,
+          "end": 59.52,
+          "text": "say"
+        },
+        {
+          "start": 59.52,
+          "end": 59.84,
+          "text": "Ed"
+        },
+        {
+          "start": 59.84,
+          "end": 60.0,
+          "text": "Like"
+        }
+      ],
+      "audio_seconds": 60.0,
+      "elapsed_seconds": 7.191,
+      "speed_x": 8.344,
+      "srt_file": "benchmark_results\\artifact_asr_qwen3\\en-qwen3-asr-1.7b.srt"
+    },
+    {
+      "case": "ja",
+      "label": "Japanese Netflix interview",
+      "model": "Qwen/Qwen3-ASR-1.7B",
+      "aligner": "Qwen/Qwen3-ForcedAligner-0.6B",
+      "language": "Japanese",
+      "text": "あのなめくじが思ったより大きくて、あの美容と伸びたんで、あの私あの怖いシーンとか見ると笑っちゃう癖が悪い癖があって。そうですね。私もあのホラー映画描いてるんで、できればあの心理的な怖さみたいなものをあの描、そっちの方重点的に描きたいんですけど、なんかこう気持ちの悪い方こうにもあの行ってしまう癖がありまして、なんか自分の生活している中であのなんかまあなめくじもそうですけど、あの気持ちムカデとかそういう気持ち悪い。",
+      "segments": [
+        {
+          "start": 13.6,
+          "end": 14.08,
+          "text": "あの"
+        },
+        {
+          "start": 14.32,
+          "end": 15.36,
+          "text": "なめくじ"
+        },
+        {
+          "start": 15.36,
+          "end": 15.6,
+          "text": "が"
+        },
+        {
+          "start": 16.08,
+          "end": 16.32,
+          "text": "思っ"
+        },
+        {
+          "start": 16.32,
+          "end": 16.48,
+          "text": "た"
+        },
+        {
+          "start": 16.48,
+          "end": 16.56,
+          "text": "より"
+        },
+        {
+          "start": 16.56,
+          "end": 16.96,
+          "text": "大きく"
+        },
+        {
+          "start": 16.96,
+          "end": 17.84,
+          "text": "て"
+        },
+        {
+          "start": 19.76,
+          "end": 20.08,
+          "text": "あの"
+        },
+        {
+          "start": 20.08,
+          "end": 20.4,
+          "text": "美容"
+        },
+        {
+          "start": 20.4,
+          "end": 20.48,
+          "text": "と"
+        },
+        {
+          "start": 20.48,
+          "end": 20.8,
+          "text": "伸び"
+        },
+        {
+          "start": 20.8,
+          "end": 20.96,
+          "text": "た"
+        },
+        {
+          "start": 20.96,
+          "end": 21.04,
+          "text": "ん"
+        },
+        {
+          "start": 21.04,
+          "end": 21.28,
+          "text": "で"
+        },
+        {
+          "start": 22.48,
+          "end": 22.72,
+          "text": "あの"
+        },
+        {
+          "start": 23.04,
+          "end": 23.36,
+          "text": "私"
+        },
+        {
+          "start": 23.36,
+          "end": 23.84,
+          "text": "あの"
+        },
+        {
+          "start": 24.8,
+          "end": 25.12,
+          "text": "怖い"
+        },
+        {
+          "start": 25.12,
+          "end": 25.36,
+          "text": "シーン"
+        },
+        {
+          "start": 25.36,
+          "end": 25.52,
+          "text": "と"
+        },
+        {
+          "start": 25.52,
+          "end": 25.6,
+          "text": "か"
+        },
+        {
+          "start": 25.6,
+          "end": 25.76,
+          "text": "見る"
+        },
+        {
+          "start": 25.76,
+          "end": 25.92,
+          "text": "と"
+        },
+        {
+          "start": 25.92,
+          "end": 26.4,
+          "text": "笑っ"
+        },
+        {
+          "start": 26.4,
+          "end": 26.72,
+          "text": "ちゃう"
+        },
+        {
+          "start": 26.8,
+          "end": 26.96,
+          "text": "癖"
+        },
+        {
+          "start": 26.96,
+          "end": 27.2,
+          "text": "が"
+        },
+        {
+          "start": 27.6,
+          "end": 28.24,
+          "text": "悪い"
+        },
+        {
+          "start": 28.24,
+          "end": 28.4,
+          "text": "癖"
+        },
+        {
+          "start": 28.4,
+          "end": 28.56,
+          "text": "が"
+        },
+        {
+          "start": 28.56,
+          "end": 28.56,
+          "text": "あっ"
+        },
+        {
+          "start": 28.56,
+          "end": 29.44,
+          "text": "て"
+        },
+        {
+          "start": 33.68,
+          "end": 33.84,
+          "text": "そう"
+        },
+        {
+          "start": 33.84,
+          "end": 34.08,
+          "text": "です"
+        },
+        {
+          "start": 34.08,
+          "end": 34.24,
+          "text": "ね"
+        },
+        {
+          "start": 34.24,
+          "end": 34.56,
+          "text": "私"
+        },
+        {
+          "start": 34.56,
+          "end": 34.8,
+          "text": "も"
+        },
+        {
+          "start": 34.8,
+          "end": 35.28,
+          "text": "あの"
+        },
+        {
+          "start": 35.28,
+          "end": 35.52,
+          "text": "ホラー"
+        },
+        {
+          "start": 35.52,
+          "end": 35.84,
+          "text": "映画"
+        },
+        {
+          "start": 35.84,
+          "end": 36.08,
+          "text": "描い"
+        },
+        {
+          "start": 36.08,
+          "end": 36.32,
+          "text": "てる"
+        },
+        {
+          "start": 36.32,
+          "end": 36.4,
+          "text": "ん"
+        },
+        {
+          "start": 36.4,
+          "end": 36.64,
+          "text": "で"
+        },
+        {
+          "start": 37.12,
+          "end": 37.52,
+          "text": "できれ"
+        },
+        {
+          "start": 37.52,
+          "end": 37.68,
+          "text": "ば"
+        },
+        {
+          "start": 37.68,
+          "end": 37.92,
+          "text": "あの"
+        },
+        {
+          "start": 38.0,
+          "end": 38.4,
+          "text": "心理"
+        },
+        {
+          "start": 38.4,
+          "end": 38.64,
+          "text": "的"
+        },
+        {
+          "start": 38.64,
+          "end": 38.96,
+          "text": "な"
+        },
+        {
+          "start": 38.96,
+          "end": 39.2,
+          "text": "怖"
+        },
+        {
+          "start": 39.2,
+          "end": 39.36,
+          "text": "さ"
+        },
+        {
+          "start": 39.36,
+          "end": 39.76,
+          "text": "みたい"
+        },
+        {
+          "start": 39.76,
+          "end": 39.84,
+          "text": "な"
+        },
+        {
+          "start": 39.84,
+          "end": 40.24,
+          "text": "もの"
+        },
+        {
+          "start": 40.24,
+          "end": 40.88,
+          "text": "を"
+        },
+        {
+          "start": 40.88,
+          "end": 40.88,
+          "text": "あの"
+        },
+        {
+          "start": 40.96,
+          "end": 41.12,
+          "text": "描"
+        },
+        {
+          "start": 41.76,
+          "end": 42.0,
+          "text": "そっち"
+        },
+        {
+          "start": 42.0,
+          "end": 42.56,
+          "text": "の"
+        },
+        {
+          "start": 42.56,
+          "end": 42.56,
+          "text": "方"
+        },
+        {
+          "start": 42.72,
+          "end": 43.12,
+          "text": "重点"
+        },
+        {
+          "start": 43.12,
+          "end": 43.28,
+          "text": "的"
+        },
+        {
+          "start": 43.28,
+          "end": 43.44,
+          "text": "に"
+        },
+        {
+          "start": 43.44,
+          "end": 43.68,
+          "text": "描き"
+        },
+        {
+          "start": 43.68,
+          "end": 43.92,
+          "text": "たい"
+        },
+        {
+          "start": 43.92,
+          "end": 43.92,
+          "text": "ん"
+        },
+        {
+          "start": 43.92,
+          "end": 44.16,
+          "text": "です"
+        },
+        {
+          "start": 44.16,
+          "end": 44.48,
+          "text": "けど"
+        },
+        {
+          "start": 45.04,
+          "end": 45.2,
+          "text": "なん"
+        },
+        {
+          "start": 45.2,
+          "end": 45.28,
+          "text": "か"
+        },
+        {
+          "start": 45.28,
+          "end": 45.52,
+          "text": "こう"
+        },
+        {
+          "start": 45.52,
+          "end": 46.16,
+          "text": "気持ち"
+        },
+        {
+          "start": 46.16,
+          "end": 46.32,
+          "text": "の"
+        },
+        {
+          "start": 46.32,
+          "end": 46.56,
+          "text": "悪い"
+        },
+        {
+          "start": 46.56,
+          "end": 46.72,
+          "text": "方"
+        },
+        {
+          "start": 46.72,
+          "end": 47.28,
+          "text": "こう"
+        },
+        {
+          "start": 47.52,
+          "end": 47.6,
+          "text": "に"
+        },
+        {
+          "start": 47.6,
+          "end": 47.84,
+          "text": "も"
+        },
+        {
+          "start": 48.24,
+          "end": 48.48,
+          "text": "あの"
+        },
+        {
+          "start": 48.64,
+          "end": 48.64,
+          "text": "行っ"
+        },
+        {
+          "start": 48.64,
+          "end": 48.8,
+          "text": "て"
+        },
+        {
+          "start": 48.8,
+          "end": 49.28,
+          "text": "しまう"
+        },
+        {
+          "start": 50.0,
+          "end": 50.16,
+          "text": "癖"
+        },
+        {
+          "start": 50.16,
+          "end": 50.32,
+          "text": "が"
+        },
+        {
+          "start": 50.32,
+          "end": 50.48,
+          "text": "あり"
+        },
+        {
+          "start": 50.48,
+          "end": 50.72,
+          "text": "まし"
+        },
+        {
+          "start": 50.72,
+          "end": 50.88,
+          "text": "て"
+        },
+        {
+          "start": 51.52,
+          "end": 51.84,
+          "text": "なん"
+        },
+        {
+          "start": 51.84,
+          "end": 51.92,
+          "text": "か"
+        },
+        {
+          "start": 51.92,
+          "end": 52.4,
+          "text": "自分"
+        },
+        {
+          "start": 52.4,
+          "end": 52.56,
+          "text": "の"
+        },
+        {
+          "start": 52.64,
+          "end": 52.96,
+          "text": "生活"
+        },
+        {
+          "start": 52.96,
+          "end": 53.12,
+          "text": "し"
+        },
+        {
+          "start": 53.12,
+          "end": 53.2,
+          "text": "て"
+        },
+        {
+          "start": 53.2,
+          "end": 53.36,
+          "text": "いる"
+        },
+        {
+          "start": 53.36,
+          "end": 53.68,
+          "text": "中"
+        },
+        {
+          "start": 53.68,
+          "end": 54.08,
+          "text": "で"
+        },
+        {
+          "start": 54.08,
+          "end": 54.64,
+          "text": "あの"
+        },
+        {
+          "start": 55.44,
+          "end": 55.6,
+          "text": "なん"
+        },
+        {
+          "start": 55.6,
+          "end": 55.84,
+          "text": "か"
+        },
+        {
+          "start": 56.08,
+          "end": 56.24,
+          "text": "まあ"
+        },
+        {
+          "start": 56.24,
+          "end": 56.8,
+          "text": "なめくじ"
+        },
+        {
+          "start": 56.8,
+          "end": 56.88,
+          "text": "も"
+        },
+        {
+          "start": 56.88,
+          "end": 57.04,
+          "text": "そう"
+        },
+        {
+          "start": 57.04,
+          "end": 57.28,
+          "text": "です"
+        },
+        {
+          "start": 57.28,
+          "end": 57.6,
+          "text": "けど"
+        },
+        {
+          "start": 57.92,
+          "end": 58.16,
+          "text": "あの"
+        },
+        {
+          "start": 58.16,
+          "end": 58.48,
+          "text": "気持ち"
+        },
+        {
+          "start": 58.56,
+          "end": 58.96,
+          "text": "ムカデ"
+        },
+        {
+          "start": 58.96,
+          "end": 59.12,
+          "text": "と"
+        },
+        {
+          "start": 59.12,
+          "end": 59.36,
+          "text": "か"
+        },
+        {
+          "start": 59.44,
+          "end": 59.52,
+          "text": "そう"
+        },
+        {
+          "start": 59.52,
+          "end": 59.6,
+          "text": "いう"
+        },
+        {
+          "start": 59.68,
+          "end": 59.92,
+          "text": "気持ち"
+        },
+        {
+          "start": 59.92,
+          "end": 59.92,
+          "text": "悪い"
+        }
+      ],
+      "audio_seconds": 60.0,
+      "elapsed_seconds": 3.486,
+      "speed_x": 17.213,
+      "srt_file": "benchmark_results\\artifact_asr_qwen3\\ja-qwen3-asr-1.7b.srt"
+    },
+    {
+      "case": "ko",
+      "label": "Korean awards",
+      "model": "Qwen/Qwen3-ASR-1.7B",
+      "aligner": "Qwen/Qwen3-ForcedAligner-0.6B",
+      "language": "Korean",
+      "text": "국경과 언어의 장벽을 넘어서 K 콘텐츠의 매력을 전 세계에 알린 아티스트에게 수여는 특별상입니다. 네, 발표와 시상에는 일본을 대표하는 배우이자 이 사랑 통역 되나요를 통해 사랑받고 있는 후쿠시 소타 씨가 함께해 주시겠습니다. 안녕하세요, 배우 후쿠시 소타입니다. 오늘 이렇게 특별한 자리에서 상을 수상하게 되어 정말 기쁘고 영광스럽습니다. 저는 이 사랑 통역 되나요를 통해 한국 한국의 배우 제작진과 함께 할 수 있었는데요. 호진 씨, 도라미 무희. 안녕, 오랜만이에요. 글로벌 아이콘 웨트 라비안 코스메틱 상.",
+      "segments": [
+        {
+          "start": 0.08,
+          "end": 0.48,
+          "text": "국경"
+        },
+        {
+          "start": 0.48,
+          "end": 0.64,
+          "text": "과"
+        },
+        {
+          "start": 0.64,
+          "end": 0.96,
+          "text": "언어"
+        },
+        {
+          "start": 0.96,
+          "end": 1.04,
+          "text": "의"
+        },
+        {
+          "start": 1.04,
+          "end": 1.28,
+          "text": "장벽"
+        },
+        {
+          "start": 1.28,
+          "end": 1.36,
+          "text": "을"
+        },
+        {
+          "start": 1.36,
+          "end": 1.92,
+          "text": "넘어서"
+        },
+        {
+          "start": 2.4,
+          "end": 2.56,
+          "text": "K"
+        },
+        {
+          "start": 2.56,
+          "end": 3.04,
+          "text": "콘텐츠"
+        },
+        {
+          "start": 3.04,
+          "end": 3.12,
+          "text": "의"
+        },
+        {
+          "start": 3.12,
+          "end": 3.36,
+          "text": "매력"
+        },
+        {
+          "start": 3.36,
+          "end": 3.44,
+          "text": "을"
+        },
+        {
+          "start": 3.44,
+          "end": 3.6,
+          "text": "전"
+        },
+        {
+          "start": 3.6,
+          "end": 3.84,
+          "text": "세계"
+        },
+        {
+          "start": 3.84,
+          "end": 3.92,
+          "text": "에"
+        },
+        {
+          "start": 3.92,
+          "end": 4.08,
+          "text": "알린"
+        },
+        {
+          "start": 4.16,
+          "end": 4.56,
+          "text": "아티"
+        },
+        {
+          "start": 4.56,
+          "end": 4.96,
+          "text": "스트에게"
+        },
+        {
+          "start": 4.96,
+          "end": 5.44,
+          "text": "수여는"
+        },
+        {
+          "start": 5.44,
+          "end": 5.68,
+          "text": "특별"
+        },
+        {
+          "start": 5.68,
+          "end": 6.24,
+          "text": "상입니다"
+        },
+        {
+          "start": 6.24,
+          "end": 6.48,
+          "text": "네"
+        },
+        {
+          "start": 6.48,
+          "end": 6.8,
+          "text": "발표"
+        },
+        {
+          "start": 6.8,
+          "end": 6.96,
+          "text": "와"
+        },
+        {
+          "start": 6.96,
+          "end": 7.68,
+          "text": "시상에는"
+        },
+        {
+          "start": 7.76,
+          "end": 8.08,
+          "text": "일본"
+        },
+        {
+          "start": 8.08,
+          "end": 8.16,
+          "text": "을"
+        },
+        {
+          "start": 8.16,
+          "end": 8.48,
+          "text": "대표"
+        },
+        {
+          "start": 8.48,
+          "end": 8.72,
+          "text": "하는"
+        },
+        {
+          "start": 8.72,
+          "end": 8.96,
+          "text": "배우"
+        },
+        {
+          "start": 8.96,
+          "end": 9.36,
+          "text": "이자"
+        },
+        {
+          "start": 9.6,
+          "end": 9.76,
+          "text": "이"
+        },
+        {
+          "start": 9.76,
+          "end": 10.08,
+          "text": "사랑"
+        },
+        {
+          "start": 10.08,
+          "end": 10.4,
+          "text": "통역"
+        },
+        {
+          "start": 10.4,
+          "end": 10.88,
+          "text": "되나요를"
+        },
+        {
+          "start": 10.88,
+          "end": 11.2,
+          "text": "통해"
+        },
+        {
+          "start": 11.2,
+          "end": 11.44,
+          "text": "사랑"
+        },
+        {
+          "start": 11.44,
+          "end": 11.68,
+          "text": "받고"
+        },
+        {
+          "start": 11.68,
+          "end": 12.0,
+          "text": "있는"
+        },
+        {
+          "start": 12.24,
+          "end": 12.64,
+          "text": "후쿠시"
+        },
+        {
+          "start": 12.64,
+          "end": 12.96,
+          "text": "소타"
+        },
+        {
+          "start": 13.12,
+          "end": 13.28,
+          "text": "씨가"
+        },
+        {
+          "start": 13.28,
+          "end": 13.6,
+          "text": "함께"
+        },
+        {
+          "start": 13.6,
+          "end": 13.6,
+          "text": "해"
+        },
+        {
+          "start": 13.6,
+          "end": 13.84,
+          "text": "주시"
+        },
+        {
+          "start": 13.84,
+          "end": 14.48,
+          "text": "겠습니다"
+        },
+        {
+          "start": 16.16,
+          "end": 28.8,
+          "text": "안녕"
+        },
+        {
+          "start": 28.8,
+          "end": 29.12,
+          "text": "하세요"
+        },
+        {
+          "start": 29.12,
+          "end": 29.12,
+          "text": "배우"
+        },
+        {
+          "start": 29.12,
+          "end": 29.36,
+          "text": "후쿠시"
+        },
+        {
+          "start": 29.36,
+          "end": 29.6,
+          "text": "소타입니다"
+        },
+        {
+          "start": 29.68,
+          "end": 29.68,
+          "text": "오늘"
+        },
+        {
+          "start": 33.36,
+          "end": 34.0,
+          "text": "이렇게"
+        },
+        {
+          "start": 34.112,
+          "end": 34.224,
+          "text": "특별"
+        },
+        {
+          "start": 34.336,
+          "end": 34.448,
+          "text": "한"
+        },
+        {
+          "start": 34.56,
+          "end": 34.8,
+          "text": "자리"
+        },
+        {
+          "start": 34.8,
+          "end": 35.28,
+          "text": "에서"
+        },
+        {
+          "start": 35.28,
+          "end": 35.52,
+          "text": "상을"
+        },
+        {
+          "start": 35.52,
+          "end": 36.0,
+          "text": "수상"
+        },
+        {
+          "start": 36.0,
+          "end": 36.08,
+          "text": "하게"
+        },
+        {
+          "start": 36.08,
+          "end": 36.48,
+          "text": "되어"
+        },
+        {
+          "start": 36.72,
+          "end": 37.04,
+          "text": "정말"
+        },
+        {
+          "start": 37.12,
+          "end": 37.36,
+          "text": "기쁘"
+        },
+        {
+          "start": 37.36,
+          "end": 37.68,
+          "text": "고"
+        },
+        {
+          "start": 38.48,
+          "end": 38.8,
+          "text": "영광"
+        },
+        {
+          "start": 38.8,
+          "end": 39.68,
+          "text": "스럽습니다"
+        },
+        {
+          "start": 41.84,
+          "end": 42.24,
+          "text": "저는"
+        },
+        {
+          "start": 42.24,
+          "end": 42.24,
+          "text": "이"
+        },
+        {
+          "start": 42.88,
+          "end": 43.12,
+          "text": "사랑"
+        },
+        {
+          "start": 43.12,
+          "end": 43.84,
+          "text": "통역"
+        },
+        {
+          "start": 43.84,
+          "end": 43.84,
+          "text": "되나요를"
+        },
+        {
+          "start": 43.92,
+          "end": 44.48,
+          "text": "통해"
+        },
+        {
+          "start": 44.64,
+          "end": 45.76,
+          "text": "한국"
+        },
+        {
+          "start": 45.76,
+          "end": 46.08,
+          "text": "한국"
+        },
+        {
+          "start": 46.08,
+          "end": 46.32,
+          "text": "의"
+        },
+        {
+          "start": 46.48,
+          "end": 46.8,
+          "text": "배우"
+        },
+        {
+          "start": 47.68,
+          "end": 48.16,
+          "text": "제작진"
+        },
+        {
+          "start": 48.16,
+          "end": 48.4,
+          "text": "과"
+        },
+        {
+          "start": 48.4,
+          "end": 48.64,
+          "text": "함께"
+        },
+        {
+          "start": 48.64,
+          "end": 48.8,
+          "text": "할"
+        },
+        {
+          "start": 48.8,
+          "end": 48.88,
+          "text": "수"
+        },
+        {
+          "start": 48.88,
+          "end": 49.68,
+          "text": "있었는데요"
+        },
+        {
+          "start": 49.84,
+          "end": 50.08,
+          "text": "호진"
+        },
+        {
+          "start": 50.08,
+          "end": 50.24,
+          "text": "씨"
+        },
+        {
+          "start": 51.68,
+          "end": 52.32,
+          "text": "도라미"
+        },
+        {
+          "start": 52.32,
+          "end": 52.64,
+          "text": "무희"
+        },
+        {
+          "start": 53.76,
+          "end": 54.08,
+          "text": "안녕"
+        },
+        {
+          "start": 54.16,
+          "end": 54.48,
+          "text": "오랜만"
+        },
+        {
+          "start": 54.48,
+          "end": 54.8,
+          "text": "이에요"
+        },
+        {
+          "start": 55.6,
+          "end": 56.0,
+          "text": "글로벌"
+        },
+        {
+          "start": 56.0,
+          "end": 56.32,
+          "text": "아이콘"
+        },
+        {
+          "start": 56.32,
+          "end": 56.56,
+          "text": "웨트"
+        },
+        {
+          "start": 56.56,
+          "end": 56.96,
+          "text": "라비안"
+        },
+        {
+          "start": 56.96,
+          "end": 57.12,
+          "text": "코스"
+        },
+        {
+          "start": 57.12,
+          "end": 57.44,
+          "text": "메틱"
+        },
+        {
+          "start": 58.0,
+          "end": 58.32,
+          "text": "상"
+        }
+      ],
+      "audio_seconds": 60.0,
+      "elapsed_seconds": 5.644,
+      "speed_x": 10.631,
+      "srt_file": "benchmark_results\\artifact_asr_qwen3\\ko-qwen3-asr-1.7b.srt"
+    }
+  ]
+}

@@ -17,14 +17,16 @@ def ensure_not_cancelled(cancel_check: Optional[Callable[[], bool]]) -> None:
 
 
 class Auto2Lrc:
-    def __init__(self, model_name="large-v3", device="cuda", compute_type="float16", separator_model_path="uvr5_weights/2_HP-UVR.pth"):
+    def __init__(self, model_name=None, device="cuda", compute_type="float16", separator_model_path="uvr5_weights/2_HP-UVR.pth"):
         """
         初始化 faster_whisper 模型
-        :param model_name: Whisper 模型名稱 (如 'large-v3')
+        :param model_name: Whisper 模型名稱；未指定時讀取 WHISPER_MODEL_NAME，預設 turbo
         :param device: 選擇設備 (如 'cuda' 或 'cpu')
         :param compute_type: 計算類型，'float16' 或 'int8' (低 GPU 記憶體可選擇 int8)
         """
-        self.model_name = model_name
+        self.model_name = str(
+            model_name or os.getenv("WHISPER_MODEL_NAME", "turbo")
+        ).strip() or "turbo"
         self.device = device
         self.compute_type = compute_type
         self.model = None
