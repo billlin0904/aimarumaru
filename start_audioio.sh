@@ -11,6 +11,19 @@ PORT="${PORT:-8090}"
 PID_FILE="${PID_FILE:-${PROJECT_DIR}/audioio.pid}"
 INSTALLER_REVISION="2"
 
+# Load deployment configuration before applying defaults.  Python's
+# load_dotenv() intentionally does not override variables already exported by
+# the shell, so loading .env here is required for WHISPER_MODEL_NAME and the
+# other deployment settings to reach Uvicorn.
+ENV_FILE="${ENV_FILE:-${PROJECT_DIR}/.env}"
+if [[ -f "${ENV_FILE}" ]]; then
+    printf '[setup] 載入環境設定：%s\n' "${ENV_FILE}"
+    set -a
+    # shellcheck disable=SC1090
+    source "${ENV_FILE}"
+    set +a
+fi
+
 export HF_HOME="${HF_HOME:-/vault/cache/huggingface}"
 export XDG_CACHE_HOME="${XDG_CACHE_HOME:-/vault/cache}"
 export WHISPER_MODEL_NAME="${WHISPER_MODEL_NAME:-turbo}"
