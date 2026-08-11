@@ -87,7 +87,8 @@ API 只輸出遙測，不輸出影片網址、字幕內容、翻譯權杖或 API
 ```dotenv
 YOUTUBE_WHISPER_STREAM_QUEUE_SIZE=2
 YOUTUBE_WHISPER_STREAM_PREFETCH_CHUNKS=2
-TRANSCRIBE_WORKER_CONCURRENCY=10
+TRANSCRIBE_WORKER_CONCURRENCY=2
+TRANSCRIBE_QUEUE_MAX_SIZE=200
 ```
 
 `PREFETCH_CHUNKS` 不會超過 queue size。若更重視第一段字幕延遲，可設為 `1`；若
@@ -102,11 +103,15 @@ Dashboard 的「音訊等待」仍經常大於零，可同時提高兩個值。
 
 ```dotenv
 # 同時執行的轉錄工作數；1 會退回舊的單工作模式
-TRANSCRIBE_WORKER_CONCURRENCY=10
+TRANSCRIBE_WORKER_CONCURRENCY=2
+TRANSCRIBE_QUEUE_MAX_SIZE=200
 ```
 
 Dashboard 與 `audioio-access*.jsonl` 會記錄 `scheduler_wait_ms`，可用來確認工作是否
 真的交錯取得 Whisper turn；`input_wait_ms` 則仍代表 FFmpeg 音訊供料等待時間。
+
+`TRANSCRIBE_QUEUE_MAX_SIZE` 是等待中的工作上限，預設為 200；超過上限的新請求會
+立即收到 503「轉譯佇列已滿，請稍後再試」，不會建立一個永久停在 `QUEUED` 的工作。
 
 ### English/Japanese/Korean ASR A/B benchmark
 

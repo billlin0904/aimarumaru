@@ -12,14 +12,19 @@ from typing import Any, Optional
 logger = logging.getLogger(__name__)
 
 
-TRANSCRIBE_QUEUE_MAX_SIZE = 100
+try:
+    TRANSCRIBE_QUEUE_MAX_SIZE = max(
+        1, int(os.getenv("TRANSCRIBE_QUEUE_MAX_SIZE", "200"))
+    )
+except ValueError:
+    TRANSCRIBE_QUEUE_MAX_SIZE = 200
 TRANSCRIBE_CLEANUP_INTERVAL_SECONDS = 300
 try:
     TRANSCRIBE_WORKER_CONCURRENCY = max(
-        1, int(os.getenv("TRANSCRIBE_WORKER_CONCURRENCY", "10"))
+        1, int(os.getenv("TRANSCRIBE_WORKER_CONCURRENCY", "2"))
     )
 except ValueError:
-    TRANSCRIBE_WORKER_CONCURRENCY = 10
+    TRANSCRIBE_WORKER_CONCURRENCY = 2
 
 TranscribeTask = dict[str, Any]
 TranscribeTaskHandler = Callable[[TranscribeTask], Awaitable[None] | None]
@@ -130,13 +135,23 @@ def get_transcribe_queue_counts() -> dict[str, int]:
         "queue_size": waiting_count,
         "waiting_count": waiting_count,
         "transcribing_count": transcribe_active_count,
+        "queue_capacity": transcribe_queue.maxsize if transcribe_queue else 0,
     }
 
 
 def enqueue_transcribe_task(task: TranscribeTask) -> None:
     if transcribe_queue is None:
         raise RuntimeError("Transcribe queue is not started")
-    transcribe_queue.put_nowait(task)
+    try:
+        transcribe_queue.put_nowait(task)
+    except asyncio.QueueFull:
+        logger.warning(
+            "Transcribe queue is full: limit=%d kind=%s id=%s",
+            transcribe_queue.maxsize,
+            task.get("kind", ""),
+            task.get("id", ""),
+        )
+        raise
 
 
 def cancel_queued_transcribe_task(kind: str, task_id: str) -> bool:

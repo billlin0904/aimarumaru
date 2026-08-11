@@ -107,6 +107,21 @@ class TranscribeQueueConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         finally:
             await stop_transcribe_queue()
 
+    async def test_queue_rejects_jobs_above_capacity(self) -> None:
+        kind = "test-queue-capacity"
+
+        async def handler(task: dict) -> None:
+            await asyncio.sleep(1)
+
+        register_transcribe_handler(kind, handler)
+        await start_transcribe_queue(max_size=1)
+        try:
+            enqueue_transcribe_task({"kind": kind, "id": "first"})
+            with self.assertRaises(asyncio.QueueFull):
+                enqueue_transcribe_task({"kind": kind, "id": "rejected"})
+        finally:
+            await stop_transcribe_queue()
+
 
 if __name__ == "__main__":
     unittest.main()
