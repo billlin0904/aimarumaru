@@ -1,21 +1,33 @@
 # Aimarumaru provider profiles
 
-影片翻譯頁面提供三種處理方案。三者共用本機 faster-whisper，以及同一條 VAD、
-來源正規化、語意翻譯群組、結果驗證與 deterministic display cues 流程；目前只替換
-翻譯 provider：
+影片翻譯頁面提供三種處理方案。三者共用同一個 ASR provider，以及同一條 VAD、
+來源正規化、語意翻譯群組、結果驗證與 deterministic display cues 流程；處理方案
+只替換翻譯 provider：
 
 | 方案 | ASR | 翻譯 |
 | --- | --- | --- |
-| Standard | 本機 faster-whisper | Groq `openai/gpt-oss-120b` |
-| Premium | 本機 faster-whisper | Gemini |
-| Private | 本機 faster-whisper | 本機 Ollama `qwen3:14b` |
+| Standard | `AUDIOIO_ASR_PROVIDER` | Groq `openai/gpt-oss-120b` |
+| Premium | `AUDIOIO_ASR_PROVIDER` | Gemini |
+| Private | `AUDIOIO_ASR_PROVIDER` | 本機 Ollama `qwen3:14b` |
 
 `std`、`pro` 仍分別相容於 `standard`、`premium`。後端會依建立 job 時的
 `processing_profile` 強制翻譯路由，後續代理請求無法自行改成其他 provider。
 Private 的字幕翻譯也會由 Kotobamaru 停用 Wikidata／Wikipedia 遠端查詢。
 
-本機 ASR 預設使用 faster-whisper `turbo`，保留既有 VAD、逐字時間戳與字幕流程。
-若要切回較慢但多語精度較保守的 `large-v3`，可在 `.env` 覆寫：
+ASR 可在本機 faster-whisper、Cloudflare Workers AI 與保留的 Groq adapter 間切換：
+
+```dotenv
+AUDIOIO_ASR_PROVIDER=local
+# AUDIOIO_ASR_PROVIDER=cloudflare
+# AUDIOIO_ASR_PROVIDER=groq
+```
+
+三種 provider 都會正規化成相同的 segment、語言資訊與逐字時間格式，因此 SSE、
+SRT、逐字顯示及後續翻譯不需要分別處理。Cloudflare 不提供逐字 confidence，該欄位
+會省略。
+
+本機 ASR 使用 faster-whisper `turbo`，保留既有 VAD、逐字時間戳與字幕流程。若要
+切回較慢但多語精度較保守的 `large-v3`，可在 `.env` 覆寫：
 
 ```dotenv
 WHISPER_MODEL_NAME=turbo
@@ -31,9 +43,22 @@ WHISPER_MODEL_NAME=turbo
 WHISPER_MODEL_DOWNLOAD=0
 ```
 
-Groq Whisper adapter 目前保留供日後 A/B 測試，但三個正式方案都使用本機
-faster-whisper，因此 Aimarumaru 不需要為 ASR 設定 `GROQ_API_KEY`。若日後重新啟用
-Groq ASR，可使用：
+Cloudflare Workers AI 使用 Base64 WAV JSON 呼叫 REST API，回傳內容會由 adapter
+轉成 faster-whisper 相容格式：
+
+```dotenv
+AUDIOIO_ASR_PROVIDER=cloudflare
+CLOUDFLARE_ACCOUNT_ID=請填入帳號ID
+CLOUDFLARE_API_TOKEN=請填入新Token
+CLOUDFLARE_ASR_MODEL=@cf/openai/whisper-large-v3-turbo
+CLOUDFLARE_ASR_BASE_URL=https://api.cloudflare.com/client/v4
+CLOUDFLARE_ASR_TIMEOUT_SECONDS=120
+CLOUDFLARE_ASR_MAX_RETRIES=2
+CLOUDFLARE_ASR_FALLBACK_WAIT_SECONDS=5
+CLOUDFLARE_ASR_MAX_WAIT_SECONDS=30
+```
+
+Groq Whisper adapter 仍保留供 A/B 測試。若要啟用 Groq ASR，可使用：
 
 ```dotenv
 GROQ_API_KEY=gsk_請填入自己的金鑰

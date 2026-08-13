@@ -1,20 +1,23 @@
 from __future__ import annotations
 
+import base64
 import io
+import os
 import re
 import time
 import wave
 from dataclasses import dataclass
 from types import SimpleNamespace
-from typing import Any, Literal, Optional, cast
+from typing import Any, Literal, Optional, Protocol, cast
 
 import numpy as np
 import requests
 
 
 ProcessingProfile = Literal["standard", "premium", "private"]
-AsrProviderName = Literal["groq", "local"]
+AsrProviderName = Literal["cloudflare", "groq", "local"]
 TranslationType = Literal["standard", "premium", "private"]
+REMOTE_ASR_PROVIDERS = frozenset({"cloudflare", "groq"})
 
 PROFILE_ALIASES = {
     "standard": "standard",
@@ -34,7 +37,12 @@ def normalize_processing_profile(value: Optional[str]) -> ProcessingProfile:
 
 def asr_provider_for_profile(profile: ProcessingProfile) -> AsrProviderName:
     del profile
-    return "local"
+    provider = os.getenv("AUDIOIO_ASR_PROVIDER", "local").strip().lower()
+    if provider not in {"cloudflare", "groq", "local"}:
+        raise ValueError(
+            "AUDIOIO_ASR_PROVIDER 必須是 local、cloudflare 或 groq"
+        )
+    return cast(AsrProviderName, provider)
 
 
 def translation_type_for_profile(profile: ProcessingProfile) -> TranslationType:
@@ -68,7 +76,7 @@ def pcm_float32_to_wav(audio_samples: np.ndarray, sample_rate: int = 16000) -> b
     return output.getvalue()
 
 
-def groq_retry_after_seconds(response: requests.Response) -> float | None:
+def retry_after_seconds(response: requests.Response) -> float | None:
     value = response.headers.get("retry-after")
     if value:
         try:
@@ -83,6 +91,14 @@ def groq_retry_after_seconds(response: requests.Response) -> float | None:
         return None
     error = body.get("error") if isinstance(body, dict) else None
     message = error.get("message") if isinstance(error, dict) else None
+    if not isinstance(message, str) and isinstance(body, dict):
+        errors = body.get("errors")
+        if isinstance(errors, list):
+            message = " ".join(
+                str(item.get("message") or "")
+                for item in errors
+                if isinstance(item, dict)
+            )
     if not isinstance(message, str):
         return None
     match = re.search(
@@ -94,6 +110,25 @@ def groq_retry_after_seconds(response: requests.Response) -> float | None:
         return None
     seconds = float(match.group(1))
     return seconds / 1000 if match.group(2).lower() == "ms" else seconds
+
+
+groq_retry_after_seconds = retry_after_seconds
+
+
+class WhisperAsrClient(Protocol):
+    provider_name: AsrProviderName
+    model_name: str
+
+    def transcribe(
+        self,
+        audio_samples: np.ndarray,
+        *,
+        language: str | None = None,
+        beam_size: int = 5,
+        vad_filter: bool = False,
+        condition_on_previous_text: bool = False,
+        hallucination_silence_threshold: float | None = None,
+    ) -> tuple[list[SimpleNamespace], SimpleNamespace]: ...
 
 
 @dataclass(frozen=True)
@@ -111,6 +146,8 @@ class GroqWhisperSettings:
 class GroqWhisperClient:
     """OpenAI-compatible ASR adapter with a faster-whisper-shaped result."""
 
+    provider_name: AsrProviderName = "groq"
+
     def __init__(
         self,
         settings: GroqWhisperSettings,
@@ -119,6 +156,10 @@ class GroqWhisperClient:
         self.settings = settings
         self.session = session or requests.Session()
         self._last_request_started = 0.0
+
+    @property
+    def model_name(self) -> str:
+        return self.settings.model
 
     def _wait_for_rate_slot(self) -> None:
         remaining = (
@@ -134,7 +175,13 @@ class GroqWhisperClient:
         audio_samples: np.ndarray,
         *,
         language: str | None = None,
+        beam_size: int = 5,
+        vad_filter: bool = False,
+        condition_on_previous_text: bool = False,
+        hallucination_silence_threshold: float | None = None,
     ) -> tuple[list[SimpleNamespace], SimpleNamespace]:
+        del beam_size, vad_filter, condition_on_previous_text
+        del hallucination_silence_threshold
         if not self.settings.api_key:
             raise RuntimeError("Standard/Premium 尚未設定 GROQ_API_KEY")
         payload: list[tuple[str, str]] = [
@@ -163,7 +210,7 @@ class GroqWhisperClient:
                 break
             if attempt >= self.settings.max_retries:
                 response.raise_for_status()
-            wait_seconds = groq_retry_after_seconds(response)
+            wait_seconds = retry_after_seconds(response)
             if wait_seconds is None:
                 wait_seconds = self.settings.fallback_wait_seconds
             if wait_seconds > self.settings.max_wait_seconds:
@@ -175,6 +222,107 @@ class GroqWhisperClient:
         if not isinstance(data, dict):
             raise RuntimeError("Groq Whisper 回傳格式不正確")
         return groq_response_to_segments(data, normalized_language)
+
+
+@dataclass(frozen=True)
+class CloudflareWhisperSettings:
+    account_id: str
+    api_token: str
+    base_url: str = "https://api.cloudflare.com/client/v4"
+    model: str = "@cf/openai/whisper-large-v3-turbo"
+    timeout_seconds: float = 120.0
+    max_retries: int = 2
+    fallback_wait_seconds: float = 5.0
+    max_wait_seconds: float = 30.0
+
+
+class CloudflareWhisperClient:
+    """Cloudflare Workers AI adapter with a faster-whisper-shaped result."""
+
+    provider_name: AsrProviderName = "cloudflare"
+
+    def __init__(
+        self,
+        settings: CloudflareWhisperSettings,
+        session: requests.Session | None = None,
+    ) -> None:
+        self.settings = settings
+        self.session = session or requests.Session()
+
+    @property
+    def model_name(self) -> str:
+        return self.settings.model
+
+    def transcribe(
+        self,
+        audio_samples: np.ndarray,
+        *,
+        language: str | None = None,
+        beam_size: int = 5,
+        vad_filter: bool = False,
+        condition_on_previous_text: bool = False,
+        hallucination_silence_threshold: float | None = None,
+    ) -> tuple[list[SimpleNamespace], SimpleNamespace]:
+        if not self.settings.account_id or not self.settings.api_token:
+            raise RuntimeError(
+                "Cloudflare ASR 尚未設定 CLOUDFLARE_ACCOUNT_ID 或 "
+                "CLOUDFLARE_API_TOKEN"
+            )
+        payload: dict[str, Any] = {
+            "audio": base64.b64encode(pcm_float32_to_wav(audio_samples)).decode(
+                "ascii"
+            ),
+            "task": "transcribe",
+            "beam_size": max(1, int(beam_size)),
+            "vad_filter": bool(vad_filter),
+            "condition_on_previous_text": bool(condition_on_previous_text),
+        }
+        normalized_language = normalize_asr_language(language)
+        if normalized_language:
+            payload["language"] = normalized_language
+        if hallucination_silence_threshold is not None:
+            payload["hallucination_silence_threshold"] = float(
+                hallucination_silence_threshold
+            )
+
+        endpoint = (
+            f"{self.settings.base_url.rstrip('/')}/accounts/"
+            f"{self.settings.account_id}/ai/run/{self.settings.model}"
+        )
+        response: requests.Response | None = None
+        for attempt in range(self.settings.max_retries + 1):
+            response = self.session.post(
+                endpoint,
+                headers={"Authorization": f"Bearer {self.settings.api_token}"},
+                json=payload,
+                timeout=self.settings.timeout_seconds,
+            )
+            if response.status_code != 429:
+                response.raise_for_status()
+                break
+            if attempt >= self.settings.max_retries:
+                response.raise_for_status()
+            wait_seconds = retry_after_seconds(response)
+            if wait_seconds is None:
+                wait_seconds = self.settings.fallback_wait_seconds
+            if wait_seconds > self.settings.max_wait_seconds:
+                response.raise_for_status()
+            time.sleep(wait_seconds)
+
+        if response is None:  # pragma: no cover
+            raise AssertionError("Cloudflare ASR retry loop did not issue a request")
+        envelope = response.json()
+        if not isinstance(envelope, dict):
+            raise RuntimeError("Cloudflare Workers AI 回傳格式不正確")
+        if envelope.get("success") is False:
+            errors = envelope.get("errors")
+            raise RuntimeError(
+                f"Cloudflare Workers AI 請求失敗: {errors or 'unknown error'}"
+            )
+        result = envelope.get("result")
+        if not isinstance(result, dict):
+            raise RuntimeError("Cloudflare Workers AI 缺少 result")
+        return cloudflare_response_to_segments(result, normalized_language)
 
 
 def normalize_asr_language(language: str | None) -> str | None:
@@ -252,7 +400,7 @@ def align_word_texts(segment_text: str, raw_words: list[dict[str, Any]]) -> list
     return aligned
 
 
-def groq_response_to_segments(
+def whisper_response_to_segments(
     data: dict[str, Any],
     language_hint: str | None,
 ) -> tuple[list[SimpleNamespace], SimpleNamespace]:
@@ -301,7 +449,11 @@ def groq_response_to_segments(
                 word=aligned_word_texts[word_index],
                 start=float(word.get("start") or start),
                 end=float(word.get("end") or end),
-                probability=float(word.get("probability") or 1.0),
+                probability=(
+                    float(word["probability"])
+                    if isinstance(word.get("probability"), (int, float))
+                    else None
+                ),
             )
             for word_index, word in enumerate(usable_words)
         ]
@@ -324,3 +476,23 @@ def groq_response_to_segments(
         language=detected_language,
         language_probability=probability,
     )
+
+
+def groq_response_to_segments(
+    data: dict[str, Any],
+    language_hint: str | None,
+) -> tuple[list[SimpleNamespace], SimpleNamespace]:
+    return whisper_response_to_segments(data, language_hint)
+
+
+def cloudflare_response_to_segments(
+    data: dict[str, Any],
+    language_hint: str | None,
+) -> tuple[list[SimpleNamespace], SimpleNamespace]:
+    normalized = dict(data)
+    transcription_info = data.get("transcription_info")
+    if isinstance(transcription_info, dict):
+        for key in ("duration", "language", "language_probability"):
+            if normalized.get(key) is None and transcription_info.get(key) is not None:
+                normalized[key] = transcription_info[key]
+    return whisper_response_to_segments(normalized, language_hint)

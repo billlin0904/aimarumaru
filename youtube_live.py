@@ -28,8 +28,12 @@ from media_audio_stream import (
     probe_media_duration,
 )
 from provider_profiles import (
+    CloudflareWhisperClient,
+    CloudflareWhisperSettings,
     GroqWhisperClient,
     GroqWhisperSettings,
+    REMOTE_ASR_PROVIDERS,
+    WhisperAsrClient,
     asr_provider_for_profile,
     normalize_processing_profile,
     route_translation_workflow_payload,
@@ -92,6 +96,28 @@ GROQ_ASR_MAX_WAIT_SECONDS = max(
 )
 GROQ_ASR_MIN_REQUEST_INTERVAL_SECONDS = max(
     0.0, float(os.getenv("GROQ_ASR_MIN_REQUEST_INTERVAL_SECONDS", "3.1"))
+)
+CLOUDFLARE_ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip()
+CLOUDFLARE_API_TOKEN = os.getenv("CLOUDFLARE_API_TOKEN", "").strip()
+CLOUDFLARE_ASR_BASE_URL = os.getenv(
+    "CLOUDFLARE_ASR_BASE_URL",
+    "https://api.cloudflare.com/client/v4",
+).rstrip("/")
+CLOUDFLARE_ASR_MODEL = os.getenv(
+    "CLOUDFLARE_ASR_MODEL",
+    "@cf/openai/whisper-large-v3-turbo",
+).strip()
+CLOUDFLARE_ASR_TIMEOUT_SECONDS = float(
+    os.getenv("CLOUDFLARE_ASR_TIMEOUT_SECONDS", "120")
+)
+CLOUDFLARE_ASR_MAX_RETRIES = max(
+    0, int(os.getenv("CLOUDFLARE_ASR_MAX_RETRIES", "2"))
+)
+CLOUDFLARE_ASR_FALLBACK_WAIT_SECONDS = max(
+    0.0, float(os.getenv("CLOUDFLARE_ASR_FALLBACK_WAIT_SECONDS", "5"))
+)
+CLOUDFLARE_ASR_MAX_WAIT_SECONDS = max(
+    0.0, float(os.getenv("CLOUDFLARE_ASR_MAX_WAIT_SECONDS", "30"))
 )
 YOUTUBE_WHISPER_VAD_FILTER = os.getenv(
     "YOUTUBE_WHISPER_VAD_FILTER",
@@ -674,7 +700,38 @@ def create_groq_whisper_client() -> GroqWhisperClient:
     )
 
 
-def groq_vad_speech_intervals(audio_samples: np.ndarray) -> list[tuple[float, float]]:
+def create_cloudflare_whisper_client() -> CloudflareWhisperClient:
+    return CloudflareWhisperClient(
+        CloudflareWhisperSettings(
+            account_id=CLOUDFLARE_ACCOUNT_ID,
+            api_token=CLOUDFLARE_API_TOKEN,
+            base_url=CLOUDFLARE_ASR_BASE_URL,
+            model=CLOUDFLARE_ASR_MODEL,
+            timeout_seconds=CLOUDFLARE_ASR_TIMEOUT_SECONDS,
+            max_retries=CLOUDFLARE_ASR_MAX_RETRIES,
+            fallback_wait_seconds=CLOUDFLARE_ASR_FALLBACK_WAIT_SECONDS,
+            max_wait_seconds=CLOUDFLARE_ASR_MAX_WAIT_SECONDS,
+        )
+    )
+
+
+def create_remote_whisper_client(provider: str) -> WhisperAsrClient:
+    if provider == "cloudflare":
+        return create_cloudflare_whisper_client()
+    if provider == "groq":
+        return create_groq_whisper_client()
+    raise ValueError(f"不支援的遠端 ASR provider: {provider}")
+
+
+def asr_source_name(provider: str) -> str:
+    if provider == "cloudflare":
+        return "cloudflare_whisper"
+    if provider == "groq":
+        return "groq_whisper"
+    return "whisper"
+
+
+def remote_vad_speech_intervals(audio_samples: np.ndarray) -> list[tuple[float, float]]:
     if not YOUTUBE_WHISPER_VAD_FILTER:
         duration = len(audio_samples) / 16000
         return [(0.0, duration)] if duration > 0 else []
@@ -690,6 +747,9 @@ def groq_vad_speech_intervals(audio_samples: np.ndarray) -> list[tuple[float, fl
         for item in timestamps
         if item.get("end", 0) > item.get("start", 0)
     ]
+
+
+groq_vad_speech_intervals = remote_vad_speech_intervals
 
 
 def overlaps_speech(
@@ -715,7 +775,7 @@ def transcribe_audio_stream(
     audio_duration_hint: Optional[float] = None,
     transcription_mode: str = "accurate",
     asr_provider: str = "local",
-    groq_client: GroqWhisperClient | None = None,
+    asr_client: WhisperAsrClient | None = None,
     telemetry_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     started_at = time.perf_counter()
@@ -725,9 +785,15 @@ def transcribe_audio_stream(
         else "accurate"
     )
     beam_size = TRANSCRIPTION_MODE_BEAM_SIZES[mode]
+    remote_asr = asr_provider in REMOTE_ASR_PROVIDERS
+    active_asr_client = (
+        asr_client or create_remote_whisper_client(asr_provider)
+        if remote_asr
+        else None
+    )
     asr_model = (
-        GROQ_ASR_MODEL
-        if asr_provider == "groq"
+        str(active_asr_client.model_name)
+        if active_asr_client is not None
         else str(getattr(auto2lrc, "model_name", "faster-whisper"))
     )
     audio_duration = max(
@@ -815,18 +881,23 @@ def transcribe_audio_stream(
                 audio_samples /= 32768.0
                 speech_intervals: list[tuple[float, float]] = []
                 inference_started_at = time.perf_counter()
-                if asr_provider == "groq":
-                    speech_intervals = groq_vad_speech_intervals(audio_samples)
+                if remote_asr:
+                    speech_intervals = remote_vad_speech_intervals(audio_samples)
                     if not speech_intervals:
                         segments = []
                         info = None
                     else:
-                        active_groq_client = (
-                            groq_client or create_groq_whisper_client()
-                        )
-                        segments, info = active_groq_client.transcribe(
+                        if active_asr_client is None:  # pragma: no cover
+                            raise RuntimeError("遠端 ASR client 尚未建立")
+                        segments, info = active_asr_client.transcribe(
                             audio_samples,
                             language=detected_language,
+                            beam_size=beam_size,
+                            vad_filter=YOUTUBE_WHISPER_VAD_FILTER,
+                            condition_on_previous_text=False,
+                            hallucination_silence_threshold=(
+                                YOUTUBE_WHISPER_HALLUCINATION_SILENCE_SECONDS
+                            ),
                         )
                 else:
                     segments, info = auto2lrc.transcribe(
@@ -881,7 +952,7 @@ def transcribe_audio_stream(
                     decoded_segment_count += 1
                     if cancel_check is not None and cancel_check():
                         raise TranscriptionCancelled("轉譯已取消")
-                    if asr_provider == "groq" and not overlaps_speech(
+                    if remote_asr and not overlaps_speech(
                         float(getattr(segment, "start", 0.0)),
                         float(getattr(segment, "end", 0.0)),
                         speech_intervals,
@@ -1097,7 +1168,7 @@ def detect_audio_language(
     cancel_check: Optional[Callable[[], bool]] = None,
     audio_duration_hint: Optional[float] = None,
     asr_provider: str = "local",
-    groq_client: GroqWhisperClient | None = None,
+    asr_client: WhisperAsrClient | None = None,
 ) -> dict[str, Any]:
     logger.info(
         "Whisper language detection started: job_id=%s",
@@ -1124,11 +1195,19 @@ def detect_audio_language(
             dtype="<i2",
         ).astype(np.float32)
         audio_samples /= 32768.0
-        if asr_provider == "groq":
-            active_groq_client = groq_client or create_groq_whisper_client()
-            segments, info = active_groq_client.transcribe(
+        if asr_provider in REMOTE_ASR_PROVIDERS:
+            active_asr_client = asr_client or create_remote_whisper_client(
+                asr_provider
+            )
+            segments, info = active_asr_client.transcribe(
                 audio_samples,
                 language=None,
+                beam_size=5,
+                vad_filter=YOUTUBE_WHISPER_VAD_FILTER,
+                condition_on_previous_text=False,
+                hallucination_silence_threshold=(
+                    YOUTUBE_WHISPER_HALLUCINATION_SILENCE_SECONDS
+                ),
             )
         else:
             scheduler_turn_acquired = False
@@ -1506,10 +1585,12 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             job.get("processing_profile")
         )
         asr_provider = asr_provider_for_profile(processing_profile)
-        groq_client = (
-            create_groq_whisper_client() if asr_provider == "groq" else None
+        asr_client = (
+            create_remote_whisper_client(asr_provider)
+            if asr_provider in REMOTE_ASR_PROVIDERS
+            else None
         )
-        asr_source = "groq_whisper" if asr_provider == "groq" else "whisper"
+        asr_source = asr_source_name(asr_provider)
         terminal = False
         phase = "queued"
         run_started = time.perf_counter()
@@ -1599,7 +1680,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                         job.get("video_duration_seconds"),
                         job.get("transcription_mode", "accurate"),
                         asr_provider,
-                        groq_client,
+                        asr_client,
                         lambda metrics: record_transcription_chunk(job_id, metrics),
                     )
                 ensure_job_not_cancelled(job)
@@ -1651,7 +1732,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                     lambda: job_is_cancelled(job),
                     job.get("video_duration_seconds"),
                     asr_provider,
-                    groq_client,
+                    asr_client,
                 )
                 ensure_job_not_cancelled(job)
                 job["detected_language"] = detection["language"]
@@ -1841,7 +1922,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                     lambda: job_is_cancelled(job),
                     job.get("video_duration_seconds"),
                     asr_provider,
-                    groq_client,
+                    asr_client,
                 )
                 ensure_job_not_cancelled(job)
                 job["detected_language"] = detection["language"]
@@ -1887,7 +1968,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                 job.get("video_duration_seconds"),
                 job.get("transcription_mode", "accurate"),
                 asr_provider,
-                groq_client,
+                asr_client,
                 lambda metrics: record_transcription_chunk(job_id, metrics),
             )
             ensure_job_not_cancelled(job)
@@ -2255,10 +2336,8 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             "include_word_timestamps": include_word_timestamps,
             "transcription_mode": transcription_mode,
             "processing_profile": normalized_profile,
-            "prepared_source": (
-                "groq_whisper"
-                if asr_provider_for_profile(normalized_profile) == "groq"
-                else "whisper"
+            "prepared_source": asr_source_name(
+                asr_provider_for_profile(normalized_profile)
             ),
             "audio_path": str(upload_path),
             "work_dir": str(work_dir),

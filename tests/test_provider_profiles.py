@@ -1,10 +1,13 @@
 import io
 import unittest
 import wave
+from unittest import mock
 
 import numpy as np
 
 from provider_profiles import (
+    CloudflareWhisperClient,
+    CloudflareWhisperSettings,
     GroqWhisperClient,
     GroqWhisperSettings,
     asr_provider_for_profile,
@@ -68,11 +71,25 @@ class ProviderProfileTests(unittest.TestCase):
             "pro": ("local", "premium"),
             "private": ("local", "private"),
         }
-        for value, providers in expected.items():
-            profile = normalize_processing_profile(value)
+        with mock.patch.dict("os.environ", {"AUDIOIO_ASR_PROVIDER": "local"}):
+            for value, providers in expected.items():
+                profile = normalize_processing_profile(value)
+                self.assertEqual(
+                    (
+                        asr_provider_for_profile(profile),
+                        translation_type_for_profile(profile),
+                    ),
+                    providers,
+                )
+
+    def test_asr_provider_can_be_switched_to_cloudflare(self):
+        with mock.patch.dict(
+            "os.environ",
+            {"AUDIOIO_ASR_PROVIDER": "cloudflare"},
+        ):
             self.assertEqual(
-                (asr_provider_for_profile(profile), translation_type_for_profile(profile)),
-                providers,
+                asr_provider_for_profile("standard"),
+                "cloudflare",
             )
 
     def test_workflow_profile_is_only_added_to_translation_requests(self):
@@ -142,6 +159,81 @@ class ProviderProfileTests(unittest.TestCase):
         self.assertEqual(request["headers"]["Authorization"], "Bearer test-key")
         self.assertIn(("model", "whisper-large-v3"), request["data"])
         self.assertEqual(request["files"]["file"][2], "audio/wav")
+
+    def test_cloudflare_adapter_normalizes_workers_ai_result(self):
+        session = FakeSession(
+            [
+                FakeResponse(
+                    200,
+                    {
+                        "success": True,
+                        "errors": [],
+                        "result": {
+                            "transcription_info": {
+                                "language": "en",
+                                "language_probability": 0.99,
+                                "duration": 1.0,
+                            },
+                            "text": "hello world",
+                            "segments": [
+                                {
+                                    "start": 0.0,
+                                    "end": 1.0,
+                                    "text": "hello world",
+                                    "avg_logprob": -0.1,
+                                    "no_speech_prob": 0.01,
+                                    "words": [
+                                        {"start": 0.0, "end": 0.4, "word": "hello"},
+                                        {"start": 0.4, "end": 1.0, "word": "world"},
+                                    ],
+                                }
+                            ],
+                            "vtt": "WEBVTT",
+                        },
+                    },
+                )
+            ]
+        )
+        client = CloudflareWhisperClient(
+            CloudflareWhisperSettings(
+                account_id="test-account",
+                api_token="test-token",
+            ),
+            session=session,
+        )
+
+        segments, info = client.transcribe(
+            np.zeros(16000, dtype=np.float32),
+            language=None,
+            beam_size=1,
+            vad_filter=True,
+            condition_on_previous_text=False,
+            hallucination_silence_threshold=1.0,
+        )
+
+        self.assertEqual(info.language, "en")
+        self.assertEqual(info.language_probability, 0.99)
+        self.assertEqual(segments[0].text, "hello world")
+        self.assertEqual(
+            "".join(word.word for word in segments[0].words),
+            segments[0].text,
+        )
+        self.assertIsNone(segments[0].words[0].probability)
+        url, request = session.calls[0]
+        self.assertTrue(
+            url.endswith(
+                "/accounts/test-account/ai/run/"
+                "@cf/openai/whisper-large-v3-turbo"
+            )
+        )
+        self.assertEqual(
+            request["headers"]["Authorization"],
+            "Bearer test-token",
+        )
+        self.assertEqual(request["json"]["task"], "transcribe")
+        self.assertEqual(request["json"]["beam_size"], 1)
+        self.assertTrue(request["json"]["vad_filter"])
+        self.assertNotIn("language", request["json"])
 
 
 if __name__ == "__main__":
