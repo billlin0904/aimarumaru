@@ -164,6 +164,9 @@ class Auto2Lrc:
                getattr(info, "language", None),
                cancel_check,
            )
+           # Callers of the queued API need Whisper's detection metadata while
+           # keeping the LRC file itself fully backward compatible.
+           return info
         finally:
             if separated_path and os.path.exists(separated_path):
                 os.remove(separated_path)

@@ -105,23 +105,113 @@ class BoundaryOverlapAuto2Lrc(FakeAuto2Lrc):
 
 
 class FakeRemoteWhisperClient:
-    def __init__(self, model_name="@cf/openai/whisper-large-v3-turbo") -> None:
+    def __init__(
+        self,
+        model_name="@cf/openai/whisper-large-v3-turbo",
+        reported_languages=None,
+        include_words=False,
+    ) -> None:
         self.calls = 0
         self.model_name = model_name
         self.options = []
+        self.diarized_options = []
+        self.reported_languages = list(reported_languages or [])
+        self.include_words = include_words
 
     def transcribe(self, samples, *, language=None, **options):
         self.calls += 1
-        self.options.append(options)
+        self.options.append({"language": language, **options})
         duration = len(samples) / 16000
+        reported_language = (
+            self.reported_languages[self.calls - 1]
+            if self.calls <= len(self.reported_languages)
+            else (language or "en")
+        )
         return [
             SimpleNamespace(
                 start=0.1,
                 end=min(1.0, duration),
                 text="cloud transcript",
-                words=[],
+                words=(
+                    [
+                        SimpleNamespace(
+                            word="cloud transcript",
+                            start=0.1,
+                            end=min(1.0, duration),
+                            probability=0.99,
+                        )
+                    ]
+                    if self.include_words
+                    else []
+                ),
+            )
+        ], SimpleNamespace(language=reported_language, language_probability=0.97)
+
+    def transcribe_diarized(
+        self,
+        samples,
+        *,
+        language=None,
+        min_speakers=1,
+        max_speakers=5,
+    ):
+        self.diarized_options.append(
+            {
+                "language": language,
+                "min_speakers": min_speakers,
+                "max_speakers": max_speakers,
+            }
+        )
+        duration = len(samples) / 16000
+        speaker_id = f"SPEAKER_{len(self.diarized_options) % 2:02d}"
+        return [
+            SimpleNamespace(
+                start=0.1,
+                end=min(1.0, duration),
+                text="speaker transcript",
+                speaker_id=speaker_id,
+                words=[
+                    SimpleNamespace(
+                        word=" speaker",
+                        start=0.1,
+                        end=min(0.8, duration),
+                        probability=0.99,
+                        speaker_id=speaker_id,
+                    )
+                ],
             )
         ], SimpleNamespace(language=language or "en", language_probability=0.97)
+
+
+class FakeTogetherRealtimeTranscriber:
+    instances = []
+    result_texts = []
+    total_calls = 0
+
+    def __init__(self, settings, *, language=None) -> None:
+        self.settings = settings
+        self.language = language
+        self.calls = []
+        self.closed = False
+        self.__class__.instances.append(self)
+
+    def transcribe(self, pcm_audio, *, on_delta=None, cancel_check=None):
+        del cancel_check
+        call_number = len(self.calls) + 1
+        self.calls.append(pcm_audio)
+        if on_delta is not None:
+            on_delta(f"partial {call_number}")
+        result_index = self.__class__.total_calls
+        self.__class__.total_calls += 1
+        text = (
+            self.__class__.result_texts[result_index]
+            if result_index < len(self.__class__.result_texts)
+            else f"final {call_number}"
+        )
+        return SimpleNamespace(text=text, delta_count=1)
+
+    def close(self):
+        self.closed = True
 
 
 @unittest.skipUnless(shutil.which("ffmpeg"), "FFmpeg is required")
@@ -142,6 +232,30 @@ class MediaAudioStreamTests(unittest.TestCase):
         self.assertEqual(result["language"], "en")
         self.assertEqual(local.clear_count, 0)
         self.assertEqual(local.sample_counts, [5 * 16000])
+
+    def test_together_language_detection_uses_http_transcription(self) -> None:
+        prefix_pcm = b"\0\0" * (5 * 16000)
+        FakeTogetherRealtimeTranscriber.instances.clear()
+        remote = FakeRemoteWhisperClient(
+            model_name="openai/whisper-large-v3",
+            reported_languages=["ja"],
+        )
+
+        with mock.patch("youtube_live.decode_media_prefix", return_value=prefix_pcm):
+            result = detect_audio_language(
+                FakeAuto2Lrc(),
+                self.audio_path,
+                job_id="together-language-job",
+                audio_duration_hint=25.0,
+                asr_provider="together",
+                asr_client=remote,
+            )
+
+        self.assertEqual(result["language"], "ja")
+        self.assertEqual(result["language_probability"], 0.97)
+        self.assertEqual(remote.calls, 1)
+        self.assertIsNone(remote.options[0]["language"])
+        self.assertEqual(FakeTogetherRealtimeTranscriber.instances, [])
 
     def test_full_groq_segment_uses_authoritative_segment_text(self) -> None:
         segment = SimpleNamespace(
@@ -391,6 +505,179 @@ class MediaAudioStreamTests(unittest.TestCase):
             result["asr_model"],
             "@cf/openai/whisper-large-v3-turbo",
         )
+
+    def test_cloudflare_auto_omits_language_for_every_chunk(self) -> None:
+        async def run_test():
+            event_queue: asyncio.Queue = asyncio.Queue()
+            remote = FakeRemoteWhisperClient(
+                reported_languages=["ja", "ko", "en"],
+            )
+            with (
+                mock.patch("youtube_live.YOUTUBE_WHISPER_STREAM_CHUNK_SECONDS", 10.0),
+                mock.patch("youtube_live.YOUTUBE_WHISPER_INITIAL_CHUNK_SECONDS", 10.0),
+                mock.patch("youtube_live.YOUTUBE_WHISPER_STREAM_OVERLAP_SECONDS", 0.0),
+                mock.patch(
+                    "youtube_live.remote_vad_speech_intervals",
+                    side_effect=lambda samples: [(0.0, len(samples) / 16000)],
+                ),
+            ):
+                await asyncio.to_thread(
+                    transcribe_audio_stream,
+                    FakeAuto2Lrc(),
+                    self.audio_path,
+                    None,
+                    asyncio.get_running_loop(),
+                    event_queue,
+                    "cloudflare-auto-job",
+                    None,
+                    False,
+                    25.0,
+                    "accurate",
+                    "cloudflare",
+                    remote,
+                )
+            events = []
+            while not event_queue.empty():
+                events.append(event_queue.get_nowait())
+            return remote, events
+
+        remote, events = asyncio.run(run_test())
+        segment_languages = [
+            event["data"]["language"]
+            for event in events
+            if event["event"] == "segment"
+        ]
+
+        self.assertEqual(remote.calls, 3)
+        self.assertEqual([item["language"] for item in remote.options], [None] * 3)
+        self.assertEqual(segment_languages, ["ja", "ko", "en"])
+
+    def test_cloudflare_manual_language_is_sent_for_every_chunk(self) -> None:
+        async def run_test():
+            event_queue: asyncio.Queue = asyncio.Queue()
+            remote = FakeRemoteWhisperClient(
+                reported_languages=["ko", "en", "zh"],
+            )
+            with (
+                mock.patch("youtube_live.YOUTUBE_WHISPER_STREAM_CHUNK_SECONDS", 10.0),
+                mock.patch("youtube_live.YOUTUBE_WHISPER_INITIAL_CHUNK_SECONDS", 10.0),
+                mock.patch("youtube_live.YOUTUBE_WHISPER_STREAM_OVERLAP_SECONDS", 0.0),
+                mock.patch(
+                    "youtube_live.remote_vad_speech_intervals",
+                    side_effect=lambda samples: [(0.0, len(samples) / 16000)],
+                ),
+            ):
+                await asyncio.to_thread(
+                    transcribe_audio_stream,
+                    FakeAuto2Lrc(),
+                    self.audio_path,
+                    "ja",
+                    asyncio.get_running_loop(),
+                    event_queue,
+                    "cloudflare-manual-job",
+                    None,
+                    False,
+                    25.0,
+                    "accurate",
+                    "cloudflare",
+                    remote,
+                )
+            events = []
+            while not event_queue.empty():
+                events.append(event_queue.get_nowait())
+            return remote, events
+
+        remote, events = asyncio.run(run_test())
+        segment_languages = [
+            event["data"]["language"]
+            for event in events
+            if event["event"] == "segment"
+        ]
+
+        self.assertEqual(remote.calls, 3)
+        self.assertEqual([item["language"] for item in remote.options], ["ja"] * 3)
+        self.assertEqual(segment_languages, ["ja", "ja", "ja"])
+
+    def test_together_http_emits_word_timestamps_without_websocket(self) -> None:
+        async def run_test():
+            event_queue: asyncio.Queue = asyncio.Queue()
+            remote = FakeRemoteWhisperClient(
+                model_name="openai/whisper-large-v3",
+                include_words=True,
+            )
+            FakeTogetherRealtimeTranscriber.instances.clear()
+            with (
+                mock.patch("youtube_live.YOUTUBE_WHISPER_STREAM_CHUNK_SECONDS", 10.0),
+                mock.patch("youtube_live.YOUTUBE_WHISPER_INITIAL_CHUNK_SECONDS", 10.0),
+                mock.patch("youtube_live.YOUTUBE_WHISPER_STREAM_OVERLAP_SECONDS", 0.0),
+                mock.patch(
+                    "youtube_live.remote_vad_speech_intervals",
+                    side_effect=lambda samples: [(0.0, len(samples) / 16000)],
+                ),
+            ):
+                result = await asyncio.to_thread(
+                    transcribe_audio_stream,
+                    FakeAuto2Lrc(),
+                    self.audio_path,
+                    None,
+                    asyncio.get_running_loop(),
+                    event_queue,
+                    "together-job",
+                    None,
+                    True,
+                    25.0,
+                    "accurate",
+                    "together",
+                    remote,
+                    None,
+                    "ko",
+                )
+            events = []
+            while not event_queue.empty():
+                events.append(event_queue.get_nowait())
+            return remote, result, events
+
+        remote, result, events = asyncio.run(run_test())
+        segment_events = [
+            event["data"] for event in events if event["event"] == "segment"
+        ]
+
+        self.assertEqual(remote.calls, 3)
+        self.assertEqual(FakeTogetherRealtimeTranscriber.instances, [])
+        self.assertEqual([item["language"] for item in segment_events], ["en"] * 3)
+        self.assertTrue(all(len(item["words"]) == 1 for item in segment_events))
+        self.assertEqual(
+            [item["words"][0]["start"] for item in segment_events],
+            [0.1, 10.1, 20.1],
+        )
+        self.assertEqual(result["timing_precision"], "word")
+        self.assertEqual(result["transcription_delivery"], "http")
+
+    def test_together_speaker_diarization_is_temporarily_disabled(self) -> None:
+        async def run_test():
+            event_queue: asyncio.Queue = asyncio.Queue()
+            remote = FakeRemoteWhisperClient(model_name="openai/whisper-large-v3")
+            with self.assertRaisesRegex(RuntimeError, "講者辨識暫時停用"):
+                await asyncio.to_thread(
+                    transcribe_audio_stream,
+                    FakeAuto2Lrc(),
+                    self.audio_path,
+                    None,
+                    asyncio.get_running_loop(),
+                    event_queue,
+                    "together-batch-job",
+                    None,
+                    True,
+                    25.0,
+                    "accurate",
+                    "together",
+                    remote,
+                    None,
+                    "en",
+                    True,
+                )
+
+        asyncio.run(run_test())
 
     def test_overlap_boundary_splits_by_word_without_losing_speech(self) -> None:
         async def run_test():

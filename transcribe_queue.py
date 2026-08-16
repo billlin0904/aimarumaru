@@ -25,6 +25,12 @@ try:
     )
 except ValueError:
     TRANSCRIBE_WORKER_CONCURRENCY = 2
+try:
+    TRANSCRIBE_REMOTE_WORKER_CONCURRENCY = max(
+        1, int(os.getenv("TRANSCRIBE_REMOTE_WORKER_CONCURRENCY", "50"))
+    )
+except ValueError:
+    TRANSCRIBE_REMOTE_WORKER_CONCURRENCY = 50
 
 TranscribeTask = dict[str, Any]
 TranscribeTaskHandler = Callable[[TranscribeTask], Awaitable[None] | None]
@@ -34,6 +40,9 @@ transcribe_queue: Optional[asyncio.Queue[TranscribeTask]] = None
 transcribe_worker_task: Optional[asyncio.Task[Any]] = None
 transcribe_cleanup_task: Optional[asyncio.Task[Any]] = None
 transcribe_active_count = 0
+transcribe_waiting_count = 0
+transcribe_active_by_group = {"default": 0, "remote_asr": 0}
+transcribe_worker_semaphores: dict[str, asyncio.Semaphore] = {}
 task_handlers: dict[str, TranscribeTaskHandler] = {}
 cleanup_handlers: list[TranscribeCleanupHandler] = []
 
@@ -130,18 +139,31 @@ def get_transcribe_queue_size() -> int:
 
 
 def get_transcribe_queue_counts() -> dict[str, int]:
-    waiting_count = get_transcribe_queue_size()
+    queue_size = get_transcribe_queue_size()
+    waiting_count = queue_size + transcribe_waiting_count
     return {
-        "queue_size": waiting_count,
+        "queue_size": queue_size,
         "waiting_count": waiting_count,
         "transcribing_count": transcribe_active_count,
         "queue_capacity": transcribe_queue.maxsize if transcribe_queue else 0,
+        "local_transcribing_count": transcribe_active_by_group["default"],
+        "remote_transcribing_count": transcribe_active_by_group["remote_asr"],
+        "local_worker_concurrency": TRANSCRIBE_WORKER_CONCURRENCY,
+        "remote_worker_concurrency": TRANSCRIBE_REMOTE_WORKER_CONCURRENCY,
     }
 
 
 def enqueue_transcribe_task(task: TranscribeTask) -> None:
     if transcribe_queue is None:
         raise RuntimeError("Transcribe queue is not started")
+    if transcribe_queue.qsize() + transcribe_waiting_count >= transcribe_queue.maxsize:
+        logger.warning(
+            "Transcribe queue is full: limit=%d kind=%s id=%s",
+            transcribe_queue.maxsize,
+            task.get("kind", ""),
+            task.get("id", ""),
+        )
+        raise asyncio.QueueFull
     try:
         transcribe_queue.put_nowait(task)
     except asyncio.QueueFull:
@@ -183,23 +205,35 @@ def cancel_queued_transcribe_task(kind: str, task_id: str) -> bool:
 
 
 async def start_transcribe_queue(max_size: int = TRANSCRIBE_QUEUE_MAX_SIZE) -> None:
-    global transcribe_queue, transcribe_worker_task, transcribe_cleanup_task, transcribe_active_count
+    global transcribe_queue, transcribe_worker_task, transcribe_cleanup_task
+    global transcribe_active_count, transcribe_waiting_count
+    global transcribe_active_by_group, transcribe_worker_semaphores
     if transcribe_queue is not None:
         return
 
     transcribe_active_count = 0
+    transcribe_waiting_count = 0
+    transcribe_active_by_group = {"default": 0, "remote_asr": 0}
+    transcribe_worker_semaphores = {
+        "default": asyncio.Semaphore(TRANSCRIBE_WORKER_CONCURRENCY),
+        "remote_asr": asyncio.Semaphore(TRANSCRIBE_REMOTE_WORKER_CONCURRENCY),
+    }
     transcribe_queue = asyncio.Queue(maxsize=max_size)
     transcribe_worker_task = asyncio.create_task(transcribe_queue_worker())
     transcribe_cleanup_task = asyncio.create_task(transcribe_cleanup_worker())
     logger.info(
-        "Transcribe queue started: max_size=%d worker_concurrency=%d",
+        "Transcribe queue started: max_size=%d local_worker_concurrency=%d "
+        "remote_worker_concurrency=%d",
         max_size,
         TRANSCRIBE_WORKER_CONCURRENCY,
+        TRANSCRIBE_REMOTE_WORKER_CONCURRENCY,
     )
 
 
 async def stop_transcribe_queue() -> None:
-    global transcribe_queue, transcribe_worker_task, transcribe_cleanup_task, transcribe_active_count
+    global transcribe_queue, transcribe_worker_task, transcribe_cleanup_task
+    global transcribe_active_count, transcribe_waiting_count
+    global transcribe_active_by_group, transcribe_worker_semaphores
 
     tasks = [transcribe_worker_task, transcribe_cleanup_task]
     for task in tasks:
@@ -214,16 +248,32 @@ async def stop_transcribe_queue() -> None:
     transcribe_worker_task = None
     transcribe_cleanup_task = None
     transcribe_active_count = 0
+    transcribe_waiting_count = 0
+    transcribe_active_by_group = {"default": 0, "remote_asr": 0}
+    transcribe_worker_semaphores = {}
 
 
 async def transcribe_queue_worker() -> None:
-    global transcribe_active_count
+    global transcribe_active_count, transcribe_waiting_count
     active: set[asyncio.Task[Any]] = set()
 
     async def run_task(task: TranscribeTask) -> None:
-        global transcribe_active_count
-        transcribe_active_count += 1
+        global transcribe_active_count, transcribe_waiting_count
+        worker_group = (
+            "remote_asr"
+            if str(task.get("worker_group") or "") == "remote_asr"
+            else "default"
+        )
+        semaphore = transcribe_worker_semaphores[worker_group]
+        acquired = False
+        waiting = True
         try:
+            await semaphore.acquire()
+            acquired = True
+            transcribe_waiting_count = max(0, transcribe_waiting_count - 1)
+            waiting = False
+            transcribe_active_count += 1
+            transcribe_active_by_group[worker_group] += 1
             kind = str(task.get("kind", ""))
             handler = task_handlers.get(kind)
             if handler is None:
@@ -242,14 +292,27 @@ async def transcribe_queue_worker() -> None:
                 task.get("id", ""),
             )
         finally:
-            transcribe_active_count = max(0, transcribe_active_count - 1)
+            if waiting:
+                transcribe_waiting_count = max(0, transcribe_waiting_count - 1)
+            if acquired:
+                transcribe_active_count = max(0, transcribe_active_count - 1)
+                transcribe_active_by_group[worker_group] = max(
+                    0,
+                    transcribe_active_by_group[worker_group] - 1,
+                )
+                semaphore.release()
             if transcribe_queue is not None:
                 transcribe_queue.task_done()
 
     try:
         while True:
             assert transcribe_queue is not None
-            while len(active) >= TRANSCRIBE_WORKER_CONCURRENCY:
+            dispatch_concurrency = max(
+                transcribe_queue.maxsize,
+                TRANSCRIBE_WORKER_CONCURRENCY
+                + TRANSCRIBE_REMOTE_WORKER_CONCURRENCY,
+            )
+            while len(active) >= dispatch_concurrency:
                 done, pending = await asyncio.wait(
                     active,
                     return_when=asyncio.FIRST_COMPLETED,
@@ -266,6 +329,7 @@ async def transcribe_queue_worker() -> None:
                         # the handler owner and task_done() ran in finally.
                         logger.exception("Transcribe task runner failed")
             task = await transcribe_queue.get()
+            transcribe_waiting_count += 1
             active.add(asyncio.create_task(run_task(task)))
     finally:
         for running in active:

@@ -10,6 +10,8 @@ from provider_profiles import (
     CloudflareWhisperSettings,
     GroqWhisperClient,
     GroqWhisperSettings,
+    TogetherWhisperClient,
+    TogetherWhisperSettings,
     asr_provider_for_profile,
     detokenize_word_texts,
     normalize_processing_profile,
@@ -90,6 +92,16 @@ class ProviderProfileTests(unittest.TestCase):
             self.assertEqual(
                 asr_provider_for_profile("standard"),
                 "cloudflare",
+            )
+
+    def test_asr_provider_can_be_switched_to_together(self):
+        with mock.patch.dict(
+            "os.environ",
+            {"AUDIOIO_ASR_PROVIDER": "together"},
+        ):
+            self.assertEqual(
+                asr_provider_for_profile("standard"),
+                "together",
             )
 
     def test_workflow_profile_is_only_added_to_translation_requests(self):
@@ -234,6 +246,224 @@ class ProviderProfileTests(unittest.TestCase):
         self.assertEqual(request["json"]["beam_size"], 1)
         self.assertTrue(request["json"]["vad_filter"])
         self.assertNotIn("language", request["json"])
+
+    def test_cloudflare_adapter_sends_manual_language(self):
+        session = FakeSession(
+            [
+                FakeResponse(
+                    200,
+                    {
+                        "success": True,
+                        "errors": [],
+                        "result": {
+                            "text": "こんにちは",
+                            "language": "ja",
+                            "segments": [
+                                {"start": 0.0, "end": 1.0, "text": "こんにちは"}
+                            ],
+                        },
+                    },
+                )
+            ]
+        )
+        client = CloudflareWhisperClient(
+            CloudflareWhisperSettings(
+                account_id="test-account",
+                api_token="test-token",
+            ),
+            session=session,
+        )
+
+        _, info = client.transcribe(
+            np.zeros(16000, dtype=np.float32),
+            language="ja",
+        )
+
+        self.assertEqual(info.language, "ja")
+        self.assertEqual(session.calls[0][1]["json"]["language"], "ja")
+
+    def test_together_adapter_uses_auto_language_for_detection(self):
+        session = FakeSession(
+            [
+                FakeResponse(
+                    200,
+                    {
+                        "language": "korean",
+                        "language_probability": 0.97,
+                        "duration": 1.0,
+                        "text": "안녕하세요",
+                        "words": [
+                            {"start": 0.0, "end": 1.0, "word": "안녕하세요"}
+                        ],
+                    },
+                )
+            ]
+        )
+        client = TogetherWhisperClient(
+            TogetherWhisperSettings(api_key="test-key"),
+            session=session,
+        )
+
+        segments, info = client.transcribe(
+            np.zeros(16000, dtype=np.float32),
+            language=None,
+        )
+
+        self.assertEqual(segments[0].text, "안녕하세요")
+        self.assertEqual(segments[0].words[0].word, "안녕하세요")
+        self.assertEqual(segments[0].words[0].start, 0.0)
+        self.assertEqual(segments[0].words[0].end, 1.0)
+        self.assertEqual(info.language, "ko")
+        self.assertEqual(info.language_probability, 0.97)
+        url, request = session.calls[0]
+        self.assertTrue(url.endswith("/audio/transcriptions"))
+        self.assertEqual(request["headers"]["Authorization"], "Bearer test-key")
+        self.assertIn(("model", "openai/whisper-large-v3"), request["data"])
+        self.assertIn(("language", "auto"), request["data"])
+        self.assertIn(("response_format", "verbose_json"), request["data"])
+        self.assertIn(("timestamp_granularities[]", "word"), request["data"])
+        self.assertIn(("timestamp_granularities[]", "segment"), request["data"])
+        self.assertNotIn(("diarize", "true"), request["data"])
+
+    def test_together_adapter_sends_manual_language(self):
+        session = FakeSession(
+            [
+                FakeResponse(
+                    200,
+                    {
+                        "language": "japanese",
+                        "text": "こんにちは",
+                        "segments": [
+                            {"start": 0.0, "end": 1.0, "text": "こんにちは"}
+                        ],
+                    },
+                )
+            ]
+        )
+        client = TogetherWhisperClient(
+            TogetherWhisperSettings(api_key="test-key"),
+            session=session,
+        )
+
+        _, info = client.transcribe(
+            np.zeros(16000, dtype=np.float32),
+            language="ja-JP",
+        )
+
+        self.assertEqual(info.language, "ja")
+        self.assertIn(("language", "ja"), session.calls[0][1]["data"])
+
+    def test_together_adapter_splits_provider_block_into_timed_sentences(self):
+        session = FakeSession(
+            [
+                FakeResponse(
+                    200,
+                    {
+                        "language": "english",
+                        "duration": 6.0,
+                        "text": "- Hello everyone. Concerto No. 1. We are ready.",
+                        "segments": [
+                            {
+                                "start": 0.0,
+                                "end": 6.0,
+                                "text": "- Hello everyone. Concerto No. 1. We are ready.",
+                            }
+                        ],
+                        "words": [
+                            {"word": "-", "start": 0.0, "end": 0.0},
+                            {"word": "Hello", "start": 0.1, "end": 0.5},
+                            {"word": "everyone.", "start": 0.6, "end": 1.2},
+                            {"word": "Concerto", "start": 1.5, "end": 1.8},
+                            {"word": "No.", "start": 1.9, "end": 2.1},
+                            {"word": "1.", "start": 2.2, "end": 2.7},
+                            {"word": "We", "start": 3.0, "end": 3.2},
+                            {"word": "are", "start": 3.3, "end": 3.5},
+                            {"word": "ready.", "start": 3.6, "end": 4.1},
+                        ],
+                    },
+                )
+            ]
+        )
+        client = TogetherWhisperClient(
+            TogetherWhisperSettings(api_key="test-key"),
+            session=session,
+        )
+
+        segments, _ = client.transcribe(np.zeros(16000 * 6, dtype=np.float32))
+
+        self.assertEqual(
+            [segment.text for segment in segments],
+            ["- Hello everyone.", "Concerto No. 1.", "We are ready."],
+        )
+        self.assertEqual(
+            [(segment.start, segment.end) for segment in segments],
+            [(0.1, 1.2), (1.5, 2.7), (3.0, 4.1)],
+        )
+        self.assertEqual([len(segment.words) for segment in segments], [3, 3, 3])
+        self.assertEqual(segments[0].words[0].start, 0.1)
+
+    def test_together_diarization_uses_speaker_segments(self):
+        session = FakeSession(
+            [
+                FakeResponse(
+                    200,
+                    {
+                        "language": "english",
+                        "text": "Hello. Welcome.",
+                        "words": [
+                            {
+                                "start": 0.0,
+                                "end": 0.5,
+                                "word": "Hello.",
+                                "speaker_id": "SPEAKER_00",
+                            },
+                            {
+                                "start": 0.6,
+                                "end": 1.2,
+                                "word": "Welcome.",
+                                "speaker_id": "SPEAKER_01",
+                            },
+                        ],
+                        "speaker_segments": [
+                            {
+                                "start": 0.0,
+                                "end": 0.5,
+                                "text": "Hello.",
+                                "speaker_id": "SPEAKER_00",
+                            },
+                            {
+                                "start": 0.6,
+                                "end": 1.2,
+                                "text": "Welcome.",
+                                "speaker_id": "SPEAKER_01",
+                            },
+                        ],
+                    },
+                )
+            ]
+        )
+        client = TogetherWhisperClient(
+            TogetherWhisperSettings(api_key="test-key"),
+            session=session,
+        )
+
+        segments, info = client.transcribe_diarized(
+            np.zeros(16000 * 2, dtype=np.float32),
+            language=None,
+            min_speakers=1,
+            max_speakers=4,
+        )
+
+        self.assertEqual(info.language, "en")
+        self.assertEqual(
+            [segment.speaker_id for segment in segments],
+            ["SPEAKER_00", "SPEAKER_01"],
+        )
+        self.assertEqual(segments[1].words[0].speaker_id, "SPEAKER_01")
+        request_data = session.calls[0][1]["data"]
+        self.assertIn(("diarize", "true"), request_data)
+        self.assertIn(("min_speakers", "1"), request_data)
+        self.assertIn(("max_speakers", "4"), request_data)
 
 
 if __name__ == "__main__":

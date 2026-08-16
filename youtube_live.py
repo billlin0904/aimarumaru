@@ -3,6 +3,7 @@ import json
 import logging
 import math
 import os
+import re
 import secrets
 import shutil
 import tempfile
@@ -11,15 +12,21 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from collections.abc import Callable
+from types import SimpleNamespace
 from typing import Any, Optional
 
 import aiohttp
 import numpy as np
+import requests
 from fastapi import APIRouter, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
 from app_logging import log_structured_event, set_request_log_metadata
+from cloudflare_asr_queue import (
+    CloudflareAsrRequestCancelled,
+    cloudflare_asr_scheduler,
+)
 from gpu_info import get_pynvml_gpu_info
 from media_audio_stream import (
     FFmpegPcmChunkStream,
@@ -33,11 +40,20 @@ from provider_profiles import (
     GroqWhisperClient,
     GroqWhisperSettings,
     REMOTE_ASR_PROVIDERS,
+    TogetherWhisperClient,
+    TogetherWhisperSettings,
     WhisperAsrClient,
     asr_provider_for_profile,
     normalize_processing_profile,
+    retry_after_seconds,
     route_translation_workflow_payload,
     translation_type_for_profile,
+)
+from together_realtime import (
+    TogetherRealtimeCancelled,
+    TogetherRealtimeResult,
+    TogetherRealtimeSettings,
+    TogetherRealtimeTranscriber,
 )
 from text_converter import to_traditional_chinese
 from transcribe_queue import (
@@ -51,6 +67,7 @@ from transcribe_queue import (
 )
 from youtube_srt import (
     choose_subtitle_track,
+    download_youtube_audio,
     download_subtitle_content,
     get_youtube_audio_stream_source,
     get_youtube_playlist_preview,
@@ -118,6 +135,62 @@ CLOUDFLARE_ASR_FALLBACK_WAIT_SECONDS = max(
 )
 CLOUDFLARE_ASR_MAX_WAIT_SECONDS = max(
     0.0, float(os.getenv("CLOUDFLARE_ASR_MAX_WAIT_SECONDS", "30"))
+)
+TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY", "").strip()
+TOGETHER_ASR_BASE_URL = os.getenv(
+    "TOGETHER_ASR_BASE_URL",
+    "https://api.together.ai/v1",
+).rstrip("/")
+TOGETHER_ASR_MODEL = os.getenv(
+    "TOGETHER_ASR_MODEL",
+    "openai/whisper-large-v3",
+).strip()
+TOGETHER_REALTIME_MODEL = TOGETHER_ASR_MODEL
+TOGETHER_REALTIME_URL = os.getenv(
+    "TOGETHER_REALTIME_URL",
+    "wss://api.together.ai/v1/realtime",
+).strip()
+TOGETHER_ASR_TIMEOUT_SECONDS = float(
+    os.getenv("TOGETHER_ASR_TIMEOUT_SECONDS", "120")
+)
+TOGETHER_ASR_MAX_RETRIES = max(
+    0, int(os.getenv("TOGETHER_ASR_MAX_RETRIES", "2"))
+)
+TOGETHER_ASR_FALLBACK_WAIT_SECONDS = max(
+    0.0, float(os.getenv("TOGETHER_ASR_FALLBACK_WAIT_SECONDS", "5"))
+)
+TOGETHER_ASR_MAX_WAIT_SECONDS = max(
+    0.0, float(os.getenv("TOGETHER_ASR_MAX_WAIT_SECONDS", "30"))
+)
+TOGETHER_REALTIME_MAX_RETRIES = max(
+    0, int(os.getenv("TOGETHER_REALTIME_MAX_RETRIES", "1"))
+)
+TOGETHER_REALTIME_CHUNK_SECONDS = max(
+    10.0,
+    float(os.getenv("TOGETHER_REALTIME_CHUNK_SECONDS", "10")),
+)
+TOGETHER_REALTIME_FRAME_BYTES = max(
+    1024,
+    int(os.getenv("TOGETHER_REALTIME_FRAME_BYTES", "4096")),
+)
+TOGETHER_BATCH_CHUNK_SECONDS = max(
+    30.0,
+    float(os.getenv("TOGETHER_BATCH_CHUNK_SECONDS", "600")),
+)
+TOGETHER_MULTILINGUAL_SOURCE_CHUNK_SECONDS = max(
+    10.0,
+    min(
+        60.0,
+        float(os.getenv("TOGETHER_MULTILINGUAL_SOURCE_CHUNK_SECONDS", "30")),
+    ),
+)
+TOGETHER_DIARIZATION_MIN_SPEAKERS = max(
+    1,
+    int(os.getenv("TOGETHER_DIARIZATION_MIN_SPEAKERS", "1")),
+)
+TOGETHER_DIARIZATION_MAX_SPEAKERS = max(
+    TOGETHER_DIARIZATION_MIN_SPEAKERS,
+    int(os.getenv("TOGETHER_DIARIZATION_MAX_SPEAKERS", "5")),
 )
 YOUTUBE_WHISPER_VAD_FILTER = os.getenv(
     "YOUTUBE_WHISPER_VAD_FILTER",
@@ -221,6 +294,9 @@ def new_job_telemetry() -> dict[str, Any]:
             "last_input_wait_ms": None,
             "average_input_wait_ms": None,
             "max_input_wait_ms": None,
+            "last_scheduler_wait_ms": None,
+            "average_scheduler_wait_ms": None,
+            "max_scheduler_wait_ms": None,
             "last_inference_ms": None,
             "average_inference_ms": None,
             "max_inference_ms": None,
@@ -293,12 +369,25 @@ def normalize_transcription_mode(value: Optional[str]) -> str:
     return mode
 
 
+def validate_speaker_diarization(
+    processing_profile: str,
+    enabled: bool,
+) -> None:
+    del processing_profile
+    if enabled:
+        raise HTTPException(
+            status_code=422,
+            detail="講者辨識暫時停用；目前先測試 Together 逐字時間",
+        )
+
+
 class YoutubeLiveRequest(BaseModel):
     url: str
     language: str = ""
     captcha_token: str = ""
     ignore_subtitles: bool = False
     include_word_timestamps: bool = False
+    speaker_diarization: bool = False
     transcription_mode: str = "accurate"
     processing_profile: str = "standard"
 
@@ -326,6 +415,7 @@ class VideoUploadBatchSessionRequest(BaseModel):
 class VideoUploadCompleteRequest(BaseModel):
     language: str = ""
     include_word_timestamps: bool = True
+    speaker_diarization: bool = False
     transcription_mode: str = "accurate"
     processing_profile: str = "standard"
 
@@ -408,6 +498,7 @@ def segment_payload(
     language: Optional[str] = None,
     low_confidence_spans: Optional[list[str]] = None,
     words: Optional[list[dict[str, Any]]] = None,
+    speaker_id: Optional[str] = None,
 ) -> dict[str, Any]:
     payload = {
         "index": index,
@@ -420,6 +511,8 @@ def segment_payload(
         payload["low_confidence_spans"] = low_confidence_spans
     if words is not None:
         payload["words"] = words
+    if speaker_id:
+        payload["speaker_id"] = speaker_id
     return payload
 
 
@@ -488,6 +581,9 @@ def whisper_word_payloads(
                 probability_value = None
             if probability_value is not None and math.isfinite(probability_value):
                 payload["probability"] = round(probability_value, 6)
+        speaker_id = str(getattr(word, "speaker_id", "") or "").strip()
+        if speaker_id:
+            payload["speaker_id"] = speaker_id
         payloads.append(payload)
     return payloads
 
@@ -700,7 +796,10 @@ def create_groq_whisper_client() -> GroqWhisperClient:
     )
 
 
-def create_cloudflare_whisper_client() -> CloudflareWhisperClient:
+def create_cloudflare_whisper_client(
+    *,
+    scheduler_managed: bool = True,
+) -> CloudflareWhisperClient:
     return CloudflareWhisperClient(
         CloudflareWhisperSettings(
             account_id=CLOUDFLARE_ACCOUNT_ID,
@@ -708,9 +807,23 @@ def create_cloudflare_whisper_client() -> CloudflareWhisperClient:
             base_url=CLOUDFLARE_ASR_BASE_URL,
             model=CLOUDFLARE_ASR_MODEL,
             timeout_seconds=CLOUDFLARE_ASR_TIMEOUT_SECONDS,
-            max_retries=CLOUDFLARE_ASR_MAX_RETRIES,
+            max_retries=0 if scheduler_managed else CLOUDFLARE_ASR_MAX_RETRIES,
             fallback_wait_seconds=CLOUDFLARE_ASR_FALLBACK_WAIT_SECONDS,
             max_wait_seconds=CLOUDFLARE_ASR_MAX_WAIT_SECONDS,
+        )
+    )
+
+
+def create_together_whisper_client() -> TogetherWhisperClient:
+    return TogetherWhisperClient(
+        TogetherWhisperSettings(
+            api_key=TOGETHER_API_KEY,
+            base_url=TOGETHER_ASR_BASE_URL,
+            model=TOGETHER_ASR_MODEL,
+            timeout_seconds=TOGETHER_ASR_TIMEOUT_SECONDS,
+            max_retries=TOGETHER_ASR_MAX_RETRIES,
+            fallback_wait_seconds=TOGETHER_ASR_FALLBACK_WAIT_SECONDS,
+            max_wait_seconds=TOGETHER_ASR_MAX_WAIT_SECONDS,
         )
     )
 
@@ -720,7 +833,220 @@ def create_remote_whisper_client(provider: str) -> WhisperAsrClient:
         return create_cloudflare_whisper_client()
     if provider == "groq":
         return create_groq_whisper_client()
+    if provider == "together":
+        return create_together_whisper_client()
     raise ValueError(f"不支援的遠端 ASR provider: {provider}")
+
+
+def _cancelable_sleep(
+    seconds: float,
+    cancel_check: Callable[[], bool] | None,
+) -> None:
+    deadline = time.perf_counter() + max(0.0, seconds)
+    while True:
+        if cancel_check is not None and cancel_check():
+            raise TranscriptionCancelled("轉譯已取消")
+        remaining = deadline - time.perf_counter()
+        if remaining <= 0:
+            return
+        time.sleep(min(0.25, remaining))
+
+
+def transcribe_remote_audio(
+    asr_provider: str,
+    asr_client: WhisperAsrClient,
+    audio_samples: np.ndarray,
+    *,
+    language: str | None,
+    beam_size: int,
+    vad_filter: bool,
+    condition_on_previous_text: bool,
+    hallucination_silence_threshold: float | None,
+    job_id: str | None,
+    cancel_check: Callable[[], bool] | None,
+) -> tuple[list[Any], Any, float]:
+    options = {
+        "language": language,
+        "beam_size": beam_size,
+        "vad_filter": vad_filter,
+        "condition_on_previous_text": condition_on_previous_text,
+        "hallucination_silence_threshold": hallucination_silence_threshold,
+    }
+    if asr_provider != "cloudflare" or not job_id:
+        segments, info = asr_client.transcribe(audio_samples, **options)
+        return segments, info, 0.0
+
+    scheduler_wait_ms = 0.0
+    for attempt in range(CLOUDFLARE_ASR_MAX_RETRIES + 1):
+        try:
+            scheduled = cloudflare_asr_scheduler.execute(
+                str(job_id),
+                lambda: asr_client.transcribe(audio_samples, **options),
+                cancel_check,
+            )
+        except CloudflareAsrRequestCancelled as exc:
+            raise TranscriptionCancelled("轉譯已取消") from exc
+        except requests.HTTPError as exc:
+            response = exc.response
+            if (
+                response is None
+                or response.status_code != 429
+                or attempt >= CLOUDFLARE_ASR_MAX_RETRIES
+            ):
+                raise
+            wait_seconds = retry_after_seconds(response)
+            if wait_seconds is None:
+                wait_seconds = CLOUDFLARE_ASR_FALLBACK_WAIT_SECONDS
+            if wait_seconds > CLOUDFLARE_ASR_MAX_WAIT_SECONDS:
+                raise
+            _cancelable_sleep(wait_seconds, cancel_check)
+            continue
+        scheduler_wait_ms += scheduled.queue_wait_ms
+        segments, info = scheduled.value
+        return segments, info, scheduler_wait_ms
+    raise AssertionError("Cloudflare ASR retry loop did not return")
+
+
+TOGETHER_LANGUAGE_TAG_PATTERN = re.compile(
+    r"<(?P<language>[a-z]{2,3})(?:-[A-Za-z]{2,4})?>",
+    re.IGNORECASE,
+)
+
+
+def normalize_together_multilingual_text(
+    transcript: str,
+) -> tuple[str, str | None]:
+    value = str(transcript or "").strip()
+    tagged_languages = [
+        match.group("language").lower()
+        for match in TOGETHER_LANGUAGE_TAG_PATTERN.finditer(value)
+    ]
+    value = TOGETHER_LANGUAGE_TAG_PATTERN.sub("", value).strip()
+    tagged_languages = list(dict.fromkeys(tagged_languages))
+    if len(tagged_languages) == 1:
+        return value, tagged_languages[0]
+    if len(tagged_languages) > 1:
+        return value, "auto"
+
+    script_languages: list[str] = []
+    if re.search(r"[\u3040-\u30ff]", value):
+        script_languages.append("ja")
+    if re.search(r"[\uac00-\ud7af]", value):
+        script_languages.append("ko")
+    if re.search(r"[\u4e00-\u9fff]", value) and "ja" not in script_languages:
+        script_languages.append("zh")
+    script_languages = list(dict.fromkeys(script_languages))
+    if len(script_languages) == 1:
+        return value, script_languages[0]
+    if len(script_languages) > 1:
+        return value, "auto"
+    if re.search(r"[A-Za-z]", value):
+        return value, "en"
+    return value, None
+
+
+def float_audio_to_pcm16(audio_samples: np.ndarray) -> bytes:
+    clipped = np.clip(audio_samples, -1.0, 32767.0 / 32768.0)
+    return (clipped * 32768.0).astype("<i2").tobytes()
+
+
+def transcribe_multilingual_diarized_audio(
+    together_client: WhisperAsrClient,
+    audio_samples: np.ndarray,
+    *,
+    beam_size: int,
+    job_id: str | None,
+    cancel_check: Callable[[], bool] | None,
+) -> tuple[list[Any], Any, float]:
+    del beam_size, job_id
+    transcribe_diarized = getattr(together_client, "transcribe_diarized", None)
+    if transcribe_diarized is None:
+        raise RuntimeError("Together Batch ASR client 尚未建立")
+    speaker_segments, _ = transcribe_diarized(
+        audio_samples,
+        language=None,
+        min_speakers=TOGETHER_DIARIZATION_MIN_SPEAKERS,
+        max_speakers=TOGETHER_DIARIZATION_MAX_SPEAKERS,
+    )
+    source_segments: list[Any] = []
+    detected_languages: list[str] = []
+    source_transcriber = TogetherRealtimeTranscriber(
+        TogetherRealtimeSettings(
+            api_key=TOGETHER_API_KEY,
+            websocket_url=TOGETHER_REALTIME_URL,
+            model=TOGETHER_REALTIME_MODEL,
+            timeout_seconds=TOGETHER_ASR_TIMEOUT_SECONDS,
+            max_retries=TOGETHER_REALTIME_MAX_RETRIES,
+            frame_bytes=TOGETHER_REALTIME_FRAME_BYTES,
+        ),
+        language="auto",
+    )
+    max_source_samples = max(
+        16000,
+        int(TOGETHER_MULTILINGUAL_SOURCE_CHUNK_SECONDS * 16000),
+    )
+    try:
+        for speaker_segment in sorted(
+            speaker_segments,
+            key=lambda item: float(getattr(item, "start", 0.0)),
+        ):
+            speaker_id = str(
+                getattr(speaker_segment, "speaker_id", "") or ""
+            ).strip() or None
+            start_sample = max(
+                0,
+                int(float(getattr(speaker_segment, "start", 0.0)) * 16000),
+            )
+            end_sample = min(
+                len(audio_samples),
+                max(
+                    start_sample,
+                    int(float(getattr(speaker_segment, "end", 0.0)) * 16000),
+                ),
+            )
+            for part_start in range(start_sample, end_sample, max_source_samples):
+                if cancel_check is not None and cancel_check():
+                    raise TranscriptionCancelled("轉譯已取消")
+                part_end = min(end_sample, part_start + max_source_samples)
+                if part_end <= part_start:
+                    continue
+                try:
+                    source_result = source_transcriber.transcribe(
+                        float_audio_to_pcm16(audio_samples[part_start:part_end]),
+                        cancel_check=cancel_check,
+                    )
+                except TogetherRealtimeCancelled as exc:
+                    raise TranscriptionCancelled("轉譯已取消") from exc
+                source_text, source_language = normalize_together_multilingual_text(
+                    source_result.text
+                )
+                if not source_text:
+                    continue
+                if source_language and source_language != "auto":
+                    detected_languages.append(source_language)
+                source_segments.append(
+                    SimpleNamespace(
+                        text=source_text,
+                        start=part_start / 16000,
+                        end=part_end / 16000,
+                        words=[],
+                        speaker_id=speaker_id,
+                        language=source_language,
+                        avg_logprob=0.0,
+                        no_speech_prob=0.0,
+                    )
+                )
+    finally:
+        source_transcriber.close()
+    dominant_language = (
+        max(dict.fromkeys(detected_languages), key=detected_languages.count)
+        if detected_languages
+        else None
+    )
+    return source_segments, SimpleNamespace(
+        language=dominant_language,
+        language_probability=None,
+    ), 0.0
 
 
 def asr_source_name(provider: str) -> str:
@@ -728,7 +1054,21 @@ def asr_source_name(provider: str) -> str:
         return "cloudflare_whisper"
     if provider == "groq":
         return "groq_whisper"
+    if provider == "together":
+        return "together_whisper_http"
     return "whisper"
+
+
+def video_transcribe_task(job_id: str, processing_profile: str | None) -> dict[str, str]:
+    profile = normalize_processing_profile(processing_profile)
+    provider = asr_provider_for_profile(profile)
+    return {
+        "kind": "youtube_live",
+        "id": job_id,
+        "worker_group": (
+            "remote_asr" if provider in REMOTE_ASR_PROVIDERS else "default"
+        ),
+    }
 
 
 def remote_vad_speech_intervals(audio_samples: np.ndarray) -> list[tuple[float, float]]:
@@ -777,6 +1117,8 @@ def transcribe_audio_stream(
     asr_provider: str = "local",
     asr_client: WhisperAsrClient | None = None,
     telemetry_callback: Callable[[dict[str, Any]], None] | None = None,
+    detected_language_fallback: str | None = None,
+    speaker_diarization: bool = False,
 ) -> dict[str, Any]:
     started_at = time.perf_counter()
     mode = (
@@ -786,6 +1128,8 @@ def transcribe_audio_stream(
     )
     beam_size = TRANSCRIPTION_MODE_BEAM_SIZES[mode]
     remote_asr = asr_provider in REMOTE_ASR_PROVIDERS
+    if speaker_diarization:
+        raise RuntimeError("講者辨識暫時停用；目前先測試 Together 逐字時間")
     active_asr_client = (
         asr_client or create_remote_whisper_client(asr_provider)
         if remote_asr
@@ -800,7 +1144,13 @@ def transcribe_audio_stream(
         0.0,
         float(audio_duration_hint or probe_media_duration(audio_path) or 0.0),
     )
-    detected_language = language_hint
+    detected_language = language_hint or detected_language_fallback
+    remote_auto_language = (
+        asr_provider in {"cloudflare", "together"} and not language_hint
+    )
+    stream_chunk_seconds = YOUTUBE_WHISPER_STREAM_CHUNK_SECONDS
+    stream_initial_chunk_seconds = YOUTUBE_WHISPER_INITIAL_CHUNK_SECONDS
+    stream_overlap_seconds = YOUTUBE_WHISPER_STREAM_OVERLAP_SECONDS
     language_probability = None
     segment_count = 0
     decoded_segment_count = 0
@@ -816,7 +1166,8 @@ def transcribe_audio_stream(
         "temperature=0.0 condition_on_previous_text=false vad_filter=%s "
         "word_timestamps=true hallucination_silence_threshold=%.2f "
         "initial_chunk_seconds=%.1f chunk_seconds=%.1f "
-        "overlap_seconds=%.1f pcm_queue_size=%d prefetch_chunks=%d",
+        "overlap_seconds=%.1f pcm_queue_size=%d prefetch_chunks=%d "
+        "speaker_diarization=%s",
         job_id or "unknown",
         asr_provider,
         asr_model,
@@ -825,11 +1176,12 @@ def transcribe_audio_stream(
         language_hint or "auto",
         YOUTUBE_WHISPER_VAD_FILTER,
         YOUTUBE_WHISPER_HALLUCINATION_SILENCE_SECONDS,
-        YOUTUBE_WHISPER_INITIAL_CHUNK_SECONDS,
-        YOUTUBE_WHISPER_STREAM_CHUNK_SECONDS,
-        YOUTUBE_WHISPER_STREAM_OVERLAP_SECONDS,
+        stream_initial_chunk_seconds,
+        stream_chunk_seconds,
+        stream_overlap_seconds,
         YOUTUBE_WHISPER_STREAM_QUEUE_SIZE,
         YOUTUBE_WHISPER_STREAM_PREFETCH_CHUNKS,
+        speaker_diarization,
     )
 
     try:
@@ -837,9 +1189,9 @@ def transcribe_audio_stream(
             raise TranscriptionCancelled("轉譯已取消")
         with FFmpegPcmChunkStream(
             audio_path,
-            chunk_seconds=YOUTUBE_WHISPER_STREAM_CHUNK_SECONDS,
-            initial_chunk_seconds=YOUTUBE_WHISPER_INITIAL_CHUNK_SECONDS,
-            overlap_seconds=YOUTUBE_WHISPER_STREAM_OVERLAP_SECONDS,
+            chunk_seconds=stream_chunk_seconds,
+            initial_chunk_seconds=stream_initial_chunk_seconds,
+            overlap_seconds=stream_overlap_seconds,
             queue_size=YOUTUBE_WHISPER_STREAM_QUEUE_SIZE,
             prefetch_chunks=YOUTUBE_WHISPER_STREAM_PREFETCH_CHUNKS,
             cancel_check=cancel_check,
@@ -889,16 +1241,26 @@ def transcribe_audio_stream(
                     else:
                         if active_asr_client is None:  # pragma: no cover
                             raise RuntimeError("遠端 ASR client 尚未建立")
-                        segments, info = active_asr_client.transcribe(
-                            audio_samples,
-                            language=detected_language,
-                            beam_size=beam_size,
-                            vad_filter=YOUTUBE_WHISPER_VAD_FILTER,
-                            condition_on_previous_text=False,
-                            hallucination_silence_threshold=(
-                                YOUTUBE_WHISPER_HALLUCINATION_SILENCE_SECONDS
-                            ),
+                        request_language = (
+                            None if remote_auto_language else detected_language
                         )
+                        segments, info, remote_scheduler_wait_ms = (
+                            transcribe_remote_audio(
+                                asr_provider,
+                                active_asr_client,
+                                audio_samples,
+                                language=request_language,
+                                beam_size=beam_size,
+                                vad_filter=YOUTUBE_WHISPER_VAD_FILTER,
+                                condition_on_previous_text=False,
+                                hallucination_silence_threshold=(
+                                    YOUTUBE_WHISPER_HALLUCINATION_SILENCE_SECONDS
+                                ),
+                                job_id=job_id,
+                                cancel_check=cancel_check,
+                            )
+                        )
+                        scheduler_wait_ms += remote_scheduler_wait_ms
                 else:
                     segments, info = auto2lrc.transcribe(
                         audio_samples,
@@ -918,14 +1280,23 @@ def transcribe_audio_stream(
                 inference_elapsed_seconds += (
                     time.perf_counter() - inference_started_at
                 )
-                chunk_language = getattr(info, "language", detected_language)
-                if chunk_language:
-                    detected_language = chunk_language
+                reported_chunk_language = getattr(info, "language", None)
+                if remote_auto_language:
+                    chunk_language = reported_chunk_language or detected_language
+                    if detected_language is None and chunk_language:
+                        detected_language = chunk_language
+                elif asr_provider in {"cloudflare", "together"} and language_hint:
+                    chunk_language = language_hint
+                    detected_language = language_hint
+                else:
+                    chunk_language = reported_chunk_language or detected_language
+                    if chunk_language:
+                        detected_language = chunk_language
                 if language_probability is None:
                     language_probability = getattr(info, "language_probability", None)
 
                 ownership_start = (
-                    YOUTUBE_WHISPER_STREAM_OVERLAP_SECONDS / 2
+                    stream_overlap_seconds / 2
                     if chunk.offset_seconds > 0
                     else 0.0
                 )
@@ -934,7 +1305,7 @@ def transcribe_audio_stream(
                     ownership_end = max(
                         0.0,
                         chunk.duration_seconds
-                        - YOUTUBE_WHISPER_STREAM_OVERLAP_SECONDS / 2,
+                        - stream_overlap_seconds / 2,
                     )
                 segment_iterator = iter(segments)
                 while True:
@@ -967,9 +1338,13 @@ def transcribe_audio_stream(
                     if owned_segment is None:
                         continue
                     raw_text, local_start, local_end, owned_words = owned_segment
+                    segment_language = (
+                        str(getattr(segment, "language", "") or "").strip()
+                        or chunk_language
+                    )
                     text = to_traditional_chinese(
                         raw_text,
-                        detected_language,
+                        segment_language,
                     )
                     if not text:
                         continue
@@ -995,11 +1370,11 @@ def transcribe_audio_stream(
                         global_start,
                         global_end,
                         text,
-                        detected_language,
+                        segment_language,
                         whisper_low_confidence_spans(
                             segment,
                             text,
-                            detected_language,
+                            segment_language,
                             owned_words,
                         ),
                         (
@@ -1008,7 +1383,7 @@ def transcribe_audio_stream(
                                 if timeline_adjusted
                                 else whisper_word_payloads(
                                     segment,
-                                    detected_language,
+                                    segment_language,
                                     chunk.offset_seconds,
                                     owned_words,
                                 )
@@ -1016,6 +1391,7 @@ def transcribe_audio_stream(
                             if include_word_timestamps
                             else None
                         ),
+                        str(getattr(segment, "speaker_id", "") or "") or None,
                     )
                     last_emitted_start = global_start
                     payload.update(
@@ -1145,6 +1521,17 @@ def transcribe_audio_stream(
             "beam_size": beam_size,
             "asr_provider": asr_provider,
             "asr_model": asr_model,
+            "source_transcription_provider": asr_provider,
+            "source_transcription_model": asr_model,
+            "timing_precision": (
+                "word"
+                if asr_provider == "together" and include_word_timestamps
+                else "segment"
+            ),
+            "speaker_diarization": speaker_diarization,
+            "transcription_delivery": (
+                "http" if asr_provider == "together" else "realtime"
+            ),
         }
     except Exception:
         logger.exception(
@@ -1170,9 +1557,17 @@ def detect_audio_language(
     asr_provider: str = "local",
     asr_client: WhisperAsrClient | None = None,
 ) -> dict[str, Any]:
+    detection_provider = "cloudflare" if asr_provider == "together" else asr_provider
+    detection_client = asr_client
+    if detection_provider == "cloudflare" and asr_provider == "together":
+        # Together's auto mode currently resolves multilingual audio to English.
+        # Use Cloudflare only for the short language-detection pass; Together
+        # remains responsible for the actual transcription after confirmation.
+        detection_client = create_cloudflare_whisper_client(scheduler_managed=False)
     logger.info(
-        "Whisper language detection started: job_id=%s",
+        "Whisper language detection started: job_id=%s provider=%s",
         job_id or "unknown",
+        detection_provider,
     )
     started_at = time.perf_counter()
     try:
@@ -1195,11 +1590,13 @@ def detect_audio_language(
             dtype="<i2",
         ).astype(np.float32)
         audio_samples /= 32768.0
-        if asr_provider in REMOTE_ASR_PROVIDERS:
-            active_asr_client = asr_client or create_remote_whisper_client(
-                asr_provider
+        if detection_provider in REMOTE_ASR_PROVIDERS:
+            active_asr_client = detection_client or create_remote_whisper_client(
+                detection_provider
             )
-            segments, info = active_asr_client.transcribe(
+            segments, info, _ = transcribe_remote_audio(
+                detection_provider,
+                active_asr_client,
                 audio_samples,
                 language=None,
                 beam_size=5,
@@ -1208,6 +1605,8 @@ def detect_audio_language(
                 hallucination_silence_threshold=(
                     YOUTUBE_WHISPER_HALLUCINATION_SILENCE_SECONDS
                 ),
+                job_id=job_id,
+                cancel_check=cancel_check,
             )
         else:
             scheduler_turn_acquired = False
@@ -1244,6 +1643,11 @@ def detect_audio_language(
         return {
             "language": language,
             "language_probability": probability,
+            "source": (
+                "cloudflare_whisper"
+                if detection_provider == "cloudflare"
+                else asr_source_name(detection_provider)
+            ),
             "duration": audio_duration,
             "detection_elapsed_seconds": round(time.perf_counter() - started_at, 3),
         }
@@ -1341,6 +1745,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             previous_average = float(transcription.get("average_chunk_ms") or 0.0)
             chunk_ms = float(metrics.get("chunk_elapsed_ms") or 0.0)
             input_wait_ms = float(metrics.get("input_wait_ms") or 0.0)
+            scheduler_wait_ms = float(metrics.get("scheduler_wait_ms") or 0.0)
             inference_ms = float(metrics.get("inference_ms") or 0.0)
             event_emit_ms = float(metrics.get("event_emit_ms") or 0.0)
 
@@ -1376,6 +1781,18 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                         max(
                             float(transcription.get("max_input_wait_ms") or 0.0),
                             input_wait_ms,
+                        ),
+                        3,
+                    ),
+                    "last_scheduler_wait_ms": round(scheduler_wait_ms, 3),
+                    "average_scheduler_wait_ms": rolling_average(
+                        "average_scheduler_wait_ms",
+                        scheduler_wait_ms,
+                    ),
+                    "max_scheduler_wait_ms": round(
+                        max(
+                            float(transcription.get("max_scheduler_wait_ms") or 0.0),
+                            scheduler_wait_ms,
                         ),
                         3,
                     ),
@@ -1572,6 +1989,62 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             "content": "\n".join(content_parts),
         }
 
+    async def resolve_youtube_audio_source(
+        job: dict[str, Any],
+    ) -> tuple[MediaSourceInput, dict[str, Any]]:
+        """Resolve a YouTube source, falling back to a local yt-dlp download.
+
+        Some YouTube stream URLs work through yt-dlp but reject FFmpeg's separate
+        HTTP request with a 403, even when a GVS PO token is present.  A local
+        download uses yt-dlp's own downloader and is kept for the rest of this
+        job so language confirmation does not trigger the same failing request.
+        """
+        cached_audio_path = Path(str(job.get("audio_path") or ""))
+        if cached_audio_path.is_file():
+            return cached_audio_path, dict(job.get("youtube_audio_info") or {})
+
+        # Try the live path first.  With the PO provider enabled,
+        # youtube_player_client_attempts() puts tv_simply first, so yt-dlp can
+        # generate the matching GVS token before FFmpeg begins decoding.
+        try:
+            return await asyncio.to_thread(
+                get_youtube_audio_stream_source,
+                job["url"],
+                cookies_file,
+            )
+        except HTTPException as stream_error:
+            # Keep a local yt-dlp download only as a fallback for the small
+            # number of videos where YouTube rejects FFmpeg's stream request.
+            work_dir_value = job.get("work_dir")
+            work_dir = (
+                Path(str(work_dir_value))
+                if work_dir_value
+                else Path(tempfile.mkdtemp(prefix="youtube_audio_"))
+            )
+            work_dir.mkdir(parents=True, exist_ok=True)
+            job["work_dir"] = str(work_dir)
+            await push_event(
+                job,
+                "status",
+                {
+                    "message": "正在透過 YouTube 音訊下載器準備暫存音訊",
+                },
+            )
+            logger.warning(
+                "YouTube direct stream failed; falling back to yt-dlp download: %s",
+                readable_exception_message(stream_error),
+            )
+            audio_path, video_info = await asyncio.to_thread(
+                download_youtube_audio,
+                job["url"],
+                str(work_dir),
+                cookies_file,
+            )
+            job["audio_path"] = str(audio_path)
+            job["youtube_audio_info"] = video_info
+            job["audio_transport"] = "download"
+            return audio_path, video_info
+
     async def run_job(job_id: str) -> None:
         job = jobs.get(job_id)
         if not job:
@@ -1658,11 +2131,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                             "status",
                             {"message": "語言已確認，正在建立音訊串流"},
                         )
-                        audio_source, _ = await asyncio.to_thread(
-                            get_youtube_audio_stream_source,
-                            job["url"],
-                            cookies_file,
-                        )
+                        audio_source, _ = await resolve_youtube_audio_source(job)
                     else:
                         audio_source = Path(str(job.get("audio_path") or ""))
                         if not audio_source.is_file():
@@ -1682,6 +2151,8 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                         asr_provider,
                         asr_client,
                         lambda metrics: record_transcription_chunk(job_id, metrics),
+                        job.get("detected_language"),
+                        bool(job.get("speaker_diarization")),
                     )
                 ensure_job_not_cancelled(job)
                 job["status"] = "done"
@@ -1736,7 +2207,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                 )
                 ensure_job_not_cancelled(job)
                 job["detected_language"] = detection["language"]
-                job["detection_source"] = asr_source
+                job["detection_source"] = detection.get("source") or asr_source
                 job["language_probability"] = detection["language_probability"]
                 job["video_duration_seconds"] = detection["duration"]
                 job["status"] = "awaiting_language_confirmation"
@@ -1748,7 +2219,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                     {
                         "language": detection["language"],
                         "language_probability": detection["language_probability"],
-                        "source": asr_source,
+                        "source": detection.get("source") or asr_source,
                     },
                 )
                 log_structured_event(
@@ -1758,7 +2229,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                     source_kind="upload",
                     detected_language=detection["language"],
                     language_probability=detection["language_probability"],
-                    subtitle_source=asr_source,
+                    subtitle_source=detection.get("source") or asr_source,
                     detection_elapsed_ms=round(
                         detection["detection_elapsed_seconds"] * 1000
                     ),
@@ -1885,11 +2356,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             await push_event(job, "status", {"message": status_message})
             phase = "audio_stream"
             audio_stream_started = time.perf_counter()
-            audio_source, video_info = await asyncio.to_thread(
-                get_youtube_audio_stream_source,
-                job["url"],
-                cookies_file,
-            )
+            audio_source, video_info = await resolve_youtube_audio_source(job)
             ensure_job_not_cancelled(job)
             job["prepared_source"] = asr_source
             log_structured_event(
@@ -1926,7 +2393,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                 )
                 ensure_job_not_cancelled(job)
                 job["detected_language"] = detection["language"]
-                job["detection_source"] = asr_source
+                job["detection_source"] = detection.get("source") or asr_source
                 job["language_probability"] = detection["language_probability"]
                 job["status"] = "awaiting_language_confirmation"
                 job["language_detected_monotonic"] = time.perf_counter()
@@ -1937,7 +2404,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                     {
                         "language": detection["language"],
                         "language_probability": detection["language_probability"],
-                        "source": asr_source,
+                        "source": detection.get("source") or asr_source,
                     },
                 )
                 log_structured_event(
@@ -1946,7 +2413,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                     job_status="awaiting_language_confirmation",
                     detected_language=detection["language"],
                     language_probability=detection["language_probability"],
-                    subtitle_source=asr_source,
+                    subtitle_source=detection.get("source") or asr_source,
                     detection_elapsed_ms=round(
                         detection["detection_elapsed_seconds"] * 1000
                     ),
@@ -1970,6 +2437,8 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                 asr_provider,
                 asr_client,
                 lambda metrics: record_transcription_chunk(job_id, metrics),
+                job.get("detected_language"),
+                bool(job.get("speaker_diarization")),
             )
             ensure_job_not_cancelled(job)
 
@@ -2206,11 +2675,19 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             processing_profile = normalize_processing_profile(payload.processing_profile)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        validate_speaker_diarization(
+            processing_profile,
+            payload.speaker_diarization,
+        )
         jobs[job_id] = {
             "url": url,
             "language_hint": payload.language.strip() or None,
-            "ignore_subtitles": payload.ignore_subtitles,
+            "language_mode": "forced" if payload.language.strip() else "auto",
+            "ignore_subtitles": (
+                payload.ignore_subtitles or payload.speaker_diarization
+            ),
             "include_word_timestamps": payload.include_word_timestamps,
+            "speaker_diarization": payload.speaker_diarization,
             "transcription_mode": transcription_mode,
             "processing_profile": processing_profile,
             "translation_token": secrets.token_urlsafe(32),
@@ -2234,12 +2711,15 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             source_language=jobs[job_id]["language_hint"] or "auto",
             ignore_subtitles=payload.ignore_subtitles,
             include_word_timestamps=payload.include_word_timestamps,
+            speaker_diarization=payload.speaker_diarization,
             transcription_mode=transcription_mode,
             processing_profile=processing_profile,
             asr_provider=asr_provider_for_profile(processing_profile),
         )
         try:
-            enqueue_transcribe_task({"kind": "youtube_live", "id": job_id})
+            enqueue_transcribe_task(
+                video_transcribe_task(job_id, processing_profile)
+            )
         except asyncio.QueueFull:
             jobs[job_id]["status"] = "failed"
             jobs[job_id]["expires_at"] = time.time() + YOUTUBE_LIVE_JOB_TTL_SECONDS
@@ -2267,6 +2747,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             source_language=jobs[job_id]["language_hint"] or "auto",
             ignore_subtitles=payload.ignore_subtitles,
             include_word_timestamps=payload.include_word_timestamps,
+            speaker_diarization=payload.speaker_diarization,
             transcription_mode=transcription_mode,
             processing_profile=processing_profile,
             asr_provider=asr_provider_for_profile(processing_profile),
@@ -2317,6 +2798,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         upload_bytes: int,
         language: str,
         include_word_timestamps: bool,
+        speaker_diarization: bool,
         transcription_mode: str,
         processing_profile: str,
     ) -> dict[str, Any]:
@@ -2325,6 +2807,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             normalized_profile = normalize_processing_profile(processing_profile)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        validate_speaker_diarization(normalized_profile, speaker_diarization)
         job_id = secrets.token_urlsafe(18)
         language_hint = language.strip() or None
         created_monotonic = time.perf_counter()
@@ -2332,8 +2815,10 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             "source_kind": "upload",
             "filename": original_filename,
             "language_hint": language_hint,
+            "language_mode": "forced" if language_hint else "auto",
             "ignore_subtitles": True,
             "include_word_timestamps": include_word_timestamps,
+            "speaker_diarization": speaker_diarization,
             "transcription_mode": transcription_mode,
             "processing_profile": normalized_profile,
             "prepared_source": asr_source_name(
@@ -2362,12 +2847,15 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             source_kind="upload",
             source_language=language_hint or "auto",
             include_word_timestamps=include_word_timestamps,
+            speaker_diarization=speaker_diarization,
             transcription_mode=transcription_mode,
             processing_profile=normalized_profile,
             asr_provider=asr_provider_for_profile(normalized_profile),
         )
         try:
-            enqueue_transcribe_task({"kind": "youtube_live", "id": job_id})
+            enqueue_transcribe_task(
+                video_transcribe_task(job_id, normalized_profile)
+            )
         except asyncio.QueueFull:
             cleanup_youtube_live_job_artifacts(jobs.pop(job_id))
             raise HTTPException(status_code=503, detail="轉譯佇列已滿，請稍後再試")
@@ -2383,6 +2871,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             source_kind="upload",
             source_language=language_hint or "auto",
             include_word_timestamps=include_word_timestamps,
+            speaker_diarization=speaker_diarization,
             transcription_mode=transcription_mode,
             processing_profile=normalized_profile,
             asr_provider=asr_provider_for_profile(normalized_profile),
@@ -2407,6 +2896,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         file: UploadFile,
         language: str,
         include_word_timestamps: bool,
+        speaker_diarization: bool,
         transcription_mode: str,
         processing_profile: str,
     ) -> dict[str, Any]:
@@ -2456,6 +2946,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                 upload_bytes=upload_bytes,
                 language=language,
                 include_word_timestamps=include_word_timestamps,
+                speaker_diarization=speaker_diarization,
                 transcription_mode=transcription_mode,
                 processing_profile=processing_profile,
             )
@@ -2670,6 +3161,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                     upload_bytes=int(session["size_bytes"]),
                     language=payload.language,
                     include_word_timestamps=payload.include_word_timestamps,
+                    speaker_diarization=payload.speaker_diarization,
                     transcription_mode=payload.transcription_mode,
                     processing_profile=payload.processing_profile,
                 )
@@ -2708,6 +3200,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         language: str = Form(""),
         captcha_token: str = Form(""),
         include_word_timestamps: bool = Form(True),
+        speaker_diarization: bool = Form(False),
         transcription_mode: str = Form("accurate"),
         processing_profile: str = Form("standard"),
     ):
@@ -2719,6 +3212,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             file,
             language,
             include_word_timestamps,
+            speaker_diarization,
             transcription_mode,
             processing_profile,
         )
@@ -2734,6 +3228,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         language: str = Form(""),
         captcha_token: str = Form(""),
         include_word_timestamps: bool = Form(True),
+        speaker_diarization: bool = Form(False),
         transcription_mode: str = Form("accurate"),
         processing_profile: str = Form("standard"),
     ):
@@ -2758,6 +3253,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                     file,
                     language,
                     include_word_timestamps,
+                    speaker_diarization,
                     transcription_mode,
                     processing_profile,
                 )
@@ -2814,6 +3310,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                 "youtube_live",
                 job_id,
             )
+            cancelled_asr_requests = cloudflare_asr_scheduler.cancel_job(job_id)
             job["status"] = "cancelled"
             job["cancelled_at"] = time.time()
             job["expires_at"] = time.time() + YOUTUBE_LIVE_JOB_TTL_SECONDS
@@ -2826,6 +3323,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                 job_id=job_id,
                 previous_status=previous_status,
                 removed_from_queue=removed_from_queue,
+                cancelled_asr_requests=cancelled_asr_requests,
                 cancelled_translation_tasks=cancelled_translation_tasks,
             )
         if translation_tasks:
@@ -2865,13 +3363,20 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         if job.get("status") != "awaiting_language_confirmation":
             raise HTTPException(status_code=409, detail="這個轉譯請求目前不需要確認語言")
 
-        requested_language = selection.language.strip()
-        normalized_language = (
-            "zh"
-            if requested_language.lower() in {"zh", "zh-tw"}
-            else requested_language.lower()
-        )
-        if normalized_language not in {"en", "ja", "ko", "th", "zh"}:
+        requested_language = selection.language.strip().lower()
+        auto_language = requested_language in {"", "auto"}
+        normalized_language = None
+        if not auto_language:
+            normalized_language = (
+                "zh" if requested_language in {"zh", "zh-tw"} else requested_language
+            )
+        if normalized_language is not None and normalized_language not in {
+            "en",
+            "ja",
+            "ko",
+            "th",
+            "zh",
+        }:
             raise HTTPException(status_code=400, detail="目前不支援選擇的原文語言")
 
         confirmation_wait_ms = round(
@@ -2883,6 +3388,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             * 1000
         )
         job["language_hint"] = normalized_language
+        job["language_mode"] = "auto" if auto_language else "forced"
         job["status"] = "queued_for_transcription"
         job["queued_monotonic"] = time.perf_counter()
         job["expires_at"] = time.time() + YOUTUBE_LIVE_JOB_TTL_SECONDS
@@ -2894,11 +3400,14 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             job_status="queued_for_transcription",
             detected_language=job.get("detected_language"),
             language_probability=job.get("language_probability"),
-            source_language=normalized_language,
+            source_language=normalized_language or "auto",
+            language_mode=job["language_mode"],
             subtitle_source=job.get("detection_source"),
         )
         try:
-            enqueue_transcribe_task({"kind": "youtube_live", "id": job_id})
+            enqueue_transcribe_task(
+                video_transcribe_task(job_id, job.get("processing_profile"))
+            )
         except asyncio.QueueFull:
             job["status"] = "awaiting_language_confirmation"
             set_request_log_metadata(
@@ -2921,14 +3430,20 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             job_status="queued_for_transcription",
             detected_language=job.get("detected_language"),
             language_probability=job.get("language_probability"),
-            source_language=normalized_language,
+            source_language=normalized_language or "auto",
+            language_mode=job["language_mode"],
             subtitle_source=job.get("detection_source"),
             confirmation_wait_ms=confirmation_wait_ms,
             waiting_count=queue_counts["waiting_count"],
             transcribing_count=queue_counts["transcribing_count"],
         )
 
-        return {"job_id": job_id, "language": normalized_language, "status": "queued"}
+        return {
+            "job_id": job_id,
+            "language": normalized_language,
+            "language_mode": job["language_mode"],
+            "status": "queued",
+        }
 
     @router.post(
         "/api/youtube-live/translate-batch",

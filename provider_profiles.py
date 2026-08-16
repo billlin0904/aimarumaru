@@ -15,9 +15,9 @@ import requests
 
 
 ProcessingProfile = Literal["standard", "premium", "private"]
-AsrProviderName = Literal["cloudflare", "groq", "local"]
+AsrProviderName = Literal["cloudflare", "groq", "local", "together"]
 TranslationType = Literal["standard", "premium", "private"]
-REMOTE_ASR_PROVIDERS = frozenset({"cloudflare", "groq"})
+REMOTE_ASR_PROVIDERS = frozenset({"cloudflare", "groq", "together"})
 
 PROFILE_ALIASES = {
     "standard": "standard",
@@ -38,9 +38,9 @@ def normalize_processing_profile(value: Optional[str]) -> ProcessingProfile:
 def asr_provider_for_profile(profile: ProcessingProfile) -> AsrProviderName:
     del profile
     provider = os.getenv("AUDIOIO_ASR_PROVIDER", "local").strip().lower()
-    if provider not in {"cloudflare", "groq", "local"}:
+    if provider not in {"cloudflare", "groq", "local", "together"}:
         raise ValueError(
-            "AUDIOIO_ASR_PROVIDER 必須是 local、cloudflare 或 groq"
+            "AUDIOIO_ASR_PROVIDER 必須是 local、cloudflare、groq 或 together"
         )
     return cast(AsrProviderName, provider)
 
@@ -222,6 +222,121 @@ class GroqWhisperClient:
         if not isinstance(data, dict):
             raise RuntimeError("Groq Whisper 回傳格式不正確")
         return groq_response_to_segments(data, normalized_language)
+
+
+@dataclass(frozen=True)
+class TogetherWhisperSettings:
+    api_key: str
+    base_url: str = "https://api.together.ai/v1"
+    model: str = "openai/whisper-large-v3"
+    timeout_seconds: float = 120.0
+    max_retries: int = 2
+    fallback_wait_seconds: float = 5.0
+    max_wait_seconds: float = 30.0
+
+
+class TogetherWhisperClient:
+    """Together HTTP ASR adapter with word-level timestamps."""
+
+    provider_name: AsrProviderName = "together"
+
+    def __init__(
+        self,
+        settings: TogetherWhisperSettings,
+        session: requests.Session | None = None,
+    ) -> None:
+        self.settings = settings
+        self.session = session or requests.Session()
+
+    @property
+    def model_name(self) -> str:
+        return self.settings.model
+
+    def transcribe(
+        self,
+        audio_samples: np.ndarray,
+        *,
+        language: str | None = None,
+        beam_size: int = 5,
+        vad_filter: bool = False,
+        condition_on_previous_text: bool = False,
+        hallucination_silence_threshold: float | None = None,
+    ) -> tuple[list[SimpleNamespace], SimpleNamespace]:
+        del beam_size, vad_filter, condition_on_previous_text
+        del hallucination_silence_threshold
+        normalized_language = normalize_asr_language(language)
+        payload: list[tuple[str, str]] = [
+            ("model", self.settings.model),
+            ("language", normalized_language or "auto"),
+            ("response_format", "verbose_json"),
+            ("temperature", "0"),
+            ("timestamp_granularities[]", "segment"),
+            ("timestamp_granularities[]", "word"),
+        ]
+        data = self._request_transcription(audio_samples, payload)
+        segments, info = together_response_to_segments(data, normalized_language)
+        return split_segments_at_word_boundaries(segments), info
+
+    def transcribe_diarized(
+        self,
+        audio_samples: np.ndarray,
+        *,
+        language: str | None = None,
+        min_speakers: int = 1,
+        max_speakers: int = 5,
+    ) -> tuple[list[SimpleNamespace], SimpleNamespace]:
+        normalized_language = normalize_asr_language(language)
+        normalized_min = max(1, int(min_speakers))
+        normalized_max = max(normalized_min, int(max_speakers))
+        payload: list[tuple[str, str]] = [
+            ("model", self.settings.model),
+            ("language", normalized_language or "auto"),
+            ("response_format", "verbose_json"),
+            ("temperature", "0"),
+            ("timestamp_granularities[]", "segment"),
+            ("timestamp_granularities[]", "word"),
+            ("diarize", "true"),
+            ("min_speakers", str(normalized_min)),
+            ("max_speakers", str(normalized_max)),
+        ]
+        data = self._request_transcription(audio_samples, payload)
+        return together_diarized_response_to_segments(data, normalized_language)
+
+    def _request_transcription(
+        self,
+        audio_samples: np.ndarray,
+        payload: list[tuple[str, str]],
+    ) -> dict[str, Any]:
+        if not self.settings.api_key:
+            raise RuntimeError("Together ASR 尚未設定 TOGETHER_API_KEY")
+        wav_bytes = pcm_float32_to_wav(audio_samples)
+        response: requests.Response | None = None
+        retryable_statuses = {429, 500, 502, 503, 504}
+        for attempt in range(self.settings.max_retries + 1):
+            response = self.session.post(
+                f"{self.settings.base_url.rstrip('/')}/audio/transcriptions",
+                headers={"Authorization": f"Bearer {self.settings.api_key}"},
+                data=payload,
+                files={"file": ("audio.wav", wav_bytes, "audio/wav")},
+                timeout=self.settings.timeout_seconds,
+            )
+            if response.status_code not in retryable_statuses:
+                response.raise_for_status()
+                break
+            if attempt >= self.settings.max_retries:
+                response.raise_for_status()
+            wait_seconds = retry_after_seconds(response)
+            if wait_seconds is None:
+                wait_seconds = self.settings.fallback_wait_seconds
+            if wait_seconds > self.settings.max_wait_seconds:
+                response.raise_for_status()
+            time.sleep(wait_seconds)
+        if response is None:  # pragma: no cover
+            raise AssertionError("Together ASR retry loop did not issue a request")
+        data = response.json()
+        if not isinstance(data, dict):
+            raise RuntimeError("Together Whisper 回傳格式不正確")
+        return data
 
 
 @dataclass(frozen=True)
@@ -444,11 +559,39 @@ def whisper_response_to_segments(
             if isinstance(word, dict) and str(word.get("word") or "").strip()
         ]
         aligned_word_texts = align_word_texts(text, usable_words)
+        word_times: list[tuple[float, float]] = []
+        for word in usable_words:
+            raw_start = word.get("start")
+            raw_end = word.get("end")
+            word_start = float(raw_start) if isinstance(raw_start, (int, float)) else start
+            word_end = float(raw_end) if isinstance(raw_end, (int, float)) else end
+            word_times.append((word_start, word_end))
+        for word_index, word in enumerate(usable_words):
+            word_start, word_end = word_times[word_index]
+            token = str(word.get("word") or "").strip()
+            if word_end > word_start or any(character.isalnum() for character in token):
+                continue
+            next_start = next(
+                (
+                    candidate_start
+                    for candidate_start, candidate_end in word_times[word_index + 1 :]
+                    if candidate_end > candidate_start
+                ),
+                None,
+            )
+            if next_start is not None:
+                word_times[word_index] = (next_start, next_start)
         words = [
             SimpleNamespace(
                 word=aligned_word_texts[word_index],
-                start=float(word.get("start") or start),
-                end=float(word.get("end") or end),
+                start=word_times[word_index][0],
+                end=word_times[word_index][1],
+                speaker_id=(
+                    str(
+                        word.get("speaker_id") or word.get("speaker") or ""
+                    ).strip()
+                    or None
+                ),
                 probability=(
                     float(word["probability"])
                     if isinstance(word.get("probability"), (int, float))
@@ -463,6 +606,12 @@ def whisper_response_to_segments(
                 start=start,
                 end=end,
                 words=words,
+                speaker_id=(
+                    str(
+                        raw.get("speaker_id") or raw.get("speaker") or ""
+                    ).strip()
+                    or None
+                ),
                 avg_logprob=float(raw.get("avg_logprob") or 0.0),
                 no_speech_prob=float(raw.get("no_speech_prob") or 0.0),
             )
@@ -495,4 +644,100 @@ def cloudflare_response_to_segments(
         for key in ("duration", "language", "language_probability"):
             if normalized.get(key) is None and transcription_info.get(key) is not None:
                 normalized[key] = transcription_info[key]
+    return whisper_response_to_segments(normalized, language_hint)
+
+
+def together_response_to_segments(
+    data: dict[str, Any],
+    language_hint: str | None,
+) -> tuple[list[SimpleNamespace], SimpleNamespace]:
+    return whisper_response_to_segments(data, language_hint)
+
+
+SENTENCE_END_PATTERN = re.compile(r"[.!?。！？](?:[\"'”’」』）》）\]]*)$")
+SOFT_END_PATTERN = re.compile(r"[,;:，；：](?:[\"'”’」』）》）\]]*)$")
+NON_TERMINAL_ABBREVIATIONS = frozenset(
+    {
+        "dr.",
+        "e.g.",
+        "etc.",
+        "i.e.",
+        "jr.",
+        "mr.",
+        "mrs.",
+        "ms.",
+        "no.",
+        "prof.",
+        "sr.",
+        "st.",
+        "vs.",
+    }
+)
+
+
+def split_segments_at_word_boundaries(
+    segments: list[SimpleNamespace],
+    *,
+    maximum_seconds: float = 12.0,
+    maximum_words: int = 36,
+) -> list[SimpleNamespace]:
+    """Turn provider-sized blocks into readable cues without losing word timing."""
+    split_segments: list[SimpleNamespace] = []
+    for segment in segments:
+        words = list(getattr(segment, "words", None) or [])
+        if len(words) < 2:
+            split_segments.append(segment)
+            continue
+
+        groups: list[list[SimpleNamespace]] = []
+        current: list[SimpleNamespace] = []
+        for word in words:
+            current.append(word)
+            token = str(getattr(word, "word", "") or "").rstrip()
+            normalized_token = token.strip().lower()
+            duration = float(getattr(word, "end", 0.0)) - float(
+                getattr(current[0], "start", 0.0)
+            )
+            sentence_end = (
+                normalized_token not in NON_TERMINAL_ABBREVIATIONS
+                and bool(SENTENCE_END_PATTERN.search(token))
+            )
+            soft_limit = duration >= maximum_seconds and bool(
+                SOFT_END_PATTERN.search(token)
+            )
+            hard_limit = len(current) >= maximum_words
+            if sentence_end or soft_limit or hard_limit:
+                groups.append(current)
+                current = []
+        if current:
+            groups.append(current)
+        if len(groups) == 1:
+            split_segments.append(segment)
+            continue
+
+        base = vars(segment).copy()
+        for group in groups:
+            text = "".join(str(getattr(word, "word", "") or "") for word in group)
+            text = text.strip()
+            if not text:
+                continue
+            values = dict(base)
+            values.update(
+                text=text,
+                start=float(getattr(group[0], "start", base.get("start", 0.0))),
+                end=float(getattr(group[-1], "end", base.get("end", 0.0))),
+                words=group,
+            )
+            split_segments.append(SimpleNamespace(**values))
+    return split_segments
+
+
+def together_diarized_response_to_segments(
+    data: dict[str, Any],
+    language_hint: str | None,
+) -> tuple[list[SimpleNamespace], SimpleNamespace]:
+    normalized = dict(data)
+    speaker_segments = data.get("speaker_segments")
+    if isinstance(speaker_segments, list):
+        normalized["segments"] = speaker_segments
     return whisper_response_to_segments(normalized, language_hint)

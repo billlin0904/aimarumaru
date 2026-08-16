@@ -64,13 +64,22 @@ def _normalize_source(source: MediaSourceInput) -> MediaAudioSource:
 
 def _ffmpeg_input_arguments(source: MediaAudioSource) -> list[str]:
     arguments: list[str] = []
-    user_agent = source.headers.get("User-Agent") or source.headers.get("user-agent")
+    sanitized_headers: dict[str, str] = {}
+    for raw_name, raw_value in source.headers.items():
+        name = str(raw_name).replace("\r", "").replace("\n", "").strip()
+        value = str(raw_value).replace("\r", "").replace("\n", "").strip()
+        if name and value:
+            sanitized_headers[name] = value
+
+    user_agent = sanitized_headers.get("User-Agent") or sanitized_headers.get(
+        "user-agent"
+    )
     if user_agent:
         arguments.extend(["-user_agent", user_agent])
 
     custom_headers = [
         f"{name}: {value}\r\n"
-        for name, value in source.headers.items()
+        for name, value in sanitized_headers.items()
         if name.lower() != "user-agent" and value
     ]
     if custom_headers:

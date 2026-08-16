@@ -56,6 +56,47 @@ class FairTranscriptionSchedulerTests(unittest.TestCase):
 
 
 class TranscribeQueueConcurrencyTests(unittest.IsolatedAsyncioTestCase):
+    async def test_remote_jobs_use_separate_worker_slots(self) -> None:
+        local_started = 0
+        all_local_started = asyncio.Event()
+        remote_started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def handler(task: dict) -> None:
+            nonlocal local_started
+            if task.get("worker_group") == "remote_asr":
+                remote_started.set()
+            else:
+                local_started += 1
+                if local_started == queue_module.TRANSCRIBE_WORKER_CONCURRENCY:
+                    all_local_started.set()
+            await release.wait()
+
+        kind = "test-separate-remote-workers"
+        register_transcribe_handler(kind, handler)
+        await start_transcribe_queue(
+            max_size=queue_module.TRANSCRIBE_WORKER_CONCURRENCY + 2
+        )
+        try:
+            for index in range(queue_module.TRANSCRIBE_WORKER_CONCURRENCY):
+                enqueue_transcribe_task(
+                    {"kind": kind, "id": f"local-{index}"}
+                )
+            enqueue_transcribe_task(
+                {
+                    "kind": kind,
+                    "id": "remote",
+                    "worker_group": "remote_asr",
+                }
+            )
+            await asyncio.wait_for(all_local_started.wait(), timeout=1.0)
+            await asyncio.wait_for(remote_started.wait(), timeout=1.0)
+        finally:
+            release.set()
+            assert queue_module.transcribe_queue is not None
+            await asyncio.wait_for(queue_module.transcribe_queue.join(), timeout=1.0)
+            await stop_transcribe_queue()
+
     async def test_worker_starts_two_jobs_concurrently(self) -> None:
         if queue_module.TRANSCRIBE_WORKER_CONCURRENCY < 2:
             self.skipTest("requires worker concurrency >= 2")

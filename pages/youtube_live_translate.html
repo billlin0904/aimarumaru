@@ -526,6 +526,35 @@
       gap: 10px;
       min-width: 0;
     }
+    .live-partial-transcript {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      min-height: 1.4rem;
+      color: #344054;
+      font-size: .9rem;
+      line-height: 1.5;
+    }
+    .live-partial-transcript::before {
+      width: 7px;
+      height: 7px;
+      flex: 0 0 auto;
+      border-radius: 50%;
+      background: var(--brand);
+      content: "";
+      animation: partial-pulse 1.2s ease-in-out infinite;
+    }
+    .live-partial-label { color: #667085; }
+    .live-partial-text {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+    @keyframes partial-pulse {
+      50% { opacity: .3; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .live-partial-transcript::before { animation: none; }
+    }
     .progress { height: 10px; }
     .translation-progress .progress-bar { background: var(--translation); }
     .segment-list {
@@ -700,6 +729,11 @@
             <input id="includeWordTimestamps" class="form-check-input" type="checkbox" checked>
             <label class="form-check-label" for="includeWordTimestamps" data-i18n="includeWordTimestamps">逐字顯示原文</label>
           </div>
+          <div class="form-check mt-2 d-none">
+            <input id="speakerDiarization" class="form-check-input" type="checkbox" disabled>
+            <label class="form-check-label fw-semibold" for="speakerDiarization" data-i18n="speakerDiarization">講者辨識（Batch 測試）</label>
+          </div>
+          <div class="form-text d-none" data-i18n="speakerDiarizationHelp">適合訪談與會議；啟用後會略過內建字幕，完成一批音訊後才顯示講者分段。</div>
         </div>
         <div class="col-12 col-md-6 col-xl-3">
           <label class="form-label fw-semibold" for="sourceLanguage" data-i18n="sourceLanguage">原文語言</label>
@@ -750,6 +784,7 @@
           <div>
             <label class="form-label fw-semibold" for="confirmedSourceLanguage" data-i18n="confirmSourceLanguage">確認原文語言</label>
             <select id="confirmedSourceLanguage" class="form-select">
+              <option value="auto" data-i18n="autoDetect">自動偵測（支援混合語言）</option>
               <option value="en" data-i18n="languageEnglish">英文</option>
               <option value="ja" data-i18n="languageJapanese">日文</option>
               <option value="ko" data-i18n="languageKorean">韓文</option>
@@ -790,7 +825,13 @@
       </div>
 
       <div id="videoPreview" class="video-preview d-none">
-        <div class="fw-bold mb-3" data-i18n="videoPreview">影片預覽</div>
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+          <div class="fw-bold" data-i18n="videoPreview">影片預覽</div>
+          <div class="form-check form-switch mb-0">
+            <input id="showSourceSubtitles" class="form-check-input" type="checkbox" role="switch" checked>
+            <label class="form-check-label small" for="showSourceSubtitles" data-i18n="showSourceSubtitles">顯示原始逐字稿</label>
+          </div>
+        </div>
         <div id="videoPreviewFrame" class="video-preview-frame">
           <button id="videoFullscreenButton" class="video-fullscreen-button btn btn-sm" type="button" data-i18n="enterFullscreen">全螢幕</button>
           <div class="video-player-viewport">
@@ -822,6 +863,10 @@
             <div id="transcriptionBar" class="progress-bar progress-bar-striped progress-bar-animated" style="width: 0%"></div>
           </div>
           <div id="transcriptionDetail" class="small text-secondary" data-i18n="progressDetail">取得影片長度後會顯示轉譯進度。</div>
+          <div id="livePartialTranscript" class="live-partial-transcript d-none" aria-live="polite">
+            <span class="live-partial-label" data-i18n="recognizingNow">辨識中</span>
+            <span id="livePartialText" class="live-partial-text"></span>
+          </div>
         </div>
         <div class="progress-block translation-progress">
           <div class="d-flex justify-content-between gap-3">
@@ -867,6 +912,6 @@
 
   <script src="/subtitle-display-cues.js?v=20260809-1" defer></script>
   <script src="/translation-usage.js?v=20260809-1" defer></script>
-  <script src="/youtube-live-translate.js?v=20260811-1" defer></script>
+  <script src="/youtube-live-translate.js?v=20260815-2" defer></script>
 </body>
 </html>

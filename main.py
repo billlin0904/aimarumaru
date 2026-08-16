@@ -36,6 +36,10 @@ from app_logging import (
 configure_logging()
 
 from auto2lrc import Auto2Lrc
+from cloudflare_asr_queue import (
+    cloudflare_asr_scheduler,
+    get_cloudflare_asr_queue_status,
+)
 from gpu_info import get_pynvml_gpu_info
 from maintenance import (
     MaintenanceManager,
@@ -175,6 +179,12 @@ class TranscribeQueueStatusResponse(BaseModel):
     queue_size: int
     waiting_count: int
     transcribing_count: int
+    queue_capacity: int
+    local_transcribing_count: int
+    remote_transcribing_count: int
+    local_worker_concurrency: int
+    remote_worker_concurrency: int
+    cloudflare_asr: dict[str, int]
 
 
 class MaintenanceStatusResponse(BaseModel):
@@ -202,6 +212,7 @@ async def start_background_transcribe_queue():
 @app.on_event("shutdown")
 async def stop_background_transcribe_queue():
     await stop_transcribe_queue()
+    cloudflare_asr_scheduler.shutdown(wait=False)
 
 
 @app.get("/", include_in_schema=False)
@@ -295,7 +306,10 @@ def get_service_status():
     response_model=TranscribeQueueStatusResponse,
 )
 def get_transcribe_queue_status():
-    return get_transcribe_queue_counts()
+    return {
+        **get_transcribe_queue_counts(),
+        "cloudflare_asr": get_cloudflare_asr_queue_status(),
+    }
 
 
 @app.get(
@@ -606,18 +620,18 @@ def write_transcription_output(
     language_hint: Optional[str],
     use_vocal_separation: bool,
     cancel_check,
-) -> None:
+) -> dict[str, Any]:
     if cancel_check():
         raise TranscriptionCancelled("轉譯已取消")
     if output_format == "lrc":
-        auto2lrc.get_lrc(
+        info = auto2lrc.get_lrc(
             str(input_path),
             str(output_path),
             use_vocal_separation=use_vocal_separation,
             cancel_check=cancel_check,
         )
     elif output_format == "srt":
-        auto2lrc.get_srt(
+        info = auto2lrc.get_srt(
             str(input_path),
             str(output_path),
             language=language_hint,
@@ -625,7 +639,7 @@ def write_transcription_output(
             cancel_check=cancel_check,
         )
     elif output_format == "txt":
-        auto2lrc.get_text(
+        info = auto2lrc.get_text(
             str(input_path),
             str(output_path),
             language=language_hint,
@@ -663,6 +677,10 @@ def write_transcription_output(
             "segments": output_segments,
         }
         output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {
+        "language": getattr(info, "language", language_hint),
+        "language_probability": getattr(info, "language_probability", None),
+    }
 
 
 def is_video_upload(filename: Optional[str], content_type: Optional[str]) -> bool:
@@ -736,7 +754,7 @@ def run_transcribe_request(req_id: str) -> None:
     job = transcribe_jobs[req_id]
     ensure_transcribe_job_not_cancelled(job)
     transcription_input = prepare_transcription_input(job)
-    write_transcription_output(
+    transcription_metadata = write_transcription_output(
         input_path=transcription_input,
         output_path=job["output_path"],
         output_format=job["output_format"],
@@ -745,6 +763,10 @@ def run_transcribe_request(req_id: str) -> None:
         use_vocal_separation=job.get("use_vocal_separation", False),
         cancel_check=lambda: transcribe_job_cancelled(job),
     )
+    # The download endpoint remains LRC/SRT/TXT compatible, while the status
+    # endpoint exposes the detected source language for downstream translation.
+    job["language"] = transcription_metadata.get("language") or job.get("language_hint")
+    job["language_probability"] = transcription_metadata.get("language_probability")
 
 
 async def handle_audio_transcribe_task(task: dict[str, Any]) -> None:
@@ -873,6 +895,10 @@ def get_public_transcribe_request(req_id: str) -> dict[str, Any]:
     }
     if job["status"] == "done":
         payload["download_url"] = build_transcribe_download_url(req_id, job["download_token"])
+    if job.get("language"):
+        payload["language"] = job["language"]
+    if job.get("language_probability") is not None:
+        payload["language_probability"] = job["language_probability"]
     if job.get("started_at"):
         payload["started_at"] = job["started_at"]
     if job.get("completed_at"):
@@ -924,6 +950,8 @@ async def create_transcribe_audio_job(
         "media_kind": media_kind,
         "output_format": output_format,
         "language_hint": language_hint,
+        "language": language_hint,
+        "language_probability": None,
         "use_vocal_separation": vocal_separation,
         "req_dir": req_dir,
         "input_path": input_path,
