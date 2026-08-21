@@ -233,7 +233,7 @@ class MediaAudioStreamTests(unittest.TestCase):
         self.assertEqual(local.clear_count, 0)
         self.assertEqual(local.sample_counts, [5 * 16000])
 
-    def test_together_language_detection_uses_http_transcription(self) -> None:
+    def test_together_language_detection_uses_cloudflare_transcription(self) -> None:
         prefix_pcm = b"\0\0" * (5 * 16000)
         FakeTogetherRealtimeTranscriber.instances.clear()
         remote = FakeRemoteWhisperClient(
@@ -241,20 +241,26 @@ class MediaAudioStreamTests(unittest.TestCase):
             reported_languages=["ja"],
         )
 
-        with mock.patch("youtube_live.decode_media_prefix", return_value=prefix_pcm):
+        with (
+            mock.patch("youtube_live.decode_media_prefix", return_value=prefix_pcm),
+            mock.patch(
+                "youtube_live.create_cloudflare_whisper_client",
+                return_value=remote,
+            ) as create_cloudflare,
+        ):
             result = detect_audio_language(
                 FakeAuto2Lrc(),
                 self.audio_path,
                 job_id="together-language-job",
                 audio_duration_hint=25.0,
                 asr_provider="together",
-                asr_client=remote,
             )
 
         self.assertEqual(result["language"], "ja")
         self.assertEqual(result["language_probability"], 0.97)
         self.assertEqual(remote.calls, 1)
         self.assertIsNone(remote.options[0]["language"])
+        create_cloudflare.assert_called_once_with(scheduler_managed=False)
         self.assertEqual(FakeTogetherRealtimeTranscriber.instances, [])
 
     def test_full_groq_segment_uses_authoritative_segment_text(self) -> None:

@@ -5,7 +5,7 @@
 set -Eeuo pipefail
 
 NAME="${POT_PROVIDER_CONTAINER_NAME:-aimarumaru-pot-provider}"
-IMAGE="${POT_PROVIDER_IMAGE:-brainicism/bgutil-ytdlp-pot-provider:latest}"
+IMAGE="${POT_PROVIDER_IMAGE:-brainicism/bgutil-ytdlp-pot-provider:1.3.1}"
 HOST_PORT="${POT_PROVIDER_PORT:-4416}"
 
 command -v docker >/dev/null 2>&1 || {

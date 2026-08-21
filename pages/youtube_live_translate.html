@@ -763,6 +763,25 @@
           </select>
         </div>
         <div class="col-12 col-md-6 col-xl-3">
+          <label class="form-label fw-semibold" for="asrProvider" data-i18n="asrProvider">轉譯引擎</label>
+          <select id="asrProvider" class="form-select form-select-lg">
+            <option value="cloudflare" data-i18n="asrCloudflare">Cloudflare Whisper</option>
+            <option value="elevenlabs" data-i18n="asrElevenLabs">ElevenLabs Scribe</option>
+          </select>
+        </div>
+        <div id="elevenlabsModeGroup" class="col-12 col-md-6 col-xl-3 d-none">
+          <label class="form-label fw-semibold" for="elevenlabsMode" data-i18n="elevenlabsMode">ElevenLabs 模式</label>
+          <select id="elevenlabsMode" class="form-select form-select-lg">
+            <option value="chunks" data-i18n="elevenlabsChunks">即時切片</option>
+            <option value="full" data-i18n="elevenlabsFull">完整檔案 / YouTube URL</option>
+          </select>
+        </div>
+        <div id="elevenlabsKeytermsGroup" class="col-12 d-none">
+          <label class="form-label fw-semibold" for="elevenlabsKeyterms" data-i18n="elevenlabsKeyterms">預先輸入關鍵詞（選填）</label>
+          <textarea id="elevenlabsKeyterms" class="form-control" rows="3" data-i18n-placeholder="elevenlabsKeytermsPlaceholder" placeholder="RUDE!&#10;Hearts2Hearts&#10;JIWOO"></textarea>
+          <div class="form-text" data-i18n="elevenlabsKeytermsHelp">請在開始轉譯前輸入，每行一個可能出現在音訊中的名稱或專有名詞。最多 1,000 個、每個 50 字元；只影響 ElevenLabs 原文辨識，會增加額外費用。</div>
+        </div>
+        <div class="col-12 col-md-6 col-xl-3">
           <label class="form-label fw-semibold" for="transcriptionMode" data-i18n="transcriptionMode">轉譯模式</label>
           <select id="transcriptionMode" class="form-select form-select-lg">
             <option value="accurate" data-i18n="modeAccurate">高精度（較慢）</option>
@@ -912,6 +931,6 @@
 
   <script src="/subtitle-display-cues.js?v=20260809-1" defer></script>
   <script src="/translation-usage.js?v=20260809-1" defer></script>
-  <script src="/youtube-live-translate.js?v=20260815-2" defer></script>
+  <script src="/youtube-live-translate.js?v=20260820-2" defer></script>
 </body>
 </html>

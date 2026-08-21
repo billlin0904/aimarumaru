@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from media_audio_stream import MediaAudioSource, _ffmpeg_input_arguments
-from youtube_srt import get_youtube_audio_stream_source
+from youtube_srt import _is_dubbed_audio_format, get_youtube_audio_stream_source
 
 
 class FakeCookieJar:
@@ -48,6 +48,24 @@ class FakeYoutubeDL:
 
 
 class YoutubeAudioStreamTests(unittest.TestCase):
+    def test_rejects_youtube_auto_dubbed_audio(self):
+        self.assertTrue(
+            _is_dubbed_audio_format(
+                {
+                    "format_note": "Tamil, low",
+                    "url": "https://googlevideo.test/audio?xtags=acont%3Ddubbed-auto%3Alang%3Dta",
+                }
+            )
+        )
+        self.assertFalse(
+            _is_dubbed_audio_format(
+                {
+                    "format_note": "English (US) original (default), medium",
+                    "url": "https://googlevideo.test/audio",
+                }
+            )
+        )
+
     def test_stream_resolver_passes_cookies_and_skips_forbidden_candidate(self):
         FakeYoutubeDL.calls = 0
         FakeYoutubeDL.options_seen = []

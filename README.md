@@ -38,7 +38,8 @@ WHISPER_MODEL_NAME=turbo
 
 若 YouTube 開始要求 Proof of Origin（PO）Token 才能取得音訊串流，建議使用
 bgutil provider 自動針對每支影片產生 token（yt-dlp 官方建議方式）。先在 Aimarumaru
-主機啟動 provider：Linux 使用 `./start_pot_provider.sh`；Windows 使用
+主機啟動 provider：Linux 使用 `./start_pot_provider.sh`；Windows 可直接執行
+`start_pot_provider.bat`，或使用
 `powershell -ExecutionPolicy Bypass -File .\start_pot_provider.ps1`。再在 `.env` 加入：
 
 ```dotenv

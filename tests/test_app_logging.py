@@ -4,7 +4,11 @@ import unittest
 from datetime import date
 from pathlib import Path
 
-from app_logging import JsonLineFormatter, MultiprocessSafeDailyFileHandler
+from app_logging import (
+    JsonLineFormatter,
+    MultiprocessSafeDailyFileHandler,
+    UvicornAccessPathFilter,
+)
 
 
 class MultiprocessSafeDailyFileHandlerTests(unittest.TestCase):
@@ -82,6 +86,37 @@ class MultiprocessSafeDailyFileHandlerTests(unittest.TestCase):
             self.assertFalse(expired.exists())
             self.assertFalse(legacy_expired.exists())
             self.assertTrue(retained.exists())
+
+
+class UvicornAccessPathFilterTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.log_filter = UvicornAccessPathFilter({"/api/nvidia-smi"})
+
+    @staticmethod
+    def access_record(path: str) -> logging.LogRecord:
+        return logging.LogRecord(
+            "uvicorn.access",
+            logging.INFO,
+            __file__,
+            1,
+            '%s - "%s %s HTTP/%s" %d',
+            ("127.0.0.1:1234", "GET", path, "1.1", 200),
+            None,
+        )
+
+    def test_ignores_nvidia_polling_with_optional_query(self) -> None:
+        self.assertFalse(
+            self.log_filter.filter(
+                self.access_record("/api/nvidia-smi?refresh=1")
+            )
+        )
+
+    def test_keeps_other_access_logs(self) -> None:
+        self.assertTrue(
+            self.log_filter.filter(
+                self.access_record("/api/transcribe-queue/status")
+            )
+        )
 
 
 if __name__ == "__main__":

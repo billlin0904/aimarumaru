@@ -8,6 +8,8 @@ import numpy as np
 from provider_profiles import (
     CloudflareWhisperClient,
     CloudflareWhisperSettings,
+    ElevenLabsWhisperClient,
+    ElevenLabsWhisperSettings,
     GroqWhisperClient,
     GroqWhisperSettings,
     TogetherWhisperClient,
@@ -102,6 +104,16 @@ class ProviderProfileTests(unittest.TestCase):
             self.assertEqual(
                 asr_provider_for_profile("standard"),
                 "together",
+            )
+
+    def test_asr_provider_can_be_selected_per_job(self):
+        with mock.patch.dict(
+            "os.environ",
+            {"AUDIOIO_ASR_PROVIDER": "cloudflare"},
+        ):
+            self.assertEqual(
+                asr_provider_for_profile("standard", "elevenlabs"),
+                "elevenlabs",
             )
 
     def test_workflow_profile_is_only_added_to_translation_requests(self):
@@ -246,6 +258,89 @@ class ProviderProfileTests(unittest.TestCase):
         self.assertEqual(request["json"]["beam_size"], 1)
         self.assertTrue(request["json"]["vad_filter"])
         self.assertNotIn("language", request["json"])
+
+    def test_elevenlabs_adapter_normalizes_words_and_spacing(self):
+        session = FakeSession(
+            [
+                FakeResponse(
+                    200,
+                    {
+                        "language_code": "jpn",
+                        "language_probability": 0.98,
+                        "text": "こんにちは。",
+                        "words": [
+                            {
+                                "text": "こんにちは。",
+                                "start": 0.0,
+                                "end": 0.8,
+                                "type": "word",
+                                "speaker_id": "speaker_0",
+                                "logprob": -0.1,
+                            }
+                        ],
+                    },
+                )
+            ]
+        )
+        client = ElevenLabsWhisperClient(
+            ElevenLabsWhisperSettings(api_key="test-key"),
+            session=session,
+        )
+
+        segments, info = client.transcribe(
+            np.zeros(16000, dtype=np.float32),
+            language=None,
+        )
+
+        self.assertEqual(info.language, "ja")
+        self.assertEqual(info.language_probability, 0.98)
+        self.assertEqual(segments[0].text, "こんにちは。")
+        self.assertEqual(segments[0].speaker_id, "speaker_0")
+        self.assertEqual(segments[0].words[0].word, "こんにちは。")
+        url, request = session.calls[0]
+        self.assertTrue(url.endswith("/v1/speech-to-text"))
+        self.assertEqual(request["headers"]["xi-api-key"], "test-key")
+        self.assertIn(("model_id", "scribe_v2"), request["data"])
+        self.assertIn(("timestamps_granularity", "word"), request["data"])
+        self.assertNotIn(("language_code", ""), request["data"])
+
+    def test_elevenlabs_adapter_can_transcribe_source_url(self):
+        session = FakeSession(
+            [
+                FakeResponse(
+                    200,
+                    {
+                        "language_code": "en",
+                        "text": "Hello world.",
+                        "words": [
+                            {"text": "Hello", "start": 0.0, "end": 0.4, "type": "word"},
+                            {"text": " ", "start": 0.4, "end": 0.45, "type": "spacing"},
+                            {"text": "world.", "start": 0.45, "end": 0.9, "type": "word"},
+                        ],
+                    },
+                )
+            ]
+        )
+        client = ElevenLabsWhisperClient(
+            ElevenLabsWhisperSettings(api_key="test-key"),
+            session=session,
+        )
+
+        segments, info = client.transcribe_source_url(
+            "https://www.youtube.com/watch?v=test-video",
+            keyterms=["RUDE!", "Hearts2Hearts"],
+        )
+
+        self.assertEqual(info.language, "en")
+        self.assertEqual(segments[0].text, "Hello world.")
+        _, request = session.calls[0]
+        self.assertIsNotNone(request["files"])
+        self.assertEqual(
+            request["files"]["source_url"],
+            (None, "https://www.youtube.com/watch?v=test-video"),
+        )
+        self.assertIn(("keyterms", "RUDE!"), request["data"])
+        self.assertIn(("keyterms", "Hearts2Hearts"), request["data"])
 
     def test_cloudflare_adapter_sends_manual_language(self):
         session = FakeSession(

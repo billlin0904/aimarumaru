@@ -11,12 +11,23 @@ from youtube_live import (
     completed_video_upload_chunks,
     create_youtube_live_router,
     expected_video_upload_chunk_bytes,
+    normalize_elevenlabs_keyterms,
     video_upload_chunk_count,
 )
 from youtube_srt import YOUTUBE_AUDIO_FORMAT
 
 
 class VideoUploadChunkTests(unittest.TestCase):
+    def test_elevenlabs_keyterms_are_trimmed_and_deduplicated(self) -> None:
+        self.assertEqual(
+            normalize_elevenlabs_keyterms(" RUDE!\nHearts2Hearts\nRUDE!\n"),
+            ["RUDE!", "Hearts2Hearts"],
+        )
+
+    def test_elevenlabs_keyterm_rejects_more_than_50_characters(self) -> None:
+        with self.assertRaises(ValueError):
+            normalize_elevenlabs_keyterms(["x" * 51])
+
     def test_chunk_boundaries_cover_file_exactly(self) -> None:
         self.assertEqual(video_upload_chunk_count(10, 4), 3)
         self.assertEqual(
@@ -55,7 +66,8 @@ class VideoUploadChunkTests(unittest.TestCase):
             self.assertEqual(output_path.read_bytes(), b"abcdefghij")
 
     def test_default_youtube_audio_selector_caps_bitrate_first(self) -> None:
-        self.assertTrue(YOUTUBE_AUDIO_FORMAT.startswith("bestaudio[abr<=96]"))
+        self.assertIn("format_note*=original", YOUTUBE_AUDIO_FORMAT)
+        self.assertIn("abr<=96", YOUTUBE_AUDIO_FORMAT)
 
     def test_resumable_upload_endpoint_reports_committed_bytes(self) -> None:
         async def run_test() -> None:

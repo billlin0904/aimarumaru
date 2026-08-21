@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import queue
 import shutil
 import subprocess
@@ -17,6 +18,14 @@ PCM_SAMPLE_RATE = 16000
 PCM_CHANNELS = 1
 PCM_SAMPLE_WIDTH_BYTES = 2
 PCM_BYTES_PER_SECOND = PCM_SAMPLE_RATE * PCM_CHANNELS * PCM_SAMPLE_WIDTH_BYTES
+FFMPEG_NETWORK_TIMEOUT_SECONDS = max(
+    5.0,
+    float(os.getenv("FFMPEG_NETWORK_TIMEOUT_SECONDS", "30")),
+)
+FFMPEG_NETWORK_MAX_RETRIES = max(
+    0,
+    int(os.getenv("FFMPEG_NETWORK_MAX_RETRIES", "3")),
+)
 
 
 @dataclass(frozen=True)
@@ -88,10 +97,14 @@ def _ffmpeg_input_arguments(source: MediaAudioSource) -> list[str]:
     if source.location.lower().startswith(("http://", "https://")):
         arguments.extend(
             [
+                "-rw_timeout",
+                str(int(FFMPEG_NETWORK_TIMEOUT_SECONDS * 1_000_000)),
                 "-reconnect",
                 "1",
                 "-reconnect_streamed",
                 "1",
+                "-reconnect_max_retries",
+                str(FFMPEG_NETWORK_MAX_RETRIES),
                 "-reconnect_delay_max",
                 "5",
             ]

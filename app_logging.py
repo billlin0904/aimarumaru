@@ -18,6 +18,8 @@ LOG_FORMAT = "[%(asctime)s] %(levelname)s %(name)s: %(message)s"
 ACCESS_LOG_ENABLED_ENV = "AUDIOIO_ACCESS_LOG_ENABLED"
 ACCESS_LOG_FILE_ENV = "AUDIOIO_ACCESS_LOG_FILE"
 ACCESS_LOG_RETENTION_DAYS_ENV = "AUDIOIO_ACCESS_LOG_RETENTION_DAYS"
+ACCESS_LOG_IGNORED_PATHS_ENV = "AUDIOIO_ACCESS_LOG_IGNORED_PATHS"
+DEFAULT_ACCESS_LOG_IGNORED_PATHS = "/api/nvidia-smi"
 
 access_logger = logging.getLogger("audioio.access")
 access_logger.setLevel(logging.INFO)
@@ -72,6 +74,37 @@ class JsonLineFormatter(TimezoneFormatter):
         return json.dumps(payload, ensure_ascii=False, default=str)
 
 
+class UvicornAccessPathFilter(logging.Filter):
+    """Hide noisy polling endpoints from Uvicorn's console access log."""
+
+    def __init__(self, ignored_paths: set[str]) -> None:
+        super().__init__()
+        self.ignored_paths = {
+            path.rstrip("/") or "/"
+            for path in ignored_paths
+            if path.strip()
+        }
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        request_path = None
+        if isinstance(record.args, tuple) and len(record.args) >= 3:
+            request_path = str(record.args[2]).split("?", 1)[0]
+        if request_path is None:
+            message = record.getMessage()
+            request_path = next(
+                (
+                    path
+                    for path in self.ignored_paths
+                    if f" {path} " in message or f" {path}?" in message
+                ),
+                None,
+            )
+        if request_path is None:
+            return True
+        normalized_path = request_path.rstrip("/") or "/"
+        return normalized_path not in self.ignored_paths
+
+
 def environment_flag(name: str, default: bool = True) -> bool:
     fallback = "true" if default else "false"
     return os.getenv(name, fallback).strip().lower() in {
@@ -79,6 +112,17 @@ def environment_flag(name: str, default: bool = True) -> bool:
         "true",
         "yes",
         "on",
+    }
+
+
+def configured_ignored_access_paths() -> set[str]:
+    return {
+        path.strip()
+        for path in os.getenv(
+            ACCESS_LOG_IGNORED_PATHS_ENV,
+            DEFAULT_ACCESS_LOG_IGNORED_PATHS,
+        ).split(",")
+        if path.strip()
     }
 
 
@@ -256,6 +300,8 @@ def configure_access_logging(app: FastAPI) -> None:
 
     @app.middleware("http")
     async def daily_access_log_middleware(request: Request, call_next):
+        if request.url.path in configured_ignored_access_paths():
+            return await call_next(request)
         started_at = datetime.now(timezone.utc)
         started = time.perf_counter()
         response = None
@@ -354,3 +400,13 @@ def configure_logging() -> None:
         logger = logging.getLogger(logger_name)
         for handler in logger.handlers:
             handler.setFormatter(formatter)
+
+    ignored_access_paths = configured_ignored_access_paths()
+    uvicorn_access_logger = logging.getLogger("uvicorn.access")
+    if not any(
+        isinstance(log_filter, UvicornAccessPathFilter)
+        for log_filter in uvicorn_access_logger.filters
+    ):
+        uvicorn_access_logger.addFilter(
+            UvicornAccessPathFilter(ignored_access_paths)
+        )

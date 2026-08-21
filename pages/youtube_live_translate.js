@@ -39,6 +39,11 @@ const speakerDiarization = document.getElementById("speakerDiarization");
 const sourceLanguage = document.getElementById("sourceLanguage");
 const targetLanguage = document.getElementById("targetLanguage");
 const translationType = document.getElementById("translationType");
+const asrProvider = document.getElementById("asrProvider");
+const elevenlabsModeGroup = document.getElementById("elevenlabsModeGroup");
+const elevenlabsMode = document.getElementById("elevenlabsMode");
+const elevenlabsKeytermsGroup = document.getElementById("elevenlabsKeytermsGroup");
+const elevenlabsKeyterms = document.getElementById("elevenlabsKeyterms");
 const transcriptionMode = document.getElementById("transcriptionMode");
 const startBtn = document.getElementById("startBtn");
 const languageConfirmation = document.getElementById("languageConfirmation");
@@ -124,12 +129,12 @@ const translations = {
     selectedVideos: "已選影片", selectedVideoCount: "{count} 支", videoBatchQueued: "排程中", videoBatchProcessing: "處理中", videoBatchDone: "已完成", videoBatchFailed: "失敗", videoBatchCancelled: "已取消", uploadPreparing: "準備上傳", uploadProgress: "上傳 {percent}%", uploadResuming: "續傳 {percent}%", uploadRetrying: "連線中斷，正在重試", uploadAssembling: "上傳完成，伺服器合併中", uploadOverallProgress: "正在上傳 {current}/{total} · {percent}%", batchDownloads: "批次下載",
     playlistLabel: "播放清單", playlistCount: "{count} 支影片", playlistLoading: "正在讀取播放清單…", playlistLoadFailed: "無法讀取播放清單", selectPlaylistVideo: "選擇第 {index} 支影片：{title}",
     videoPreview: "影片預覽", showSourceSubtitles: "顯示原始逐字稿", enterFullscreen: "全螢幕", exitFullscreen: "結束全螢幕", subtitleWaiting: "字幕完成後會顯示在這裡",
-    sourceLanguage: "原文語言", targetLanguage: "翻譯目標語言", translationType: "處理方案", translationTypeStd: "Standard（GPT-OSS 120B）", translationTypePro: "Premium（Gemini）", translationTypePrivate: "Private（Qwen3 14B）", transcriptionMode: "轉譯模式", modeAccurate: "高精度（較慢）", modeFast: "快速", autoDetect: "自動偵測（支援混合語言）", languageEnglish: "英文", languageJapanese: "日文", languageKorean: "韓文", languageThai: "泰文", languageTraditionalChinese: "繁體中文",
+    sourceLanguage: "原文語言", targetLanguage: "翻譯目標語言", translationGlossary: "專有名詞對照", translationGlossaryPlaceholder: "RUDE! | ルート | ルード | Route", translationGlossaryHelp: "每行一組：正式名稱 | 可能的辨識寫法。只會影響翻譯，不會修改原始逐字稿。", translationType: "處理方案", translationTypeStd: "Standard（GPT-OSS 120B）", translationTypePro: "Premium（Gemini）", translationTypePrivate: "Private（Qwen3 14B）", asrProvider: "轉譯引擎", asrCloudflare: "Cloudflare Whisper", asrElevenLabs: "ElevenLabs Scribe", elevenlabsMode: "ElevenLabs 模式", elevenlabsChunks: "即時切片", elevenlabsFull: "完整檔案 / YouTube URL", elevenlabsKeyterms: "預先輸入關鍵詞（選填）", elevenlabsKeytermsPlaceholder: "RUDE!\nHearts2Hearts\nJIWOO", elevenlabsKeytermsHelp: "請在開始轉譯前輸入，每行一個可能出現在音訊中的名稱或專有名詞。最多 1,000 個、每個 50 字元；只影響 ElevenLabs 原文辨識，會增加額外費用。", transcriptionMode: "轉譯模式", modeAccurate: "高精度（較慢）", modeFast: "快速", autoDetect: "自動偵測（支援混合語言）", languageEnglish: "英文", languageJapanese: "日文", languageKorean: "韓文", languageThai: "泰文", languageTraditionalChinese: "繁體中文",
     start: "開始轉譯並翻譯", detectLanguage: "偵測語言", waiting: "等待輸入網址", waitingUpload: "等待選擇影片", creating: "建立任務中", uploading: "正在上傳影片", processing: "處理中", cancelJob: "取消轉譯", cancelled: "已取消轉譯與翻譯", transcriptionDone: "轉譯完成，翻譯繼續處理中", done: "轉譯與翻譯完成", partialDone: "處理完成，部分翻譯失敗", failed: "處理失敗", disconnected: "連線中斷", requestFailed: "請求失敗",
     detectedLanguageLabel: "偵測結果", detectedLanguageValue: "偵測為 {language}", confirmSourceLanguage: "確認原文語言", confirmAndStart: "確認並開始", confirmDetectedLanguage: "請確認原文語言後再開始轉譯", confirmingLanguage: "正在送出語言選擇", confidence: "偵測信心 {percent}%", subtitleLanguageSource: "來自 YouTube 字幕語言", unknownLanguage: "未知語言",
     resultTitle: "即時字幕", emptyState: "原文與譯文會一段一段顯示在這裡。", segmentUnit: "段", sourceText: "原文", translatedText: "翻譯", translationPending: "正在等待翻譯…", translationFailed: "翻譯失敗", retryTranslation: "重新翻譯",
     transcriptionProgress: "轉譯進度", translationProgress: "翻譯進度", translationSkipped: "已略過", progressDetail: "取得影片長度後會顯示轉譯進度。", recognizingNow: "辨識中", translationWaiting: "等待轉譯內容。", estimatingCompletion: "正在估算完成時間…", estimatedCompletion: "預計完成時間 {time}", durationPrefix: "長度", seconds: "秒",
-    translationCounts: "已翻譯 {translated} / 已收到 {received} 段 · 等待翻譯 {waiting} 段", translationPercentDone: "翻譯完成 {percent}% · 失敗 {failed} 段", translationErrorCodes: "錯誤碼 {codes}", usageSummary: "翻譯 tokens {tokens} · 預估 US${usd} / NT${twd}", sameLanguage: "原文與目標語言相同，已略過翻譯。", unsupportedLanguage: "目前翻譯服務不支援偵測到的語言：{language}",
+    translationCounts: "已翻譯 {translated} / 已收到 {received} 段 · 等待翻譯 {waiting} 段", translationPercentDone: "翻譯完成 {percent}% · 失敗 {failed} 段", translationErrorCodes: "錯誤碼 {codes}", glossaryWarnings: "術語未套用：{terms}", usageSummary: "翻譯 tokens {tokens} · 預估 US${usd} / NT${twd}", sameLanguage: "原文與目標語言相同，已略過翻譯。", unsupportedLanguage: "目前翻譯服務不支援偵測到的語言：{language}",
     downloadSourceSrt: "下載原始 SRT", downloadTranslatedSrt: "下載翻譯 SRT", downloadBilingualSrt: "下載雙語 SRT", downloadJson: "下載 segments JSON", partialSuffix: "（部分完成）", partialDownloadWarning: "部分段落尚未翻譯，下載檔將以原文補位。是否繼續？", nextTranscription: "下一個轉譯內容",
     captchaLabel: "驗證碼", captchaPlaceholder: "輸入圖片中的文字", refreshCaptcha: "重新選擇", verifyCaptcha: "驗證", captchaVerified: "驗證完成", captchaLoadFailed: "取得驗證碼失敗", captchaVerifyFailed: "驗證失敗", captchaRequired: "請先完成驗證碼",
     translationServiceFailed: "翻譯服務暫時無法使用", invalidTranslation: "翻譯回應格式不正確", videoTitle: "YouTube 影片", uploadedVideoTitle: "上傳的影片", about: "關於我們", privacy: "隱私權政策", terms: "使用條款", contact: "聯絡我們", leaveWarning: "轉譯或翻譯仍在進行中，離開頁面將取消這次工作。"
@@ -139,12 +144,12 @@ const translations = {
     selectedVideos: "Selected videos", selectedVideoCount: "{count} videos", videoBatchQueued: "Queued", videoBatchProcessing: "Processing", videoBatchDone: "Complete", videoBatchFailed: "Failed", videoBatchCancelled: "Cancelled", uploadPreparing: "Preparing upload", uploadProgress: "Uploading {percent}%", uploadResuming: "Resuming {percent}%", uploadRetrying: "Connection interrupted; retrying", uploadAssembling: "Upload complete; assembling on server", uploadOverallProgress: "Uploading {current}/{total} · {percent}%", batchDownloads: "Batch downloads",
     playlistLabel: "Playlist", playlistCount: "{count} videos", playlistLoading: "Loading playlist…", playlistLoadFailed: "Could not load playlist", selectPlaylistVideo: "Select video {index}: {title}",
     videoPreview: "Video preview", showSourceSubtitles: "Show source transcript", enterFullscreen: "Fullscreen", exitFullscreen: "Exit fullscreen", subtitleWaiting: "Subtitles will appear here when ready",
-    sourceLanguage: "Source language", targetLanguage: "Target language", translationType: "Processing profile", translationTypeStd: "Standard (GPT-OSS 120B)", translationTypePro: "Premium (Gemini)", translationTypePrivate: "Private (Qwen3 14B)", transcriptionMode: "Transcription mode", modeAccurate: "High accuracy (slower)", modeFast: "Fast", autoDetect: "Auto detect (mixed languages)", languageEnglish: "English", languageJapanese: "Japanese", languageKorean: "Korean", languageThai: "Thai", languageTraditionalChinese: "Traditional Chinese",
+    sourceLanguage: "Source language", targetLanguage: "Target language", translationGlossary: "Terminology glossary", translationGlossaryPlaceholder: "RUDE! | ルート | ルード | Route", translationGlossaryHelp: "One entry per line: canonical name | possible recognition variants. This affects translation only, not the source transcript.", translationType: "Processing profile", translationTypeStd: "Standard (GPT-OSS 120B)", translationTypePro: "Premium (Gemini)", translationTypePrivate: "Private (Qwen3 14B)", asrProvider: "Transcription engine", asrCloudflare: "Cloudflare Whisper", asrElevenLabs: "ElevenLabs Scribe", elevenlabsMode: "ElevenLabs mode", elevenlabsChunks: "Live chunks", elevenlabsFull: "Complete file / YouTube URL", elevenlabsKeyterms: "Enter keyterms in advance (optional)", elevenlabsKeytermsPlaceholder: "RUDE!\nHearts2Hearts\nJIWOO", elevenlabsKeytermsHelp: "Enter expected names or terms before transcription, one per line (up to 1,000 terms, 50 characters each). This only affects ElevenLabs source transcription and incurs an additional charge.", transcriptionMode: "Transcription mode", modeAccurate: "High accuracy (slower)", modeFast: "Fast", autoDetect: "Auto detect (mixed languages)", languageEnglish: "English", languageJapanese: "Japanese", languageKorean: "Korean", languageThai: "Thai", languageTraditionalChinese: "Traditional Chinese",
     start: "Transcribe and translate", detectLanguage: "Detect language", waiting: "Waiting for a URL", waitingUpload: "Waiting for a video", creating: "Creating job", uploading: "Uploading video", processing: "Processing", cancelJob: "Cancel", cancelled: "Transcription and translation cancelled", transcriptionDone: "Transcription complete; translation is still running", done: "Transcription and translation complete", partialDone: "Complete with some translation failures", failed: "Processing failed", disconnected: "Connection interrupted", requestFailed: "Request failed",
     detectedLanguageLabel: "Detection result", detectedLanguageValue: "Detected as {language}", confirmSourceLanguage: "Confirm source language", confirmAndStart: "Confirm and start", confirmDetectedLanguage: "Confirm the source language to begin transcription", confirmingLanguage: "Submitting language selection", confidence: "Detection confidence {percent}%", subtitleLanguageSource: "From YouTube subtitle language", unknownLanguage: "Unknown language",
     resultTitle: "Live subtitles", emptyState: "Source text and translation will appear here segment by segment.", segmentUnit: "segments", sourceText: "Source", translatedText: "Translation", translationPending: "Waiting for translation…", translationFailed: "Translation failed", retryTranslation: "Retry",
     transcriptionProgress: "Transcription", translationProgress: "Translation", translationSkipped: "Skipped", progressDetail: "Progress appears after the video duration is available.", recognizingNow: "Recognizing", translationWaiting: "Waiting for transcription.", estimatingCompletion: "Estimating completion time…", estimatedCompletion: "Estimated completion {time}", durationPrefix: "Duration", seconds: "sec",
-    translationCounts: "Translated {translated} / {received} received · {waiting} waiting", translationPercentDone: "Translation {percent}% · {failed} failed", translationErrorCodes: "Error code {codes}", usageSummary: "Translation tokens {tokens} · est. US${usd} / NT${twd}", sameLanguage: "Source and target languages match. Translation was skipped.", unsupportedLanguage: "The translation service does not support the detected language: {language}",
+    translationCounts: "Translated {translated} / {received} received · {waiting} waiting", translationPercentDone: "Translation {percent}% · {failed} failed", translationErrorCodes: "Error code {codes}", glossaryWarnings: "Glossary terms not applied: {terms}", usageSummary: "Translation tokens {tokens} · est. US${usd} / NT${twd}", sameLanguage: "Source and target languages match. Translation was skipped.", unsupportedLanguage: "The translation service does not support the detected language: {language}",
     downloadSourceSrt: "Download source SRT", downloadTranslatedSrt: "Download translated SRT", downloadBilingualSrt: "Download bilingual SRT", downloadJson: "Download segments JSON", partialSuffix: " (partial)", partialDownloadWarning: "Some segments are not translated. Source text will be used as fallback. Continue?", nextTranscription: "Next transcription",
     captchaLabel: "Verification", captchaPlaceholder: "Enter the text in the image", refreshCaptcha: "Choose again", verifyCaptcha: "Verify", captchaVerified: "Verified", captchaLoadFailed: "Could not load verification image", captchaVerifyFailed: "Verification failed", captchaRequired: "Please complete verification first",
     translationServiceFailed: "Translation service is temporarily unavailable", invalidTranslation: "The translation response is invalid", videoTitle: "YouTube video", uploadedVideoTitle: "Uploaded video", about: "About", privacy: "Privacy", terms: "Terms", contact: "Contact", leaveWarning: "Transcription or translation is still running. Leaving this page will cancel the job."
@@ -154,12 +159,12 @@ const translations = {
     selectedVideos: "選択した動画", selectedVideoCount: "{count} 本", videoBatchQueued: "待機中", videoBatchProcessing: "処理中", videoBatchDone: "完了", videoBatchFailed: "失敗", videoBatchCancelled: "キャンセル済み", uploadPreparing: "アップロード準備中", uploadProgress: "アップロード {percent}%", uploadResuming: "再開 {percent}%", uploadRetrying: "接続が中断されました。再試行中", uploadAssembling: "アップロード完了。サーバーで結合中", uploadOverallProgress: "アップロード {current}/{total} · {percent}%", batchDownloads: "一括ダウンロード",
     playlistLabel: "再生リスト", playlistCount: "{count} 本", playlistLoading: "再生リストを読み込み中…", playlistLoadFailed: "再生リストを読み込めません", selectPlaylistVideo: "{index} 本目を選択：{title}",
     videoPreview: "動画プレビュー", showSourceSubtitles: "原文の文字起こしを表示", enterFullscreen: "全画面", exitFullscreen: "全画面を終了", subtitleWaiting: "字幕の準備ができるとここに表示されます",
-    sourceLanguage: "原文の言語", targetLanguage: "翻訳先の言語", translationType: "処理プロファイル", translationTypeStd: "Standard（GPT-OSS 120B）", translationTypePro: "Premium（Gemini）", translationTypePrivate: "Private（Qwen3 14B）", transcriptionMode: "文字起こしモード", modeAccurate: "高精度（低速）", modeFast: "高速", autoDetect: "自動検出（複数言語対応）", languageEnglish: "英語", languageJapanese: "日本語", languageKorean: "韓国語", languageThai: "タイ語", languageTraditionalChinese: "繁体字中国語",
+    sourceLanguage: "原文の言語", targetLanguage: "翻訳先の言語", translationGlossary: "用語対照表", translationGlossaryPlaceholder: "RUDE! | ルート | ルード | Route", translationGlossaryHelp: "1行に1組：正式名称 | 認識される可能性のある表記。原文の文字起こしは変更せず、翻訳だけに適用します。", translationType: "処理プロファイル", translationTypeStd: "Standard（GPT-OSS 120B）", translationTypePro: "Premium（Gemini）", translationTypePrivate: "Private（Qwen3 14B）", asrProvider: "文字起こしエンジン", asrCloudflare: "Cloudflare Whisper", asrElevenLabs: "ElevenLabs Scribe", elevenlabsMode: "ElevenLabs モード", elevenlabsChunks: "リアルタイム分割", elevenlabsFull: "完全なファイル / YouTube URL", elevenlabsKeyterms: "事前入力キーワード（任意）", elevenlabsKeytermsPlaceholder: "RUDE!\nHearts2Hearts\nJIWOO", elevenlabsKeytermsHelp: "文字起こしを始める前に、音声に含まれる可能性のある名前や固有名詞を1行に1つ入力します（最大1,000個、各50文字）。ElevenLabs の原文文字起こしだけに適用され、追加料金が発生します。", transcriptionMode: "文字起こしモード", modeAccurate: "高精度（低速）", modeFast: "高速", autoDetect: "自動検出（複数言語対応）", languageEnglish: "英語", languageJapanese: "日本語", languageKorean: "韓国語", languageThai: "タイ語", languageTraditionalChinese: "繁体字中国語",
     start: "文字起こしと翻訳を開始", detectLanguage: "言語を検出", waiting: "URL を入力してください", waitingUpload: "動画を選択してください", creating: "ジョブを作成中", uploading: "動画をアップロード中", processing: "処理中", cancelJob: "キャンセル", cancelled: "文字起こしと翻訳をキャンセルしました", transcriptionDone: "文字起こしが完了し、翻訳を続行しています", done: "文字起こしと翻訳が完了しました", partialDone: "一部の翻訳に失敗しました", failed: "処理に失敗しました", disconnected: "接続が切断されました", requestFailed: "リクエストに失敗しました",
     detectedLanguageLabel: "検出結果", detectedLanguageValue: "{language} として検出", confirmSourceLanguage: "原文の言語を確認", confirmAndStart: "確認して開始", confirmDetectedLanguage: "原文の言語を確認してから開始してください", confirmingLanguage: "言語設定を送信中", confidence: "検出の信頼度 {percent}%", subtitleLanguageSource: "YouTube 字幕の言語", unknownLanguage: "不明な言語",
     resultTitle: "リアルタイム字幕", emptyState: "原文と翻訳が順番に表示されます。", segmentUnit: "件", sourceText: "原文", translatedText: "翻訳", translationPending: "翻訳待ち…", translationFailed: "翻訳に失敗しました", retryTranslation: "再翻訳",
     transcriptionProgress: "文字起こしの進捗", translationProgress: "翻訳の進捗", translationSkipped: "省略", progressDetail: "動画の長さを取得後、進捗が表示されます。", recognizingNow: "認識中", translationWaiting: "文字起こしを待っています。", estimatingCompletion: "完了時刻を計算中…", estimatedCompletion: "完了予定 {time}", durationPrefix: "長さ", seconds: "秒",
-    translationCounts: "翻訳済み {translated} / 受信 {received} 件・待機 {waiting} 件", translationPercentDone: "翻訳 {percent}%・失敗 {failed} 件", translationErrorCodes: "エラーコード {codes}", usageSummary: "翻訳 tokens {tokens}・推定 US${usd} / NT${twd}", sameLanguage: "原文と翻訳先が同じため、翻訳を省略しました。", unsupportedLanguage: "検出された言語は現在サポートされていません：{language}",
+    translationCounts: "翻訳済み {translated} / 受信 {received} 件・待機 {waiting} 件", translationPercentDone: "翻訳 {percent}%・失敗 {failed} 件", translationErrorCodes: "エラーコード {codes}", glossaryWarnings: "用語が適用されませんでした：{terms}", usageSummary: "翻訳 tokens {tokens}・推定 US${usd} / NT${twd}", sameLanguage: "原文と翻訳先が同じため、翻訳を省略しました。", unsupportedLanguage: "検出された言語は現在サポートされていません：{language}",
     downloadSourceSrt: "原文 SRT をダウンロード", downloadTranslatedSrt: "翻訳 SRT をダウンロード", downloadBilingualSrt: "二言語 SRT をダウンロード", downloadJson: "segments JSON をダウンロード", partialSuffix: "（一部完了）", partialDownloadWarning: "未翻訳の区間は原文で補完されます。続行しますか？", nextTranscription: "次の文字起こし",
     captchaLabel: "認証コード", captchaPlaceholder: "画像内の文字を入力", refreshCaptcha: "選び直す", verifyCaptcha: "認証", captchaVerified: "認証完了", captchaLoadFailed: "認証画像を取得できませんでした", captchaVerifyFailed: "認証に失敗しました", captchaRequired: "先に認証を完了してください",
     translationServiceFailed: "翻訳サービスを利用できません", invalidTranslation: "翻訳レスポンスが不正です", videoTitle: "YouTube 動画", uploadedVideoTitle: "アップロード動画", about: "私たちについて", privacy: "プライバシー", terms: "利用規約", contact: "お問い合わせ", leaveWarning: "文字起こしまたは翻訳が進行中です。ページを離れると、この処理はキャンセルされます。"
@@ -169,12 +174,12 @@ const translations = {
     selectedVideos: "선택한 동영상", selectedVideoCount: "동영상 {count}개", videoBatchQueued: "대기 중", videoBatchProcessing: "처리 중", videoBatchDone: "완료", videoBatchFailed: "실패", videoBatchCancelled: "취소됨", uploadPreparing: "업로드 준비 중", uploadProgress: "업로드 {percent}%", uploadResuming: "이어 올리기 {percent}%", uploadRetrying: "연결이 끊겨 다시 시도 중", uploadAssembling: "업로드 완료, 서버에서 병합 중", uploadOverallProgress: "업로드 {current}/{total} · {percent}%", batchDownloads: "일괄 다운로드",
     playlistLabel: "재생목록", playlistCount: "동영상 {count}개", playlistLoading: "재생목록을 불러오는 중…", playlistLoadFailed: "재생목록을 불러올 수 없습니다", selectPlaylistVideo: "{index}번 동영상 선택: {title}",
     videoPreview: "동영상 미리보기", showSourceSubtitles: "원문 스크립트 표시", enterFullscreen: "전체 화면", exitFullscreen: "전체 화면 종료", subtitleWaiting: "자막이 준비되면 여기에 표시됩니다",
-    sourceLanguage: "원문 언어", targetLanguage: "번역 언어", translationType: "처리 프로필", translationTypeStd: "Standard(GPT-OSS 120B)", translationTypePro: "Premium(Gemini)", translationTypePrivate: "Private(Qwen3 14B)", transcriptionMode: "전사 모드", modeAccurate: "고정밀(느림)", modeFast: "빠름", autoDetect: "자동 감지(혼합 언어 지원)", languageEnglish: "영어", languageJapanese: "일본어", languageKorean: "한국어", languageThai: "태국어", languageTraditionalChinese: "번체 중국어",
+    sourceLanguage: "원문 언어", targetLanguage: "번역 언어", translationGlossary: "전문 용어 대조표", translationGlossaryPlaceholder: "RUDE! | ルート | ルード | Route", translationGlossaryHelp: "한 줄에 한 항목: 정식 명칭 | 가능한 인식 표기. 원문 전사에는 영향을 주지 않고 번역에만 적용됩니다.", translationType: "처리 프로필", translationTypeStd: "Standard(GPT-OSS 120B)", translationTypePro: "Premium(Gemini)", translationTypePrivate: "Private(Qwen3 14B)", asrProvider: "전사 엔진", asrCloudflare: "Cloudflare Whisper", asrElevenLabs: "ElevenLabs Scribe", elevenlabsMode: "ElevenLabs 모드", elevenlabsChunks: "실시간 분할", elevenlabsFull: "전체 파일 / YouTube URL", elevenlabsKeyterms: "키워드 미리 입력(선택)", elevenlabsKeytermsPlaceholder: "RUDE!\nHearts2Hearts\nJIWOO", elevenlabsKeytermsHelp: "전사를 시작하기 전에 음성에 나올 가능성이 있는 이름이나 고유명사를 한 줄에 하나씩 입력하세요(최대 1,000개, 항목당 50자). ElevenLabs 원문 전사에만 적용되며 추가 요금이 발생합니다.", transcriptionMode: "전사 모드", modeAccurate: "고정밀(느림)", modeFast: "빠름", autoDetect: "자동 감지(혼합 언어 지원)", languageEnglish: "영어", languageJapanese: "일본어", languageKorean: "한국어", languageThai: "태국어", languageTraditionalChinese: "번체 중국어",
     start: "전사 및 번역 시작", detectLanguage: "언어 감지", waiting: "URL 입력 대기 중", waitingUpload: "동영상 선택 대기 중", creating: "작업 생성 중", uploading: "동영상 업로드 중", processing: "처리 중", cancelJob: "전사 취소", cancelled: "전사와 번역이 취소되었습니다", transcriptionDone: "전사가 완료되어 번역을 계속 처리하고 있습니다", done: "전사 및 번역 완료", partialDone: "일부 번역 실패와 함께 완료", failed: "처리 실패", disconnected: "연결이 끊겼습니다", requestFailed: "요청 실패",
     detectedLanguageLabel: "감지 결과", detectedLanguageValue: "{language}(으)로 감지", confirmSourceLanguage: "원문 언어 확인", confirmAndStart: "확인 후 시작", confirmDetectedLanguage: "원문 언어를 확인한 뒤 전사를 시작하세요", confirmingLanguage: "언어 선택을 전송하는 중", confidence: "감지 신뢰도 {percent}%", subtitleLanguageSource: "YouTube 자막 언어", unknownLanguage: "알 수 없는 언어",
     resultTitle: "실시간 자막", emptyState: "원문과 번역이 구간별로 표시됩니다.", segmentUnit: "개", sourceText: "원문", translatedText: "번역", translationPending: "번역 대기 중…", translationFailed: "번역 실패", retryTranslation: "다시 번역",
     transcriptionProgress: "전사 진행률", translationProgress: "번역 진행률", translationSkipped: "건너뜀", progressDetail: "영상 길이를 가져오면 진행률이 표시됩니다.", recognizingNow: "인식 중", translationWaiting: "전사 내용을 기다리는 중입니다.", estimatingCompletion: "완료 시간을 계산하는 중…", estimatedCompletion: "예상 완료 시간 {time}", durationPrefix: "길이", seconds: "초",
-    translationCounts: "번역 {translated} / 수신 {received}개 · 대기 {waiting}개", translationPercentDone: "번역 {percent}% · 실패 {failed}개", translationErrorCodes: "오류 코드 {codes}", usageSummary: "번역 tokens {tokens} · 예상 US${usd} / NT${twd}", sameLanguage: "원문과 대상 언어가 같아 번역을 건너뛰었습니다.", unsupportedLanguage: "감지된 언어는 현재 지원되지 않습니다: {language}",
+    translationCounts: "번역 {translated} / 수신 {received}개 · 대기 {waiting}개", translationPercentDone: "번역 {percent}% · 실패 {failed}개", translationErrorCodes: "오류 코드 {codes}", glossaryWarnings: "용어가 적용되지 않았습니다: {terms}", usageSummary: "번역 tokens {tokens} · 예상 US${usd} / NT${twd}", sameLanguage: "원문과 대상 언어가 같아 번역을 건너뛰었습니다.", unsupportedLanguage: "감지된 언어는 현재 지원되지 않습니다: {language}",
     downloadSourceSrt: "원문 SRT 다운로드", downloadTranslatedSrt: "번역 SRT 다운로드", downloadBilingualSrt: "이중 언어 SRT 다운로드", downloadJson: "segments JSON 다운로드", partialSuffix: " (일부 완료)", partialDownloadWarning: "번역되지 않은 구간은 원문으로 대체됩니다. 계속하시겠습니까?", nextTranscription: "다음 전사",
     captchaLabel: "인증 코드", captchaPlaceholder: "이미지의 문자를 입력하세요", refreshCaptcha: "다시 선택", verifyCaptcha: "인증", captchaVerified: "인증 완료", captchaLoadFailed: "인증 이미지를 불러오지 못했습니다", captchaVerifyFailed: "인증에 실패했습니다", captchaRequired: "먼저 인증을 완료해 주세요",
     translationServiceFailed: "번역 서비스를 일시적으로 사용할 수 없습니다", invalidTranslation: "번역 응답이 올바르지 않습니다", videoTitle: "YouTube 영상", uploadedVideoTitle: "업로드한 동영상", about: "소개", privacy: "개인정보 처리방침", terms: "이용약관", contact: "문의", leaveWarning: "전사 또는 번역이 진행 중입니다. 페이지를 떠나면 이 작업이 취소됩니다."
@@ -220,6 +225,8 @@ let jobCancellationRequested = false;
 let requestedSourceLanguage = "";
 let selectedTargetLanguage = "zh-TW";
 let selectedTranslationType = "standard";
+let selectedAsrProvider = "cloudflare";
+let selectedElevenLabsMode = "chunks";
 let translationUsageTotals = emptyTranslationUsageTotals();
 let detectedSourceLanguage = "";
 let totalDuration = 0;
@@ -358,6 +365,27 @@ function setSourceControlsDisabled(disabled) {
   includeWordTimestamps.disabled = disabled;
   speakerDiarization.disabled = disabled;
   transcriptionMode.disabled = disabled;
+  asrProvider.disabled = disabled;
+  elevenlabsMode.disabled = disabled || asrProvider.value !== "elevenlabs";
+  elevenlabsKeyterms.disabled = disabled || asrProvider.value !== "elevenlabs";
+}
+
+function updateElevenLabsModeVisibility() {
+  const enabled = asrProvider.value === "elevenlabs";
+  elevenlabsModeGroup.classList.toggle("d-none", !enabled);
+  elevenlabsKeytermsGroup.classList.toggle("d-none", !enabled);
+  elevenlabsMode.disabled = !enabled || transcriptionActive;
+  elevenlabsKeyterms.disabled = !enabled || transcriptionActive;
+}
+
+function selectedElevenLabsKeyterms() {
+  if (asrProvider.value !== "elevenlabs") return [];
+  return [...new Set(
+    elevenlabsKeyterms.value
+      .split(/\r?\n/)
+      .map(value => value.trim())
+      .filter(Boolean),
+  )];
 }
 
 function fullscreenElement() {
@@ -1161,6 +1189,10 @@ function showLanguageConfirmation(data) {
   languageConfirmation.classList.remove("d-none");
   setStatus(t("confirmDetectedLanguage"), "idle");
   notifyParentHeight();
+  requestAnimationFrame(() => {
+    languageConfirmation.scrollIntoView({ behavior: "smooth", block: "center" });
+    confirmLanguageBtn.focus({ preventScroll: true });
+  });
 }
 
 function setStatus(message, state = "idle") {
@@ -1973,7 +2005,6 @@ async function translateBatch(batch) {
       })),
     })),
   };
-
   let lastError = null;
   for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
     if (jobCancellationRequested) return;
@@ -2327,6 +2358,9 @@ function buildSegmentsJson() {
     source_language: requestedSourceLanguage || detectedSourceLanguage || null,
     target_language: selectedTargetLanguage,
     processing_profile: selectedTranslationType,
+    asr_provider: selectedAsrProvider,
+    elevenlabs_mode: selectedElevenLabsMode,
+    elevenlabs_keyterms: selectedElevenLabsKeyterms(),
     transcription_mode: transcriptionMode.value,
     translation_groups: [...translatedGroups.values()].map(group => ({
       group_id: group.groupId,
@@ -3089,6 +3123,9 @@ async function uploadVideoFilesInChunks(files, sessions, signal) {
             speaker_diarization: speakerDiarization.checked,
             transcription_mode: transcriptionMode.value,
             processing_profile: selectedTranslationType,
+            asr_provider: selectedAsrProvider,
+            elevenlabs_mode: selectedElevenLabsMode,
+            elevenlabs_keyterms: selectedElevenLabsKeyterms(),
           }),
           signal,
         },
@@ -3115,6 +3152,12 @@ async function beginTranscription() {
   selectedTranslationType = ["standard", "premium", "private"].includes(translationType.value)
     ? translationType.value
     : "standard";
+  selectedAsrProvider = ["cloudflare", "elevenlabs"].includes(asrProvider.value)
+    ? asrProvider.value
+    : "cloudflare";
+  selectedElevenLabsMode = ["chunks", "full"].includes(elevenlabsMode.value)
+    ? elevenlabsMode.value
+    : "chunks";
   if (uploadMode && videoFile.files.length > MAX_UPLOAD_VIDEO_FILES) {
     setStatus(t("videoFileLimit"), "failed");
     resetCaptchaState(false);
@@ -3180,6 +3223,9 @@ async function beginTranscription() {
           speaker_diarization: speakerDiarization.checked,
           transcription_mode: transcriptionMode.value,
           processing_profile: selectedTranslationType,
+          asr_provider: selectedAsrProvider,
+          elevenlabs_mode: selectedElevenLabsMode,
+          elevenlabs_keyterms: selectedElevenLabsKeyterms(),
           captcha_token: captchaToken.value,
         }),
       });
@@ -3478,7 +3524,10 @@ speakerDiarization.addEventListener("change", () => {
   ignoreSubtitles.disabled = uploadMode || speakerDiarization.checked;
 });
 
+asrProvider.addEventListener("change", updateElevenLabsModeVisibility);
+
 configureSourceMode();
+updateElevenLabsModeVisibility();
 applyLanguage(currentLanguage);
 resetView();
 resetCaptchaState(false);

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import base64
 import io
+import mimetypes
 import os
+from pathlib import Path
 import re
 import time
 import wave
@@ -15,9 +17,10 @@ import requests
 
 
 ProcessingProfile = Literal["standard", "premium", "private"]
-AsrProviderName = Literal["cloudflare", "groq", "local", "together"]
+AsrProviderName = Literal["cloudflare", "elevenlabs", "groq", "local", "together"]
 TranslationType = Literal["standard", "premium", "private"]
-REMOTE_ASR_PROVIDERS = frozenset({"cloudflare", "groq", "together"})
+REMOTE_ASR_PROVIDERS = frozenset({"cloudflare", "elevenlabs", "groq", "together"})
+SUPPORTED_ASR_PROVIDERS = frozenset({"cloudflare", "elevenlabs", "groq", "local", "together"})
 
 PROFILE_ALIASES = {
     "standard": "standard",
@@ -35,14 +38,22 @@ def normalize_processing_profile(value: Optional[str]) -> ProcessingProfile:
     return cast(ProcessingProfile, profile)
 
 
-def asr_provider_for_profile(profile: ProcessingProfile) -> AsrProviderName:
-    del profile
-    provider = os.getenv("AUDIOIO_ASR_PROVIDER", "local").strip().lower()
-    if provider not in {"cloudflare", "groq", "local", "together"}:
+def normalize_asr_provider(value: Optional[str]) -> AsrProviderName:
+    provider = str(value or "").strip().lower()
+    if provider not in SUPPORTED_ASR_PROVIDERS:
         raise ValueError(
-            "AUDIOIO_ASR_PROVIDER 必須是 local、cloudflare、groq 或 together"
+            "AUDIOIO_ASR_PROVIDER 必須是 local、cloudflare、elevenlabs、groq 或 together"
         )
     return cast(AsrProviderName, provider)
+
+
+def asr_provider_for_profile(
+    profile: ProcessingProfile,
+    provider_override: Optional[str] = None,
+) -> AsrProviderName:
+    del profile
+    provider = provider_override or os.getenv("AUDIOIO_ASR_PROVIDER", "local")
+    return normalize_asr_provider(provider)
 
 
 def translation_type_for_profile(profile: ProcessingProfile) -> TranslationType:
@@ -128,6 +139,7 @@ class WhisperAsrClient(Protocol):
         vad_filter: bool = False,
         condition_on_previous_text: bool = False,
         hallucination_silence_threshold: float | None = None,
+        keyterms: list[str] | None = None,
     ) -> tuple[list[SimpleNamespace], SimpleNamespace]: ...
 
 
@@ -179,9 +191,10 @@ class GroqWhisperClient:
         vad_filter: bool = False,
         condition_on_previous_text: bool = False,
         hallucination_silence_threshold: float | None = None,
+        keyterms: list[str] | None = None,
     ) -> tuple[list[SimpleNamespace], SimpleNamespace]:
         del beam_size, vad_filter, condition_on_previous_text
-        del hallucination_silence_threshold
+        del hallucination_silence_threshold, keyterms
         if not self.settings.api_key:
             raise RuntimeError("Standard/Premium 尚未設定 GROQ_API_KEY")
         payload: list[tuple[str, str]] = [
@@ -261,9 +274,10 @@ class TogetherWhisperClient:
         vad_filter: bool = False,
         condition_on_previous_text: bool = False,
         hallucination_silence_threshold: float | None = None,
+        keyterms: list[str] | None = None,
     ) -> tuple[list[SimpleNamespace], SimpleNamespace]:
         del beam_size, vad_filter, condition_on_previous_text
-        del hallucination_silence_threshold
+        del hallucination_silence_threshold, keyterms
         normalized_language = normalize_asr_language(language)
         payload: list[tuple[str, str]] = [
             ("model", self.settings.model),
@@ -340,6 +354,198 @@ class TogetherWhisperClient:
 
 
 @dataclass(frozen=True)
+class ElevenLabsWhisperSettings:
+    api_key: str
+    base_url: str = "https://api.elevenlabs.io"
+    model: str = "scribe_v2"
+    timeout_seconds: float = 180.0
+    max_retries: int = 2
+    fallback_wait_seconds: float = 5.0
+    max_wait_seconds: float = 30.0
+
+
+class ElevenLabsWhisperClient:
+    """ElevenLabs Scribe adapter normalized to the local Whisper result shape."""
+
+    provider_name: AsrProviderName = "elevenlabs"
+
+    def __init__(
+        self,
+        settings: ElevenLabsWhisperSettings,
+        session: requests.Session | None = None,
+    ) -> None:
+        self.settings = settings
+        self.session = session or requests.Session()
+
+    @property
+    def model_name(self) -> str:
+        return self.settings.model
+
+    def transcribe(
+        self,
+        audio_samples: np.ndarray,
+        *,
+        language: str | None = None,
+        beam_size: int = 5,
+        vad_filter: bool = False,
+        condition_on_previous_text: bool = False,
+        hallucination_silence_threshold: float | None = None,
+        keyterms: list[str] | None = None,
+    ) -> tuple[list[SimpleNamespace], SimpleNamespace]:
+        del beam_size, vad_filter, condition_on_previous_text
+        del hallucination_silence_threshold
+        if not self.settings.api_key:
+            raise RuntimeError("ElevenLabs ASR 尚未設定 ELEVENLABS_API_KEY")
+        normalized_language = normalize_elevenlabs_language(language)
+        wav_bytes = pcm_float32_to_wav(audio_samples)
+        data = self._request_transcription(
+            normalized_language,
+            files={"file": ("audio.wav", wav_bytes, "audio/wav")},
+            keyterms=keyterms,
+        )
+        return elevenlabs_response_to_segments(data, normalized_language)
+
+    def transcribe_file(
+        self,
+        media_path: str | os.PathLike[str],
+        *,
+        language: str | None = None,
+        keyterms: list[str] | None = None,
+    ) -> tuple[list[SimpleNamespace], SimpleNamespace]:
+        """Transcribe one complete local audio/video file with Scribe v2."""
+        path = Path(media_path)
+        normalized_language = normalize_elevenlabs_language(language)
+        content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        with path.open("rb") as media_file:
+            data = self._request_transcription(
+                normalized_language,
+                files={"file": (path.name, media_file, content_type)},
+                keyterms=keyterms,
+            )
+        return elevenlabs_response_to_segments(data, normalized_language)
+
+    def transcribe_source_url(
+        self,
+        source_url: str,
+        *,
+        language: str | None = None,
+        keyterms: list[str] | None = None,
+    ) -> tuple[list[SimpleNamespace], SimpleNamespace]:
+        """Transcribe a remotely hosted audio/video URL without downloading it locally."""
+        normalized_language = normalize_elevenlabs_language(language)
+        data = self._request_transcription(
+            normalized_language,
+            source_url=source_url,
+            keyterms=keyterms,
+        )
+        return elevenlabs_response_to_segments(data, normalized_language)
+
+    def _request_transcription(
+        self,
+        language: str | None,
+        *,
+        files: dict[str, tuple[str, Any, str]] | None = None,
+        source_url: str | None = None,
+        keyterms: list[str] | None = None,
+    ) -> dict[str, Any]:
+        if files is None and not source_url:
+            raise ValueError("ElevenLabs transcription requires a file or source_url")
+        payload: list[tuple[str, str]] = [
+            ("model_id", self.settings.model),
+            ("timestamps_granularity", "word"),
+            ("tag_audio_events", "false"),
+            ("no_verbatim", "false"),
+        ]
+        if language:
+            payload.append(("language_code", language))
+        for keyterm in keyterms or []:
+            payload.append(("keyterms", keyterm))
+        request_files = files
+        if source_url:
+            # ElevenLabs expects this endpoint as multipart/form-data even
+            # when the input is a remote source URL rather than an upload.
+            request_files = dict(files or {})
+            request_files["source_url"] = (None, source_url)
+
+        response: requests.Response | None = None
+        retryable_statuses = {429, 500, 502, 503, 504}
+        for attempt in range(self.settings.max_retries + 1):
+            file_handle = (
+                request_files.get("file", (None, None, ""))[1]
+                if request_files
+                else None
+            )
+            if file_handle is not None and hasattr(file_handle, "seek"):
+                file_handle.seek(0)
+            response = self.session.post(
+                f"{self.settings.base_url.rstrip('/')}/v1/speech-to-text",
+                headers={"xi-api-key": self.settings.api_key},
+                data=payload,
+                files=request_files,
+                timeout=self.settings.timeout_seconds,
+            )
+            if response.status_code in {401, 403}:
+                try:
+                    error_body = response.json()
+                except ValueError:
+                    error_body = {}
+                detail = (
+                    error_body.get("detail")
+                    if isinstance(error_body, dict)
+                    else None
+                )
+                if isinstance(detail, dict):
+                    message = str(
+                        detail.get("message")
+                        or detail.get("status")
+                        or "權限不足"
+                    )
+                else:
+                    message = str(detail or "API Key 無效或缺少權限")
+                raise RuntimeError(
+                    f"ElevenLabs API 驗證失敗（HTTP {response.status_code}）：{message}"
+                )
+            if response.status_code not in retryable_statuses:
+                if response.status_code >= 400:
+                    try:
+                        error_body = response.json()
+                    except ValueError:
+                        error_body = None
+                    detail = (
+                        error_body.get("detail")
+                        if isinstance(error_body, dict)
+                        else None
+                    )
+                    if isinstance(detail, dict):
+                        detail = (
+                            detail.get("message")
+                            or detail.get("status")
+                            or detail
+                        )
+                    raise RuntimeError(
+                        "ElevenLabs Speech-to-Text 請求失敗 "
+                        f"（HTTP {response.status_code}）：{detail or error_body}"
+                    )
+                response.raise_for_status()
+                break
+            if attempt >= self.settings.max_retries:
+                response.raise_for_status()
+            wait_seconds = retry_after_seconds(response)
+            if wait_seconds is None:
+                wait_seconds = self.settings.fallback_wait_seconds
+            if wait_seconds > self.settings.max_wait_seconds:
+                response.raise_for_status()
+            time.sleep(wait_seconds)
+
+        if response is None:  # pragma: no cover
+            raise AssertionError("ElevenLabs ASR request did not run")
+        data = response.json()
+        if not isinstance(data, dict):
+            raise RuntimeError("ElevenLabs Scribe 回傳格式不正確")
+        return data
+
+
+@dataclass(frozen=True)
 class CloudflareWhisperSettings:
     account_id: str
     api_token: str
@@ -377,7 +583,9 @@ class CloudflareWhisperClient:
         vad_filter: bool = False,
         condition_on_previous_text: bool = False,
         hallucination_silence_threshold: float | None = None,
+        keyterms: list[str] | None = None,
     ) -> tuple[list[SimpleNamespace], SimpleNamespace]:
+        del keyterms
         if not self.settings.account_id or not self.settings.api_token:
             raise RuntimeError(
                 "Cloudflare ASR 尚未設定 CLOUDFLARE_ACCOUNT_ID 或 "
@@ -449,14 +657,33 @@ def normalize_asr_language(language: str | None) -> str | None:
     return value.split("-", 1)[0]
 
 
+def normalize_elevenlabs_language(language: str | None) -> str | None:
+    normalized = normalize_asr_language(language)
+    if not normalized:
+        return None
+    return {
+        "en": "eng",
+        "ja": "jpn",
+        "ko": "kor",
+        "th": "tha",
+        "zh": "zho",
+    }.get(normalized, normalized)
+
+
 def normalize_detected_language(language: object, fallback: str | None) -> str | None:
     value = str(language or fallback or "").strip().lower()
     names = {
         "english": "en",
+        "eng": "en",
         "japanese": "ja",
+        "jpn": "ja",
         "korean": "ko",
+        "kor": "ko",
         "thai": "th",
+        "tha": "th",
         "chinese": "zh",
+        "zho": "zh",
+        "cmn": "zh",
     }
     return names.get(value, value or None)
 
@@ -652,6 +879,106 @@ def together_response_to_segments(
     language_hint: str | None,
 ) -> tuple[list[SimpleNamespace], SimpleNamespace]:
     return whisper_response_to_segments(data, language_hint)
+
+
+def elevenlabs_response_to_segments(
+    data: dict[str, Any],
+    language_hint: str | None,
+) -> tuple[list[SimpleNamespace], SimpleNamespace]:
+    """Convert Scribe words into timed, readable Whisper-compatible segments."""
+    raw_words = data.get("words")
+    raw_words = raw_words if isinstance(raw_words, list) else []
+    blocks: list[list[SimpleNamespace]] = []
+    current: list[SimpleNamespace] = []
+    current_speaker: str | None = None
+    pending_spacing = ""
+
+    for raw_word in raw_words:
+        if not isinstance(raw_word, dict):
+            continue
+        word_type = str(raw_word.get("type") or "word")
+        raw_text = str(raw_word.get("text") or raw_word.get("word") or "")
+        if word_type == "spacing":
+            pending_spacing += raw_text
+            continue
+        if not raw_text.strip():
+            continue
+        token = f"{pending_spacing}{raw_text}"
+        pending_spacing = ""
+        speaker = str(
+            raw_word.get("speaker_id") or raw_word.get("speaker") or ""
+        ).strip() or None
+        if current and speaker != current_speaker:
+            blocks.append(current)
+            current = []
+        current_speaker = speaker
+        start = float(raw_word.get("start") or 0.0)
+        end = max(start, float(raw_word.get("end") or start))
+        current.append(
+            SimpleNamespace(
+                word=token,
+                start=start,
+                end=end,
+                speaker_id=speaker,
+                probability=None,
+                logprob=(
+                    float(raw_word["logprob"])
+                    if isinstance(raw_word.get("logprob"), (int, float))
+                    else None
+                ),
+            )
+        )
+    if current:
+        blocks.append(current)
+
+    segments: list[SimpleNamespace] = []
+    for words in blocks:
+        text = "".join(str(getattr(word, "word", "") or "") for word in words).strip()
+        if not text:
+            continue
+        segments.append(
+            SimpleNamespace(
+                text=text,
+                start=float(words[0].start),
+                end=float(words[-1].end),
+                words=words,
+                speaker_id=words[0].speaker_id,
+                avg_logprob=0.0,
+                no_speech_prob=0.0,
+            )
+        )
+
+    if not segments:
+        text = str(data.get("text") or "").strip()
+        if text:
+            duration = float(data.get("duration") or 0.0)
+            segments = [
+                SimpleNamespace(
+                    text=text,
+                    start=0.0,
+                    end=max(0.0, duration),
+                    words=[],
+                    speaker_id=None,
+                    avg_logprob=0.0,
+                    no_speech_prob=0.0,
+                )
+            ]
+
+    duration = max(
+        [float(getattr(segment, "end", 0.0) or 0.0) for segment in segments]
+        or [float(data.get("duration") or 0.0)]
+    )
+    return split_segments_at_word_boundaries(segments), SimpleNamespace(
+        language=normalize_detected_language(
+            data.get("language_code"), language_hint
+        ),
+        language_probability=(
+            float(data["language_probability"])
+            if isinstance(data.get("language_probability"), (int, float))
+            else None
+        ),
+        duration=duration,
+    )
 
 
 SENTENCE_END_PATTERN = re.compile(r"[.!?。！？](?:[\"'”’」』）》）\]]*)$")

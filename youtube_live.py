@@ -20,7 +20,7 @@ import numpy as np
 import requests
 from fastapi import APIRouter, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app_logging import log_structured_event, set_request_log_metadata
 from cloudflare_asr_queue import (
@@ -37,6 +37,8 @@ from media_audio_stream import (
 from provider_profiles import (
     CloudflareWhisperClient,
     CloudflareWhisperSettings,
+    ElevenLabsWhisperClient,
+    ElevenLabsWhisperSettings,
     GroqWhisperClient,
     GroqWhisperSettings,
     REMOTE_ASR_PROVIDERS,
@@ -161,6 +163,27 @@ TOGETHER_ASR_FALLBACK_WAIT_SECONDS = max(
 )
 TOGETHER_ASR_MAX_WAIT_SECONDS = max(
     0.0, float(os.getenv("TOGETHER_ASR_MAX_WAIT_SECONDS", "30"))
+)
+ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "").strip()
+ELEVENLABS_ASR_BASE_URL = os.getenv(
+    "ELEVENLABS_ASR_BASE_URL",
+    "https://api.elevenlabs.io",
+).rstrip("/")
+ELEVENLABS_ASR_MODEL = os.getenv(
+    "ELEVENLABS_ASR_MODEL",
+    "scribe_v2",
+).strip()
+ELEVENLABS_ASR_TIMEOUT_SECONDS = float(
+    os.getenv("ELEVENLABS_ASR_TIMEOUT_SECONDS", "180")
+)
+ELEVENLABS_ASR_MAX_RETRIES = max(
+    0, int(os.getenv("ELEVENLABS_ASR_MAX_RETRIES", "2"))
+)
+ELEVENLABS_ASR_FALLBACK_WAIT_SECONDS = max(
+    0.0, float(os.getenv("ELEVENLABS_ASR_FALLBACK_WAIT_SECONDS", "5"))
+)
+ELEVENLABS_ASR_MAX_WAIT_SECONDS = max(
+    0.0, float(os.getenv("ELEVENLABS_ASR_MAX_WAIT_SECONDS", "30"))
 )
 TOGETHER_REALTIME_MAX_RETRIES = max(
     0, int(os.getenv("TOGETHER_REALTIME_MAX_RETRIES", "1"))
@@ -360,6 +383,8 @@ TRANSCRIPTION_MODE_BEAM_SIZES = {
     "accurate": 5,
     "fast": 1,
 }
+ELEVENLABS_MAX_KEYTERMS = 1000
+ELEVENLABS_MAX_KEYTERM_CHARACTERS = 50
 
 
 def normalize_transcription_mode(value: Optional[str]) -> str:
@@ -390,6 +415,9 @@ class YoutubeLiveRequest(BaseModel):
     speaker_diarization: bool = False
     transcription_mode: str = "accurate"
     processing_profile: str = "standard"
+    asr_provider: str = ""
+    elevenlabs_mode: str = "chunks"
+    elevenlabs_keyterms: list[str] = Field(default_factory=list)
 
 
 class YoutubeLanguageSelection(BaseModel):
@@ -418,6 +446,9 @@ class VideoUploadCompleteRequest(BaseModel):
     speaker_diarization: bool = False
     transcription_mode: str = "accurate"
     processing_profile: str = "standard"
+    asr_provider: str = ""
+    elevenlabs_mode: str = "chunks"
+    elevenlabs_keyterms: list[str] = Field(default_factory=list)
 
 
 def video_upload_chunk_count(size_bytes: int, chunk_bytes: int) -> int:
@@ -828,6 +859,20 @@ def create_together_whisper_client() -> TogetherWhisperClient:
     )
 
 
+def create_elevenlabs_whisper_client() -> ElevenLabsWhisperClient:
+    return ElevenLabsWhisperClient(
+        ElevenLabsWhisperSettings(
+            api_key=ELEVENLABS_API_KEY,
+            base_url=ELEVENLABS_ASR_BASE_URL,
+            model=ELEVENLABS_ASR_MODEL,
+            timeout_seconds=ELEVENLABS_ASR_TIMEOUT_SECONDS,
+            max_retries=ELEVENLABS_ASR_MAX_RETRIES,
+            fallback_wait_seconds=ELEVENLABS_ASR_FALLBACK_WAIT_SECONDS,
+            max_wait_seconds=ELEVENLABS_ASR_MAX_WAIT_SECONDS,
+        )
+    )
+
+
 def create_remote_whisper_client(provider: str) -> WhisperAsrClient:
     if provider == "cloudflare":
         return create_cloudflare_whisper_client()
@@ -835,6 +880,8 @@ def create_remote_whisper_client(provider: str) -> WhisperAsrClient:
         return create_groq_whisper_client()
     if provider == "together":
         return create_together_whisper_client()
+    if provider == "elevenlabs":
+        return create_elevenlabs_whisper_client()
     raise ValueError(f"不支援的遠端 ASR provider: {provider}")
 
 
@@ -864,6 +911,7 @@ def transcribe_remote_audio(
     hallucination_silence_threshold: float | None,
     job_id: str | None,
     cancel_check: Callable[[], bool] | None,
+    elevenlabs_keyterms: list[str] | None = None,
 ) -> tuple[list[Any], Any, float]:
     options = {
         "language": language,
@@ -872,6 +920,8 @@ def transcribe_remote_audio(
         "condition_on_previous_text": condition_on_previous_text,
         "hallucination_silence_threshold": hallucination_silence_threshold,
     }
+    if asr_provider == "elevenlabs":
+        options["keyterms"] = elevenlabs_keyterms or []
     if asr_provider != "cloudflare" or not job_id:
         segments, info = asr_client.transcribe(audio_samples, **options)
         return segments, info, 0.0
@@ -1056,18 +1106,58 @@ def asr_source_name(provider: str) -> str:
         return "groq_whisper"
     if provider == "together":
         return "together_whisper_http"
+    if provider == "elevenlabs":
+        return "elevenlabs_scribe_v2"
     return "whisper"
 
 
-def video_transcribe_task(job_id: str, processing_profile: str | None) -> dict[str, str]:
+def normalize_elevenlabs_transcription_mode(value: str | None) -> str:
+    mode = str(value or "chunks").strip().lower()
+    if mode not in {"chunks", "full"}:
+        raise ValueError("ElevenLabs 模式必須是 chunks 或 full")
+    return mode
+
+
+def normalize_elevenlabs_keyterms(value: Any) -> list[str]:
+    if value is None:
+        return []
+    values = value.splitlines() if isinstance(value, str) else list(value)
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in values:
+        keyterm = str(item or "").strip()
+        if not keyterm:
+            continue
+        if len(keyterm) > ELEVENLABS_MAX_KEYTERM_CHARACTERS:
+            raise ValueError(
+                "ElevenLabs 每個關鍵詞最多 "
+                f"{ELEVENLABS_MAX_KEYTERM_CHARACTERS} 個字元"
+            )
+        if keyterm in seen:
+            continue
+        seen.add(keyterm)
+        normalized.append(keyterm)
+    if len(normalized) > ELEVENLABS_MAX_KEYTERMS:
+        raise ValueError(
+            f"ElevenLabs 完整檔案模式最多 {ELEVENLABS_MAX_KEYTERMS} 個關鍵詞"
+        )
+    return normalized
+
+
+def video_transcribe_task(
+    job_id: str,
+    processing_profile: str | None,
+    asr_provider: str | None = None,
+) -> dict[str, str]:
     profile = normalize_processing_profile(processing_profile)
-    provider = asr_provider_for_profile(profile)
+    provider = asr_provider_for_profile(profile, asr_provider)
     return {
         "kind": "youtube_live",
         "id": job_id,
         "worker_group": (
             "remote_asr" if provider in REMOTE_ASR_PROVIDERS else "default"
         ),
+        "asr_provider": provider,
     }
 
 
@@ -1119,6 +1209,7 @@ def transcribe_audio_stream(
     telemetry_callback: Callable[[dict[str, Any]], None] | None = None,
     detected_language_fallback: str | None = None,
     speaker_diarization: bool = False,
+    elevenlabs_keyterms: list[str] | None = None,
 ) -> dict[str, Any]:
     started_at = time.perf_counter()
     mode = (
@@ -1146,7 +1237,8 @@ def transcribe_audio_stream(
     )
     detected_language = language_hint or detected_language_fallback
     remote_auto_language = (
-        asr_provider in {"cloudflare", "together"} and not language_hint
+        asr_provider in {"cloudflare", "elevenlabs", "together"}
+        and not language_hint
     )
     stream_chunk_seconds = YOUTUBE_WHISPER_STREAM_CHUNK_SECONDS
     stream_initial_chunk_seconds = YOUTUBE_WHISPER_INITIAL_CHUNK_SECONDS
@@ -1231,6 +1323,22 @@ def transcribe_audio_stream(
                     dtype="<i2",
                 ).astype(np.float32)
                 audio_samples /= 32768.0
+                logger.info(
+                    "Whisper chunk started: job_id=%s chunk=%d "
+                    "range=%.3f-%.3fs duration=%.3fs provider=%s "
+                    "language=%s final=%s input_wait=%.3fms "
+                    "scheduler_wait=%.3fms",
+                    job_id or "unknown",
+                    chunk_count,
+                    chunk.offset_seconds,
+                    chunk.offset_seconds + chunk.duration_seconds,
+                    chunk.duration_seconds,
+                    asr_provider,
+                    detected_language or "auto",
+                    chunk.is_final,
+                    input_wait_ms,
+                    scheduler_wait_ms,
+                )
                 speech_intervals: list[tuple[float, float]] = []
                 inference_started_at = time.perf_counter()
                 if remote_asr:
@@ -1258,6 +1366,7 @@ def transcribe_audio_stream(
                                 ),
                                 job_id=job_id,
                                 cancel_check=cancel_check,
+                                elevenlabs_keyterms=elevenlabs_keyterms,
                             )
                         )
                         scheduler_wait_ms += remote_scheduler_wait_ms
@@ -1285,7 +1394,7 @@ def transcribe_audio_stream(
                     chunk_language = reported_chunk_language or detected_language
                     if detected_language is None and chunk_language:
                         detected_language = chunk_language
-                elif asr_provider in {"cloudflare", "together"} and language_hint:
+                elif asr_provider in {"cloudflare", "elevenlabs", "together"} and language_hint:
                     chunk_language = language_hint
                     detected_language = language_hint
                 else:
@@ -1439,17 +1548,17 @@ def transcribe_audio_stream(
                     3,
                 )
                 total_elapsed = max(0.001, time.perf_counter() - started_at)
-                progress_percent = (
-                    min(100.0, processed_seconds / audio_duration * 100.0)
-                    if audio_duration > 0
-                    else 0.0
+                progress = transcription_progress_payload(
+                    audio_duration,
+                    processed_seconds,
+                    total_elapsed,
                 )
                 chunk_metrics = {
                     "chunk_index": chunk_count,
                     "offset_seconds": round(chunk.offset_seconds, 3),
                     "duration_seconds": round(chunk.duration_seconds, 3),
                     "processed_seconds": round(processed_seconds, 3),
-                    "progress_percent": round(progress_percent, 3),
+                    "progress_percent": progress["progress_percent"],
                     "chunk_elapsed_ms": chunk_elapsed_ms,
                     "input_wait_ms": input_wait_ms,
                     "scheduler_wait_ms": scheduler_wait_ms,
@@ -1459,10 +1568,45 @@ def transcribe_audio_stream(
                     "emitted_in_chunk": segment_count - emitted_before_chunk,
                     "segments_emitted": segment_count,
                     "processing_speed_x": round(processed_seconds / total_elapsed, 3),
+                    "estimated_remaining_seconds": progress[
+                        "estimated_remaining_seconds"
+                    ],
+                    "estimated_completion_at": progress[
+                        "estimated_completion_at"
+                    ],
+                    "speech_intervals": len(speech_intervals),
                     "is_final": chunk.is_final,
                 }
                 if telemetry_callback is not None:
                     telemetry_callback(chunk_metrics)
+                logger.info(
+                    "Whisper chunk completed: job_id=%s chunk=%d "
+                    "progress=%.2f%% processed=%.3f/%.3fs "
+                    "chunk_elapsed=%.3fms inference=%.3fms "
+                    "scheduler_wait=%.3fms input_wait=%.3fms "
+                    "segments=%d/%d speech_intervals=%d speed=%.3fx "
+                    "remaining=%s completion_at=%s language=%s",
+                    job_id or "unknown",
+                    chunk_count,
+                    chunk_metrics["progress_percent"],
+                    processed_seconds,
+                    audio_duration,
+                    chunk_elapsed_ms,
+                    chunk_metrics["inference_ms"],
+                    scheduler_wait_ms,
+                    input_wait_ms,
+                    chunk_metrics["emitted_in_chunk"],
+                    chunk_metrics["decoded_segments"],
+                    chunk_metrics["speech_intervals"],
+                    chunk_metrics["processing_speed_x"],
+                    (
+                        f'{chunk_metrics["estimated_remaining_seconds"]:.1f}s'
+                        if chunk_metrics["estimated_remaining_seconds"] is not None
+                        else "unknown"
+                    ),
+                    chunk_metrics["estimated_completion_at"] or "unknown",
+                    chunk_language or detected_language or "unknown",
+                )
                 log_structured_event(
                     "video_transcription_chunk_completed",
                     job_id=job_id or "unknown",
@@ -1525,12 +1669,14 @@ def transcribe_audio_stream(
             "source_transcription_model": asr_model,
             "timing_precision": (
                 "word"
-                if asr_provider == "together" and include_word_timestamps
+                if asr_provider in {"together", "elevenlabs"} and include_word_timestamps
                 else "segment"
             ),
             "speaker_diarization": speaker_diarization,
             "transcription_delivery": (
-                "http" if asr_provider == "together" else "realtime"
+                "http"
+                if asr_provider in {"together", "elevenlabs"}
+                else "realtime"
             ),
         }
     except Exception:
@@ -1546,6 +1692,178 @@ def transcribe_audio_stream(
             fair_transcription_scheduler.abort(str(job_id))
         if asr_provider == "local":
             auto2lrc.clear_model_cache()
+
+
+def transcribe_elevenlabs_full_media(
+    asr_client: ElevenLabsWhisperClient,
+    *,
+    source_url: str | None,
+    media_path: Path | None,
+    language_hint: str | None,
+    loop: asyncio.AbstractEventLoop,
+    queue: asyncio.Queue[dict[str, Any]],
+    job_id: str,
+    cancel_check: Callable[[], bool],
+    include_word_timestamps: bool,
+    keyterms: list[str] | None = None,
+    audio_duration_hint: float | None = None,
+) -> dict[str, Any]:
+    """Run one complete ElevenLabs request and emit normalized subtitle events."""
+    started_at = time.perf_counter()
+    if cancel_check():
+        raise TranscriptionCancelled("轉譯已取消")
+    source_kind = "source_url" if source_url else "uploaded_file"
+    logger.info(
+        "ElevenLabs full transcription started: job_id=%s model=%s "
+        "source=%s language=%s keyterms=%d duration_hint=%s",
+        job_id,
+        asr_client.model_name,
+        source_kind,
+        language_hint or "auto",
+        len(keyterms or []),
+        (
+            f"{float(audio_duration_hint):.3f}s"
+            if audio_duration_hint is not None
+            else "unknown"
+        ),
+    )
+    if source_url:
+        segments, info = asr_client.transcribe_source_url(
+            source_url,
+            language=language_hint,
+            keyterms=keyterms,
+        )
+        source = "elevenlabs_source_url"
+    elif media_path is not None:
+        segments, info = asr_client.transcribe_file(
+            media_path,
+            language=language_hint,
+            keyterms=keyterms,
+        )
+        source = "elevenlabs_full_file"
+    else:
+        raise RuntimeError("ElevenLabs 整段模式缺少媒體來源")
+
+    if cancel_check():
+        raise TranscriptionCancelled("轉譯已取消")
+    if not segments:
+        raise RuntimeError("ElevenLabs 沒有回傳可用的轉譯內容")
+
+    response_elapsed_seconds = time.perf_counter() - started_at
+    logger.info(
+        "ElevenLabs full transcription response received: job_id=%s "
+        "model=%s source=%s elapsed=%.3fs returned_segments=%d "
+        "language=%s",
+        job_id,
+        asr_client.model_name,
+        source_kind,
+        response_elapsed_seconds,
+        len(segments),
+        getattr(info, "language", None) or language_hint or "unknown",
+    )
+
+    detected_language = getattr(info, "language", None) or language_hint
+    language_probability = getattr(info, "language_probability", None)
+    duration = max(
+        float(audio_duration_hint or 0.0),
+        float(getattr(info, "duration", 0.0) or 0.0),
+        max(float(getattr(segment, "end", 0.0) or 0.0) for segment in segments),
+    )
+    content_parts: list[str] = []
+    last_start = 0.0
+    emitted = 0
+    for segment in segments:
+        if cancel_check():
+            raise TranscriptionCancelled("轉譯已取消")
+        segment_language = (
+            str(getattr(segment, "language", "") or "").strip()
+            or detected_language
+            or language_hint
+        )
+        text = to_traditional_chinese(
+            str(getattr(segment, "text", "") or "").strip(),
+            segment_language,
+        )
+        if not text:
+            continue
+        start = max(last_start, float(getattr(segment, "start", 0.0) or 0.0))
+        end = max(start + 0.001, float(getattr(segment, "end", start) or start))
+        words = (
+            whisper_word_payloads(segment, segment_language)
+            if include_word_timestamps
+            else None
+        )
+        emitted += 1
+        content_parts.append(text)
+        payload = segment_payload(
+            emitted,
+            start,
+            end,
+            text,
+            segment_language,
+            whisper_low_confidence_spans(segment, text, segment_language),
+            words,
+            str(getattr(segment, "speaker_id", "") or "") or None,
+        )
+        payload.update(
+            transcription_progress_payload(
+                duration,
+                end,
+                time.perf_counter() - started_at,
+            )
+        )
+        put_thread_event(loop, queue, {"event": "segment", "data": payload})
+        last_start = start
+
+    if emitted == 0:
+        raise RuntimeError("ElevenLabs 沒有回傳可用的轉譯文字")
+    elapsed_seconds = max(0.001, time.perf_counter() - started_at)
+    speed_ratio = duration / elapsed_seconds if duration > 0 else None
+    logger.info(
+        "ElevenLabs full transcription completed: job_id=%s model=%s "
+        "source=%s duration=%.3fs elapsed=%.3fs speed=%s "
+        "returned_segments=%d emitted_segments=%d language=%s",
+        job_id,
+        asr_client.model_name,
+        source_kind,
+        duration,
+        elapsed_seconds,
+        f"{speed_ratio:.3f}x" if speed_ratio is not None else "unknown",
+        len(segments),
+        emitted,
+        detected_language or "unknown",
+    )
+    put_thread_event(
+        loop,
+        queue,
+        {
+            "event": "progress",
+            "data": transcription_progress_payload(
+                duration,
+                duration,
+                elapsed_seconds,
+            ),
+        },
+    )
+    return {
+        "source": source,
+        "language": detected_language,
+        "language_probability": language_probability,
+        "segments_count": emitted,
+        "content": "\n".join(content_parts),
+        "audio_duration_seconds": round(duration, 3),
+        "transcription_elapsed_seconds": round(elapsed_seconds, 3),
+        "processing_speed_x": round(speed_ratio, 3) if speed_ratio is not None else None,
+        "transcription_mode": "full",
+        "beam_size": None,
+        "asr_provider": "elevenlabs",
+        "asr_model": asr_client.model_name,
+        "source_transcription_provider": "elevenlabs",
+        "source_transcription_model": asr_client.model_name,
+        "timing_precision": "word" if include_word_timestamps else "segment",
+        "speaker_diarization": False,
+        "transcription_delivery": "full_http",
+    }
 
 
 def detect_audio_language(
@@ -1915,7 +2233,8 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                 job.get("processing_profile")
             ),
             "asr_provider": asr_provider_for_profile(
-                normalize_processing_profile(job.get("processing_profile"))
+                normalize_processing_profile(job.get("processing_profile")),
+                job.get("asr_provider"),
             ),
             "source_language": job.get("language_hint") or job.get("detected_language") or "auto",
             "created_at": datetime.fromtimestamp(
@@ -2057,7 +2376,10 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         processing_profile = normalize_processing_profile(
             job.get("processing_profile")
         )
-        asr_provider = asr_provider_for_profile(processing_profile)
+        asr_provider = asr_provider_for_profile(
+            processing_profile,
+            job.get("asr_provider"),
+        )
         asr_client = (
             create_remote_whisper_client(asr_provider)
             if asr_provider in REMOTE_ASR_PROVIDERS
@@ -2118,6 +2440,106 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                         "chapters": [],
                     },
                 )
+            if (
+                asr_provider == "elevenlabs"
+                and job.get("elevenlabs_mode") == "full"
+            ):
+                if not isinstance(asr_client, ElevenLabsWhisperClient):
+                    raise RuntimeError("ElevenLabs 整段模式 client 尚未建立")
+                phase = "full_transcription"
+                job["status"] = "running"
+                source_url: str | None = None
+                media_path: Path | None = None
+                if job.get("source_kind", "youtube") == "youtube":
+                    source_url = str(job.get("url") or "").strip()
+                    await push_event(
+                        job,
+                        "status",
+                        {"message": "正在將 YouTube 網址交給 ElevenLabs 整段轉譯"},
+                    )
+                    try:
+                        video_info = await asyncio.to_thread(
+                            get_youtube_video_info,
+                            source_url,
+                            cookies_file,
+                        )
+                        job["video_duration_seconds"] = float(
+                            video_info.get("duration") or 0.0
+                        )
+                        await push_event(
+                            job,
+                            "metadata",
+                            {
+                                "title": video_info.get("title"),
+                                "duration": video_info.get("duration"),
+                                "webpage_url": video_info.get("webpage_url"),
+                                "chapters": chapter_payloads(video_info),
+                            },
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "Could not load metadata before ElevenLabs source_url request: %s",
+                            readable_exception_message(exc),
+                        )
+                else:
+                    media_path = Path(str(job.get("audio_path") or ""))
+                    if not media_path.is_file():
+                        raise RuntimeError("暫存影片已失效，請重新建立轉譯任務")
+                    await push_event(
+                        job,
+                        "status",
+                        {"message": "正在將完整影片送至 ElevenLabs 轉譯"},
+                    )
+                info = await asyncio.to_thread(
+                    transcribe_elevenlabs_full_media,
+                    asr_client,
+                    source_url=source_url,
+                    media_path=media_path,
+                    language_hint=job.get("language_hint"),
+                    loop=asyncio.get_running_loop(),
+                    queue=queue,
+                    job_id=job_id,
+                    cancel_check=lambda: job_is_cancelled(job),
+                    include_word_timestamps=bool(
+                        job.get("include_word_timestamps")
+                    ),
+                    keyterms=job.get("elevenlabs_keyterms") or [],
+                    audio_duration_hint=job.get("video_duration_seconds"),
+                )
+                ensure_job_not_cancelled(job)
+                job["detected_language"] = info.get("language")
+                job["language_probability"] = info.get("language_probability")
+                job["video_duration_seconds"] = info.get(
+                    "audio_duration_seconds"
+                )
+                job["status"] = "done"
+                terminal = True
+                await push_event(job, "done", info)
+                log_structured_event(
+                    "video_job_completed",
+                    job_id=job_id,
+                    job_status="done",
+                    source_kind=job.get("source_kind", "youtube"),
+                    subtitle_source=info.get("source"),
+                    source_language=info.get("language"),
+                    language_probability=info.get("language_probability"),
+                    segments=info.get("segments_count"),
+                    audio_duration_seconds=info.get(
+                        "audio_duration_seconds"
+                    ),
+                    processing_speed_x=info.get("processing_speed_x"),
+                    run_elapsed_ms=round(
+                        (time.perf_counter() - run_started) * 1000
+                    ),
+                    total_elapsed_ms=round(
+                        (
+                            time.perf_counter()
+                            - float(job.get("created_monotonic", run_started))
+                        )
+                        * 1000
+                    ),
+                )
+                return
             if job.get("status") == "queued_for_transcription":
                 phase = "transcription"
                 job["status"] = "running"
@@ -2153,6 +2575,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                         lambda metrics: record_transcription_chunk(job_id, metrics),
                         job.get("detected_language"),
                         bool(job.get("speaker_diarization")),
+                        job.get("elevenlabs_keyterms") or [],
                     )
                 ensure_job_not_cancelled(job)
                 job["status"] = "done"
@@ -2439,6 +2862,7 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                 lambda metrics: record_transcription_chunk(job_id, metrics),
                 job.get("detected_language"),
                 bool(job.get("speaker_diarization")),
+                job.get("elevenlabs_keyterms") or [],
             )
             ensure_job_not_cancelled(job)
 
@@ -2675,6 +3099,25 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             processing_profile = normalize_processing_profile(payload.processing_profile)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        try:
+            asr_provider = asr_provider_for_profile(
+                processing_profile,
+                payload.asr_provider,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        try:
+            elevenlabs_mode = normalize_elevenlabs_transcription_mode(
+                payload.elevenlabs_mode
+            )
+            elevenlabs_keyterms = normalize_elevenlabs_keyterms(
+                payload.elevenlabs_keyterms
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if asr_provider != "elevenlabs":
+            elevenlabs_mode = "chunks"
+            elevenlabs_keyterms = []
         validate_speaker_diarization(
             processing_profile,
             payload.speaker_diarization,
@@ -2684,12 +3127,17 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             "language_hint": payload.language.strip() or None,
             "language_mode": "forced" if payload.language.strip() else "auto",
             "ignore_subtitles": (
-                payload.ignore_subtitles or payload.speaker_diarization
+                payload.ignore_subtitles
+                or payload.speaker_diarization
+                or elevenlabs_mode == "full"
             ),
             "include_word_timestamps": payload.include_word_timestamps,
             "speaker_diarization": payload.speaker_diarization,
             "transcription_mode": transcription_mode,
             "processing_profile": processing_profile,
+            "asr_provider": asr_provider,
+            "elevenlabs_mode": elevenlabs_mode,
+            "elevenlabs_keyterms": elevenlabs_keyterms,
             "translation_token": secrets.token_urlsafe(32),
             "translation_tasks": set(),
             "cancel_token": secrets.token_urlsafe(32),
@@ -2714,11 +3162,13 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             speaker_diarization=payload.speaker_diarization,
             transcription_mode=transcription_mode,
             processing_profile=processing_profile,
-            asr_provider=asr_provider_for_profile(processing_profile),
+            asr_provider=asr_provider,
+            elevenlabs_mode=elevenlabs_mode,
+            elevenlabs_keyterms_count=len(elevenlabs_keyterms),
         )
         try:
             enqueue_transcribe_task(
-                video_transcribe_task(job_id, processing_profile)
+                video_transcribe_task(job_id, processing_profile, asr_provider)
             )
         except asyncio.QueueFull:
             jobs[job_id]["status"] = "failed"
@@ -2750,7 +3200,9 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             speaker_diarization=payload.speaker_diarization,
             transcription_mode=transcription_mode,
             processing_profile=processing_profile,
-            asr_provider=asr_provider_for_profile(processing_profile),
+            asr_provider=asr_provider,
+            elevenlabs_mode=elevenlabs_mode,
+            elevenlabs_keyterms_count=len(elevenlabs_keyterms),
             waiting_count=queue_counts["waiting_count"],
             transcribing_count=queue_counts["transcribing_count"],
         )
@@ -2763,7 +3215,9 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             "cancel_token": jobs[job_id]["cancel_token"],
             "status": "queued",
             "processing_profile": processing_profile,
-            "asr_provider": asr_provider_for_profile(processing_profile),
+            "asr_provider": asr_provider,
+            "elevenlabs_mode": elevenlabs_mode,
+            "elevenlabs_keyterms_count": len(elevenlabs_keyterms),
         }
 
     def validated_video_upload_metadata(
@@ -2801,12 +3255,34 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         speaker_diarization: bool,
         transcription_mode: str,
         processing_profile: str,
+        asr_provider: str,
+        elevenlabs_mode: str,
+        elevenlabs_keyterms: Any = None,
     ) -> dict[str, Any]:
         transcription_mode = normalize_transcription_mode(transcription_mode)
         try:
             normalized_profile = normalize_processing_profile(processing_profile)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        try:
+            normalized_asr_provider = asr_provider_for_profile(
+                normalized_profile,
+                asr_provider,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        try:
+            normalized_elevenlabs_mode = normalize_elevenlabs_transcription_mode(
+                elevenlabs_mode
+            )
+            normalized_elevenlabs_keyterms = normalize_elevenlabs_keyterms(
+                elevenlabs_keyterms
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if normalized_asr_provider != "elevenlabs":
+            normalized_elevenlabs_mode = "chunks"
+            normalized_elevenlabs_keyterms = []
         validate_speaker_diarization(normalized_profile, speaker_diarization)
         job_id = secrets.token_urlsafe(18)
         language_hint = language.strip() or None
@@ -2821,8 +3297,11 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             "speaker_diarization": speaker_diarization,
             "transcription_mode": transcription_mode,
             "processing_profile": normalized_profile,
+            "asr_provider": normalized_asr_provider,
+            "elevenlabs_mode": normalized_elevenlabs_mode,
+            "elevenlabs_keyterms": normalized_elevenlabs_keyterms,
             "prepared_source": asr_source_name(
-                asr_provider_for_profile(normalized_profile)
+                normalized_asr_provider
             ),
             "audio_path": str(upload_path),
             "work_dir": str(work_dir),
@@ -2850,11 +3329,17 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             speaker_diarization=speaker_diarization,
             transcription_mode=transcription_mode,
             processing_profile=normalized_profile,
-            asr_provider=asr_provider_for_profile(normalized_profile),
+            asr_provider=normalized_asr_provider,
+            elevenlabs_mode=normalized_elevenlabs_mode,
+            elevenlabs_keyterms_count=len(normalized_elevenlabs_keyterms),
         )
         try:
             enqueue_transcribe_task(
-                video_transcribe_task(job_id, normalized_profile)
+                video_transcribe_task(
+                    job_id,
+                    normalized_profile,
+                    normalized_asr_provider,
+                )
             )
         except asyncio.QueueFull:
             cleanup_youtube_live_job_artifacts(jobs.pop(job_id))
@@ -2874,7 +3359,9 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             speaker_diarization=speaker_diarization,
             transcription_mode=transcription_mode,
             processing_profile=normalized_profile,
-            asr_provider=asr_provider_for_profile(normalized_profile),
+            asr_provider=normalized_asr_provider,
+            elevenlabs_mode=normalized_elevenlabs_mode,
+            elevenlabs_keyterms_count=len(normalized_elevenlabs_keyterms),
             input_bytes=upload_bytes,
             waiting_count=queue_counts["waiting_count"],
             transcribing_count=queue_counts["transcribing_count"],
@@ -2888,7 +3375,8 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             "cancel_token": jobs[job_id]["cancel_token"],
             "status": jobs[job_id]["status"],
             "processing_profile": normalized_profile,
-            "asr_provider": asr_provider_for_profile(normalized_profile),
+            "asr_provider": normalized_asr_provider,
+            "elevenlabs_mode": normalized_elevenlabs_mode,
         }
 
     async def create_video_upload_job_entry(
@@ -2899,6 +3387,9 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         speaker_diarization: bool,
         transcription_mode: str,
         processing_profile: str,
+        asr_provider: str,
+        elevenlabs_mode: str,
+        elevenlabs_keyterms: Any = None,
     ) -> dict[str, Any]:
         original_filename, suffix = validated_video_upload_metadata(
             file.filename or "video",
@@ -2949,6 +3440,9 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                 speaker_diarization=speaker_diarization,
                 transcription_mode=transcription_mode,
                 processing_profile=processing_profile,
+                asr_provider=asr_provider,
+                elevenlabs_mode=elevenlabs_mode,
+                elevenlabs_keyterms=elevenlabs_keyterms,
             )
         except Exception:
             if upload_path.exists() and not any(
@@ -3164,6 +3658,9 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                     speaker_diarization=payload.speaker_diarization,
                     transcription_mode=payload.transcription_mode,
                     processing_profile=payload.processing_profile,
+                    asr_provider=payload.asr_provider,
+                    elevenlabs_mode=payload.elevenlabs_mode,
+                    elevenlabs_keyterms=payload.elevenlabs_keyterms,
                 )
             except Exception:
                 upload_sessions.pop(upload_id, None)
@@ -3203,6 +3700,9 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         speaker_diarization: bool = Form(False),
         transcription_mode: str = Form("accurate"),
         processing_profile: str = Form("standard"),
+        asr_provider: str = Form(""),
+        elevenlabs_mode: str = Form("chunks"),
+        elevenlabs_keyterms: str = Form(""),
     ):
         cleanup_youtube_live_jobs(jobs)
         if verify_captcha_token is not None:
@@ -3215,6 +3715,9 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
             speaker_diarization,
             transcription_mode,
             processing_profile,
+            asr_provider,
+            elevenlabs_mode,
+            elevenlabs_keyterms,
         )
 
     @router.post(
@@ -3231,6 +3734,9 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         speaker_diarization: bool = Form(False),
         transcription_mode: str = Form("accurate"),
         processing_profile: str = Form("standard"),
+        asr_provider: str = Form(""),
+        elevenlabs_mode: str = Form("chunks"),
+        elevenlabs_keyterms: str = Form(""),
     ):
         cleanup_youtube_live_jobs(jobs)
         if not files:
@@ -3256,6 +3762,9 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
                     speaker_diarization,
                     transcription_mode,
                     processing_profile,
+                    asr_provider,
+                    elevenlabs_mode,
+                    elevenlabs_keyterms,
                 )
                 job["batch_index"] = batch_index
                 created_jobs.append(job)
@@ -3406,7 +3915,11 @@ def create_youtube_live_router(auto2lrc, project_root: Path, verify_captcha_toke
         )
         try:
             enqueue_transcribe_task(
-                video_transcribe_task(job_id, job.get("processing_profile"))
+                video_transcribe_task(
+                    job_id,
+                    job.get("processing_profile"),
+                    job.get("asr_provider"),
+                )
             )
         except asyncio.QueueFull:
             job["status"] = "awaiting_language_confirmation"

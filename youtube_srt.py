@@ -41,6 +41,17 @@ class YtDlpLogger:
 yt_dlp_logger = YtDlpLogger()
 
 
+def _is_dubbed_audio_format(format_info: dict[str, Any]) -> bool:
+    """Reject YouTube auto-dubbed tracks when selecting source audio."""
+    values = (
+        format_info.get("format_note"),
+        format_info.get("audio_track"),
+        format_info.get("url"),
+    )
+    text = " ".join(str(value or "") for value in values).lower()
+    return "dubbed-auto" in text or "acont=dubbed" in text
+
+
 YOUTUBE_PLAYER_CLIENT_ATTEMPTS = [
     None,
     ["default", "-tv_simply"],
@@ -72,8 +83,14 @@ YOUTUBE_SUBTITLE_EXT_PRIORITY = ["vtt", "srt", "json3", "srv3", "ttml"]
 YOUTUBE_RATE_LIMIT_MESSAGE = "429 Client Error: Too Many Requests"
 YOUTUBE_AUDIO_FORMAT = os.getenv(
     "YOUTUBE_AUDIO_FORMAT",
+    "bestaudio[format_note*=original][abr<=96]/"
+    "bestaudio[format_note*=original]/"
     "bestaudio[abr<=96]/bestaudio[abr<=128]/bestaudio",
-).strip() or "bestaudio[abr<=96]/bestaudio[abr<=128]/bestaudio"
+).strip() or (
+    "bestaudio[format_note*=original][abr<=96]/"
+    "bestaudio[format_note*=original]/"
+    "bestaudio[abr<=96]/bestaudio[abr<=128]/bestaudio"
+)
 # yt-dlp 的 PO Token 用於 YouTube Media（GVS）請求。保留 PO_TOKEN_VALUE
 # 相容舊部署；新部署請優先使用名稱較明確的 YOUTUBE_PO_TOKEN。值必須含
 # client/context 前綴，例如 "web_music.gvs+<token>"，不可寫進前端或日誌。
@@ -745,6 +762,13 @@ def download_youtube_audio(url: str, output_dir: str, cookies_file: Path):
             try:
                 with yt_dlp.YoutubeDL(options) as ydl:
                     info = ydl.extract_info(attempt_url, download=True)
+                    if _is_dubbed_audio_format(info) or any(
+                        _is_dubbed_audio_format(download)
+                        for download in info.get("requested_downloads") or []
+                    ):
+                        raise RuntimeError(
+                            "yt-dlp 選到了 YouTube 自動配音音軌，已跳過"
+                        )
                     candidate_paths: list[Path] = []
                     for download in info.get("requested_downloads") or []:
                         filepath = download.get("filepath")
@@ -851,6 +875,19 @@ def get_youtube_audio_stream_source(
                                     break
                         if not stream_url:
                             raise RuntimeError("yt-dlp 沒有回傳可串流的音軌網址")
+                        if _is_dubbed_audio_format(selected_format):
+                            raise RuntimeError(
+                                "yt-dlp 選到了 YouTube 自動配音音軌，已跳過"
+                            )
+
+                        logger.info(
+                            "YouTube audio candidate selected: id=%s format_id=%s "
+                            "language=%s format_note=%s",
+                            info.get("id"),
+                            selected_format.get("format_id"),
+                            selected_format.get("language"),
+                            selected_format.get("format_note"),
+                        )
 
                         headers = {
                             str(name): str(value)
